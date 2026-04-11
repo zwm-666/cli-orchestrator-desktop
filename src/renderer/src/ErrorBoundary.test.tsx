@@ -21,7 +21,7 @@ describe('ErrorBoundary', () => {
   });
 
   it('renders error UI when a child throws', () => {
-    vi.spyOn(console, 'error').mockImplementation(() => {});
+    vi.spyOn(console, 'error').mockImplementation(() => { /* suppress render errors in test output */ });
 
     render(
       <ErrorBoundary>

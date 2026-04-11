@@ -4,6 +4,7 @@
     "displayName": "Node Success",
     "visibility": "internal",
     "requiresDiscovery": false,
+    "launchMode": "cli",
     "command": "$NODE_EXEC_PATH",
     "promptTransport": "arg",
     "args": [
@@ -16,13 +17,15 @@
     "health": "healthy",
     "enabled": true,
     "defaultTimeoutMs": null,
-    "defaultModel": ""
+    "defaultModel": "",
+    "supportedModels": []
   },
   {
     "id": "node-failure",
     "displayName": "Node Failure",
     "visibility": "internal",
     "requiresDiscovery": false,
+    "launchMode": "cli",
     "command": "$NODE_EXEC_PATH",
     "promptTransport": "arg",
     "args": [
@@ -35,13 +38,15 @@
     "health": "healthy",
     "enabled": true,
     "defaultTimeoutMs": null,
-    "defaultModel": ""
+    "defaultModel": "",
+    "supportedModels": []
   },
   {
     "id": "node-long-run",
     "displayName": "Node Long Run",
     "visibility": "internal",
     "requiresDiscovery": false,
+    "launchMode": "cli",
     "command": "$NODE_EXEC_PATH",
     "promptTransport": "arg",
     "args": [
@@ -54,28 +59,43 @@
     "health": "idle",
     "enabled": true,
     "defaultTimeoutMs": null,
-    "defaultModel": ""
+    "defaultModel": "",
+    "supportedModels": []
   },
   {
     "id": "claude",
     "displayName": "Claude Code",
     "visibility": "user",
     "requiresDiscovery": true,
-    "command": "claude",
+    "launchMode": "cli",
+    "command": "wsl.exe",
     "promptTransport": "arg",
-    "args": ["-p", "--output-format", "text", "--model", "{{model}}", "{{prompt}}"],
-    "description": "Use a locally installed Claude Code CLI for non-interactive planning and implementation runs. On some Windows setups, non-TTY print mode may require local auth/terminal support.",
+    "args": [
+      "-d",
+      "Ubuntu-24.04",
+      "--",
+      "claude",
+      "-p",
+      "--output-format",
+      "text",
+      "--model",
+      "{{model}}",
+      "{{prompt}}"
+    ],
+    "description": "Use Claude through WSL Ubuntu-24.04 with non-interactive print mode.",
     "capabilities": ["planning", "implementation", "verification"],
     "health": "idle",
     "enabled": true,
     "defaultTimeoutMs": null,
-    "defaultModel": "sonnet"
+    "defaultModel": "sonnet",
+    "supportedModels": ["sonnet", "opus"]
   },
   {
     "id": "codex",
     "displayName": "Codex CLI",
     "visibility": "user",
     "requiresDiscovery": true,
+    "launchMode": "cli",
     "command": "codex",
     "promptTransport": "arg",
     "args": ["exec", "--model", "{{model}}", "--json", "--", "{{prompt}}"],
@@ -84,13 +104,15 @@
     "health": "idle",
     "enabled": true,
     "defaultTimeoutMs": null,
-    "defaultModel": "gpt-5.4"
+    "defaultModel": "gpt-5.4",
+    "supportedModels": ["gpt-5.4", "gpt-5.1", "gpt-4.1"]
   },
   {
     "id": "openai",
     "displayName": "OpenAI CLI",
     "visibility": "user",
     "requiresDiscovery": true,
+    "launchMode": "cli",
     "command": "openai",
     "promptTransport": "arg",
     "args": ["responses.create", "--model", "{{model}}", "--input", "{{prompt}}"],
@@ -99,13 +121,15 @@
     "health": "idle",
     "enabled": true,
     "defaultTimeoutMs": null,
-    "defaultModel": "gpt-5.4"
+    "defaultModel": "gpt-5.4",
+    "supportedModels": ["gpt-5.4", "gpt-5.1", "gpt-4.1"]
   },
   {
     "id": "opencode",
     "displayName": "OpenCode CLI",
     "visibility": "user",
     "requiresDiscovery": true,
+    "launchMode": "cli",
     "command": "opencode",
     "promptTransport": "arg",
     "args": ["run", "--model", "{{model}}", "--format", "json", "--title", "{{title}}", "{{prompt}}"],
@@ -114,6 +138,7 @@
     "health": "idle",
     "enabled": true,
     "defaultTimeoutMs": null,
-    "defaultModel": "anthropic/claude-sonnet-4-20250514"
+    "defaultModel": "anthropic/claude-sonnet-4-20250514",
+    "supportedModels": ["anthropic/claude-sonnet-4-20250514", "anthropic/claude-opus-4-20250514", "openai/gpt-5.4"]
   }
 ]

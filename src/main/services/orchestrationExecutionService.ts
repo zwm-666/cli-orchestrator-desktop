@@ -17,11 +17,9 @@ import type {
   OrchestrationNode,
   OrchestrationNodeStatus,
   OrchestrationRun,
-  OrchestrationRunStatus,
   RunSession,
-  SkillDefinition,
   StartRunInput,
-  StartRunResult
+  StartRunResult,
 } from '../../shared/domain.js';
 import type { SkillRegistryService } from './skillRegistryService.js';
 
@@ -31,9 +29,7 @@ import type { SkillRegistryService } from './skillRegistryService.js';
 
 export type NodeCompletionCallback = (node: OrchestrationNode) => void;
 export type RunStartCallback = (input: StartRunInput) => StartRunResult;
-export type StateUpdateCallback = (
-  updater: (state: AppState) => AppState
-) => void;
+export type StateUpdateCallback = (updater: (state: AppState) => AppState) => void;
 
 interface OrchestrationContext {
   orchestrationRun: OrchestrationRun;
@@ -54,7 +50,7 @@ export class OrchestrationExecutionService {
   public initialize(
     onRunStart: RunStartCallback,
     onStateUpdate: StateUpdateCallback,
-    skillRegistry: SkillRegistryService
+    skillRegistry: SkillRegistryService,
   ): void {
     this.onRunStart = onRunStart;
     this.onStateUpdate = onStateUpdate;
@@ -69,15 +65,15 @@ export class OrchestrationExecutionService {
   public startExecution(
     orchestrationRun: OrchestrationRun,
     nodes: OrchestrationNode[],
-    agentProfiles: AgentProfile[]
+    agentProfiles: AgentProfile[],
   ): { orchestrationRun: OrchestrationRun; nodes: OrchestrationNode[] } {
     const context: OrchestrationContext = {
       orchestrationRun: {
         ...orchestrationRun,
         status: 'executing',
-        updatedAt: new Date().toISOString()
+        updatedAt: new Date().toISOString(),
       },
-      nodes: [...nodes]
+      nodes: [...nodes],
     };
 
     this.activeOrchestrations.set(orchestrationRun.id, context);
@@ -90,7 +86,7 @@ export class OrchestrationExecutionService {
 
     return {
       orchestrationRun: structuredClone(context.orchestrationRun),
-      nodes: structuredClone(context.nodes)
+      nodes: structuredClone(context.nodes),
     };
   }
 
@@ -99,17 +95,14 @@ export class OrchestrationExecutionService {
    * Updates the corresponding orchestration node and potentially unlocks
    * downstream nodes.
    */
-  public onRunCompleted(
-    runId: string,
-    runStatus: RunSession['status'],
-    agentProfiles: AgentProfile[]
-  ): void {
+  public onRunCompleted(runId: string, runStatus: RunSession['status'], agentProfiles: AgentProfile[]): void {
     // Find which orchestration context owns this runId
     for (const [, context] of this.activeOrchestrations) {
       const nodeIndex = context.nodes.findIndex((n) => n.runId === runId);
       if (nodeIndex < 0) continue;
 
-      const node = context.nodes[nodeIndex]!;
+      const node = context.nodes[nodeIndex];
+      if (!node) continue;
       const isSuccess = runStatus === 'succeeded';
       const nodeStatus: OrchestrationNodeStatus = isSuccess ? 'completed' : 'failed';
 
@@ -117,17 +110,17 @@ export class OrchestrationExecutionService {
       context.nodes[nodeIndex] = {
         ...node,
         status: nodeStatus,
-        resultSummary: isSuccess ? 'Node completed successfully.' : `Node failed with run status: ${runStatus}.`
+        resultSummary: isSuccess ? 'Node completed successfully.' : `Node failed with run status: ${runStatus}.`,
       };
 
       // Check if we should retry on failure
       if (!isSuccess && this.shouldRetry(node, agentProfiles)) {
         context.nodes[nodeIndex] = {
-          ...context.nodes[nodeIndex]!,
+          ...node,
           status: 'ready',
           retryCount: node.retryCount + 1,
           runId: null,
-          resultSummary: null
+          resultSummary: null,
         };
       }
 
@@ -141,15 +134,23 @@ export class OrchestrationExecutionService {
   /**
    * Cancel an entire orchestration run.
    * All non-terminal nodes are marked as cancelled.
+   * Returns the IDs of runs that were currently running when cancellation was requested.
    */
-  public cancelOrchestration(orchestrationRunId: string): OrchestrationRun | null {
+  public cancelOrchestration(
+    orchestrationRunId: string,
+  ): { orchestrationRun: OrchestrationRun; runningRunIds: string[] } | null {
     const context = this.activeOrchestrations.get(orchestrationRunId);
     if (!context) return null;
+
+    // Collect IDs of currently running nodes
+    const runningRunIds = context.nodes.flatMap((node) => {
+      return node.status === 'running' && node.runId ? [node.runId] : [];
+    });
 
     context.orchestrationRun = {
       ...context.orchestrationRun,
       status: 'cancelled',
-      updatedAt: new Date().toISOString()
+      updatedAt: new Date().toISOString(),
     };
 
     context.nodes = context.nodes.map((node) => {
@@ -160,13 +161,15 @@ export class OrchestrationExecutionService {
     this.persistContext(context);
     this.activeOrchestrations.delete(orchestrationRunId);
 
-    return structuredClone(context.orchestrationRun);
+    return { orchestrationRun: structuredClone(context.orchestrationRun), runningRunIds };
   }
 
   /** Get the current state of an orchestration. */
   public getOrchestration(orchestrationRunId: string): OrchestrationContext | null {
     const context = this.activeOrchestrations.get(orchestrationRunId);
-    return context ? { orchestrationRun: structuredClone(context.orchestrationRun), nodes: structuredClone(context.nodes) } : null;
+    return context
+      ? { orchestrationRun: structuredClone(context.orchestrationRun), nodes: structuredClone(context.nodes) }
+      : null;
   }
 
   // ---------------------------------------------------------------------------
@@ -181,7 +184,7 @@ export class OrchestrationExecutionService {
     if (!this.onRunStart) return;
 
     const masterProfile = context.orchestrationRun.masterAgentProfileId
-      ? agentProfiles.find((p) => p.id === context.orchestrationRun.masterAgentProfileId) ?? null
+      ? (agentProfiles.find((p) => p.id === context.orchestrationRun.masterAgentProfileId) ?? null)
       : null;
     const maxParallel = masterProfile?.maxParallelChildren ?? 3;
 
@@ -191,8 +194,8 @@ export class OrchestrationExecutionService {
 
     // Unlock waiting_on_deps nodes whose dependencies are all completed
     for (let i = 0; i < context.nodes.length; i++) {
-      const node = context.nodes[i]!;
-      if (node.status !== 'waiting_on_deps') continue;
+      const node = context.nodes[i];
+      if (node?.status !== 'waiting_on_deps') continue;
       const allDepsComplete = node.dependsOnNodeIds.every((depId) => {
         const dep = context.nodes.find((n) => n.id === depId);
         return dep?.status === 'completed';
@@ -204,7 +207,11 @@ export class OrchestrationExecutionService {
       });
 
       if (anyDepFailed) {
-        context.nodes[i] = { ...node, status: 'skipped', resultSummary: 'Skipped because a dependency failed or was cancelled.' };
+        context.nodes[i] = {
+          ...node,
+          status: 'skipped',
+          resultSummary: 'Skipped because a dependency failed or was cancelled.',
+        };
       } else if (allDepsComplete) {
         context.nodes[i] = { ...node, status: 'ready' };
       }
@@ -212,30 +219,31 @@ export class OrchestrationExecutionService {
 
     // Dispatch ready nodes up to available slots
     for (let i = 0; i < context.nodes.length && availableSlots > 0; i++) {
-      const node = context.nodes[i]!;
-      if (node.status !== 'ready') continue;
+      const node = context.nodes[i];
+      if (node?.status !== 'ready') continue;
 
       try {
         // Build the enriched prompt with skill injection
         const enrichedPrompt = this.buildNodePrompt(node, context, agentProfiles);
 
         const agentProfile = node.agentProfileId
-          ? agentProfiles.find((p) => p.id === node.agentProfileId) ?? null
+          ? (agentProfiles.find((p) => p.id === node.agentProfileId) ?? null)
           : null;
 
         const result = this.onRunStart({
           title: node.title,
           prompt: enrichedPrompt,
-          adapterId: node.adapterOverride || agentProfile?.adapterId || '',
-          model: node.modelOverride || agentProfile?.model || null,
+          adapterId: node.adapterOverride ?? agentProfile?.adapterId ?? '',
+          model: node.modelOverride ?? agentProfile?.model ?? null,
           taskType: node.taskType,
-          profileId: node.agentProfileId
+          profileId: node.agentProfileId,
+          timeoutMs: agentProfile?.timeoutMs ?? null,
         });
 
         context.nodes[i] = {
           ...node,
           status: 'running',
-          runId: result.run.id
+          runId: result.run.id,
         };
 
         availableSlots--;
@@ -243,7 +251,7 @@ export class OrchestrationExecutionService {
         context.nodes[i] = {
           ...node,
           status: 'failed',
-          resultSummary: `Failed to dispatch: ${error instanceof Error ? error.message : String(error)}`
+          resultSummary: `Failed to dispatch: ${error instanceof Error ? error.message : String(error)}`,
         };
       }
     }
@@ -262,14 +270,12 @@ export class OrchestrationExecutionService {
   private buildNodePrompt(
     node: OrchestrationNode,
     context: OrchestrationContext,
-    agentProfiles: AgentProfile[]
+    agentProfiles: AgentProfile[],
   ): string {
     const parts: string[] = [];
 
     // 2. Agent profile system prompt
-    const profile = node.agentProfileId
-      ? agentProfiles.find((p) => p.id === node.agentProfileId) ?? null
-      : null;
+    const profile = node.agentProfileId ? (agentProfiles.find((p) => p.id === node.agentProfileId) ?? null) : null;
     if (profile?.systemPrompt) {
       parts.push(profile.systemPrompt);
     }
@@ -293,46 +299,84 @@ export class OrchestrationExecutionService {
       parts.push(`\n--- Upstream Results ---\n${upstreamSummaries}`);
     }
 
+    const upstreamArtifacts = node.dependsOnNodeIds
+      .map((depId) => context.nodes.find((n) => n.id === depId)?.resultPayload)
+      .filter((artifact): artifact is NonNullable<OrchestrationNode['resultPayload']> => artifact !== null)
+      .map((artifact) => {
+        const lines = [
+          artifact.transcriptSummary ? `Transcript summary: ${artifact.transcriptSummary}` : null,
+          artifact.diffStat ? `Diff stat: ${artifact.diffStat}` : null,
+          artifact.changedFiles.length > 0 ? `Changed files: ${artifact.changedFiles.join(', ')}` : null,
+          artifact.reviewNotes.length > 0 ? `Review notes: ${artifact.reviewNotes.join(' | ')}` : null,
+        ].filter((entry): entry is string => entry !== null);
+
+        return lines.length > 0 ? lines.join('\n') : null;
+      })
+      .filter((entry): entry is string => entry !== null)
+      .join('\n\n');
+
+    if (upstreamArtifacts) {
+      parts.push(`\n--- Upstream Handoff Artifacts ---\n${upstreamArtifacts}`);
+    }
+
     return parts.join('\n\n');
   }
 
   /**
    * After a node completes, advance the orchestration state machine.
+   * Loops to dispatch multiple ready nodes and reach terminal state.
    */
   private advanceOrchestration(context: OrchestrationContext, agentProfiles: AgentProfile[]): void {
-    const allTerminal = context.nodes.every((n) => this.isNodeTerminal(n.status));
-    const anyRunning = context.nodes.some((n) => n.status === 'running');
-    const allSucceeded = context.nodes.every((n) => n.status === 'completed' || n.status === 'skipped');
+    for (let iteration = 0; iteration < context.nodes.length + 1; iteration++) {
+      const allTerminal = context.nodes.every((n) => this.isNodeTerminal(n.status));
+      const anyRunning = context.nodes.some((n) => n.status === 'running');
+      const allSucceeded = context.nodes.every((n) => n.status === 'completed' || n.status === 'skipped');
 
-    if (allTerminal) {
-      // All nodes done
-      context.orchestrationRun = {
-        ...context.orchestrationRun,
-        status: allSucceeded ? 'completed' : 'failed',
-        updatedAt: new Date().toISOString(),
-        finalSummary: this.buildFinalSummary(context)
-      };
-      this.activeOrchestrations.delete(context.orchestrationRun.id);
-    } else if (!anyRunning) {
-      // No running nodes but some are pending/ready – dispatch more
+      if (allTerminal) {
+        const reachedIterationLimit =
+          context.orchestrationRun.automationMode === 'review_loop' &&
+          context.orchestrationRun.currentIteration >= context.orchestrationRun.maxIterations;
+
+        // All nodes done
+        context.orchestrationRun = {
+          ...context.orchestrationRun,
+          status: allSucceeded ? 'completed' : 'failed',
+          updatedAt: new Date().toISOString(),
+          finalSummary: this.buildFinalSummary(context),
+          stopReason: reachedIterationLimit
+            ? 'Reached max review-loop iterations.'
+            : context.orchestrationRun.stopReason,
+        };
+        this.activeOrchestrations.delete(context.orchestrationRun.id);
+        return;
+      }
+
+      if (anyRunning) {
+        // Nodes are running, wait for them to complete
+        return;
+      }
+
+      const beforeSkipCount = context.nodes.filter((n) => this.isNodeTerminal(n.status)).length;
       this.dispatchReadyNodes(context, agentProfiles);
+      const afterSkipCount = context.nodes.filter((n) => this.isNodeTerminal(n.status)).length;
+
+      if (afterSkipCount === beforeSkipCount && !context.nodes.some((n) => n.status === 'running')) {
+        // No progress was made; exit the loop
+        return;
+      }
     }
   }
 
   /** Build a final summary from all node results. */
   private buildFinalSummary(context: OrchestrationContext): string {
-    const summaries = context.nodes
-      .filter((n) => n.resultSummary)
-      .map((n) => `• ${n.title}: ${n.resultSummary}`);
+    const summaries = context.nodes.filter((n) => n.resultSummary).map((n) => `• ${n.title}: ${n.resultSummary}`);
     if (summaries.length === 0) return 'Orchestration completed with no node summaries.';
     return summaries.join('\n');
   }
 
   /** Check if a node should be retried based on its agent profile retry policy. */
   private shouldRetry(node: OrchestrationNode, agentProfiles: AgentProfile[]): boolean {
-    const profile = node.agentProfileId
-      ? agentProfiles.find((p) => p.id === node.agentProfileId) ?? null
-      : null;
+    const profile = node.agentProfileId ? (agentProfiles.find((p) => p.id === node.agentProfileId) ?? null) : null;
     if (!profile) return false;
     return node.retryCount < profile.retryPolicy.maxRetries;
   }
@@ -350,12 +394,12 @@ export class OrchestrationExecutionService {
       ...state,
       orchestrationRuns: [
         context.orchestrationRun,
-        ...state.orchestrationRuns.filter((r) => r.id !== context.orchestrationRun.id)
+        ...state.orchestrationRuns.filter((r) => r.id !== context.orchestrationRun.id),
       ],
       orchestrationNodes: [
         ...context.nodes,
-        ...state.orchestrationNodes.filter((n) => n.orchestrationRunId !== context.orchestrationRun.id)
-      ]
+        ...state.orchestrationNodes.filter((n) => n.orchestrationRunId !== context.orchestrationRun.id),
+      ],
     }));
   }
 }

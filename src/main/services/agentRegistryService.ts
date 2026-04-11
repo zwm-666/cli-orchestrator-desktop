@@ -57,7 +57,8 @@ export class AgentRegistryService {
         byId.set(p.id, p);
       } else {
         // Persisted overrides config for mutable fields
-        const existing = byId.get(p.id)!;
+        const existing = byId.get(p.id);
+        if (!existing) continue;
         byId.set(p.id, {
           ...existing,
           enabled: p.enabled,

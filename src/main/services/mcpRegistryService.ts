@@ -53,7 +53,8 @@ export class McpRegistryService {
       if (!byId.has(s.id)) {
         byId.set(s.id, s);
       } else {
-        const existing = byId.get(s.id)!;
+        const existing = byId.get(s.id);
+        if (!existing) continue;
         byId.set(s.id, {
           ...existing,
           enabled: s.enabled,
@@ -137,8 +138,10 @@ export class McpRegistryService {
         const { serverId, status, reason } = result.value;
         const index = this.servers.findIndex((s) => s.id === serverId);
         if (index >= 0) {
+          const server = this.servers[index];
+          if (!server) continue;
           this.servers[index] = {
-            ...this.servers[index]!,
+            ...server,
             healthStatus: status,
             healthReason: reason
           };
@@ -162,7 +165,7 @@ export class McpRegistryService {
     return this.servers.filter((s) => s.enabled && allIds.has(s.id));
   }
 
-  private async checkStdioHealth(server: McpServerDefinition): Promise<{ status: McpHealthStatus; reason: string }> {
+  private checkStdioHealth(server: McpServerDefinition): Promise<{ status: McpHealthStatus; reason: string }> {
     return new Promise((resolve) => {
       const timeout = setTimeout(() => {
         child.kill();

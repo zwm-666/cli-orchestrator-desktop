@@ -11,46 +11,40 @@ import type {
   DeleteSkillInput,
   GetOrchestrationRunInput,
   GetOrchestrationRunResult,
+  GetNextClaudeTaskResult,
   McpServerDefinition,
   PlanDraftInput,
   PlanDraftResult,
+  ProjectContextState,
   RendererContinuityState,
   RoutingSettings,
   RunEvent,
   SaveAgentProfileInput,
   SaveMcpServerInput,
+  SaveProjectContextInput,
   SaveSkillInput,
   SkillDefinition,
   StartOrchestrationInput,
   StartRunInput,
   TaskType,
-  UpdateRoutingSettingsInput
+  UpdateRoutingSettingsInput,
 } from '../shared/domain.js';
 import { type DesktopApi, IPC_CHANNELS } from '../shared/ipc.js';
-
-const subscribe = <T>(channel: string, listener: (payload: T) => void): (() => void) => {
-  const wrapped = (_event: Electron.IpcRendererEvent, payload: T) => {
-    listener(payload);
-  };
-
-  ipcRenderer.on(channel, wrapped);
-
-  return () => {
-    ipcRenderer.removeListener(channel, wrapped);
-  };
-};
 
 const desktopApi: DesktopApi = {
   // Existing methods
   getAppState: () => ipcRenderer.invoke(IPC_CHANNELS.getAppState),
   refreshAdapters: (): Promise<AppState> => ipcRenderer.invoke(IPC_CHANNELS.refreshAdapters),
-  getContinuityState: (): Promise<RendererContinuityState> =>
-    ipcRenderer.invoke(IPC_CHANNELS.getContinuityState),
+  getContinuityState: (): Promise<RendererContinuityState> => ipcRenderer.invoke(IPC_CHANNELS.getContinuityState),
   saveContinuityState: (state: RendererContinuityState): Promise<RendererContinuityState> =>
     ipcRenderer.invoke(IPC_CHANNELS.saveContinuityState, state),
   getRoutingSettings: (): Promise<RoutingSettings> => ipcRenderer.invoke(IPC_CHANNELS.getRoutingSettings),
   saveRoutingSettings: (input: UpdateRoutingSettingsInput): Promise<RoutingSettings> =>
     ipcRenderer.invoke(IPC_CHANNELS.saveRoutingSettings, input),
+  getProjectContext: (): Promise<ProjectContextState> => ipcRenderer.invoke(IPC_CHANNELS.getProjectContext),
+  saveProjectContext: (input: SaveProjectContextInput): Promise<ProjectContextState> =>
+    ipcRenderer.invoke(IPC_CHANNELS.saveProjectContext, input),
+  getNextClaudeTask: (): Promise<GetNextClaudeTaskResult> => ipcRenderer.invoke(IPC_CHANNELS.getNextClaudeTask),
   createDraftConversation: (input: CreateDraftConversationInput) =>
     ipcRenderer.invoke(IPC_CHANNELS.createDraftConversation, input),
   createPlanDraft: (input: PlanDraftInput): Promise<PlanDraftResult> =>
@@ -59,41 +53,41 @@ const desktopApi: DesktopApi = {
   cancelRun: (input: CancelRunInput) => ipcRenderer.invoke(IPC_CHANNELS.cancelRun, input),
   getRecentRunsByCategory: (input: { taskType: TaskType; limit?: number }): Promise<CategoryRunSummary> =>
     ipcRenderer.invoke(IPC_CHANNELS.getRecentRunsByCategory, input),
-  onAppStateChanged: (listener: (state: AppState) => void) =>
-    subscribe<AppState>(IPC_CHANNELS.appStateUpdated, listener),
-  onRunEvent: (listener: (event: RunEvent) => void) => subscribe<RunEvent>(IPC_CHANNELS.runEvent, listener),
+  onAppStateChanged: (listener: (state: AppState) => void) => {
+    const wrapped = (_event: Electron.IpcRendererEvent, state: AppState): void => { listener(state); };
+    ipcRenderer.on(IPC_CHANNELS.appStateUpdated, wrapped);
+    return (): void => { ipcRenderer.removeListener(IPC_CHANNELS.appStateUpdated, wrapped); };
+  },
+  onRunEvent: (listener: (event: RunEvent) => void) => {
+    const wrapped = (_event: Electron.IpcRendererEvent, event: RunEvent): void => { listener(event); };
+    ipcRenderer.on(IPC_CHANNELS.runEvent, wrapped);
+    return (): void => { ipcRenderer.removeListener(IPC_CHANNELS.runEvent, wrapped); };
+  },
 
   // Orchestration methods
-  startOrchestration: (input: StartOrchestrationInput) =>
-    ipcRenderer.invoke(IPC_CHANNELS.startOrchestration, input),
-  cancelOrchestration: (input: CancelOrchestrationInput) =>
-    ipcRenderer.invoke(IPC_CHANNELS.cancelOrchestration, input),
+  startOrchestration: (input: StartOrchestrationInput) => ipcRenderer.invoke(IPC_CHANNELS.startOrchestration, input),
+  cancelOrchestration: (input: CancelOrchestrationInput) => ipcRenderer.invoke(IPC_CHANNELS.cancelOrchestration, input),
   getOrchestrationRun: (input: GetOrchestrationRunInput): Promise<GetOrchestrationRunResult> =>
     ipcRenderer.invoke(IPC_CHANNELS.getOrchestrationRun, input),
 
   // Agent profile methods
-  getAgentProfiles: (): Promise<AgentProfile[]> =>
-    ipcRenderer.invoke(IPC_CHANNELS.getAgentProfiles),
+  getAgentProfiles: (): Promise<AgentProfile[]> => ipcRenderer.invoke(IPC_CHANNELS.getAgentProfiles),
   saveAgentProfile: (input: SaveAgentProfileInput): Promise<AgentProfile> =>
     ipcRenderer.invoke(IPC_CHANNELS.saveAgentProfile, input),
   deleteAgentProfile: (input: DeleteAgentProfileInput): Promise<void> =>
     ipcRenderer.invoke(IPC_CHANNELS.deleteAgentProfile, input),
 
   // Skill methods
-  getSkills: (): Promise<SkillDefinition[]> =>
-    ipcRenderer.invoke(IPC_CHANNELS.getSkills),
-  saveSkill: (input: SaveSkillInput): Promise<SkillDefinition> =>
-    ipcRenderer.invoke(IPC_CHANNELS.saveSkill, input),
-  deleteSkill: (input: DeleteSkillInput): Promise<void> =>
-    ipcRenderer.invoke(IPC_CHANNELS.deleteSkill, input),
+  getSkills: (): Promise<SkillDefinition[]> => ipcRenderer.invoke(IPC_CHANNELS.getSkills),
+  saveSkill: (input: SaveSkillInput): Promise<SkillDefinition> => ipcRenderer.invoke(IPC_CHANNELS.saveSkill, input),
+  deleteSkill: (input: DeleteSkillInput): Promise<void> => ipcRenderer.invoke(IPC_CHANNELS.deleteSkill, input),
 
   // MCP server methods
-  getMcpServers: (): Promise<McpServerDefinition[]> =>
-    ipcRenderer.invoke(IPC_CHANNELS.getMcpServers),
+  getMcpServers: (): Promise<McpServerDefinition[]> => ipcRenderer.invoke(IPC_CHANNELS.getMcpServers),
   saveMcpServer: (input: SaveMcpServerInput): Promise<McpServerDefinition> =>
     ipcRenderer.invoke(IPC_CHANNELS.saveMcpServer, input),
   deleteMcpServer: (input: DeleteMcpServerInput): Promise<void> =>
-    ipcRenderer.invoke(IPC_CHANNELS.deleteMcpServer, input)
+    ipcRenderer.invoke(IPC_CHANNELS.deleteMcpServer, input),
 };
 
 contextBridge.exposeInMainWorld('desktopApi', desktopApi);

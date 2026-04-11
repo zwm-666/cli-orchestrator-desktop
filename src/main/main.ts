@@ -9,14 +9,16 @@ import type {
   DeleteMcpServerInput,
   DeleteSkillInput,
   GetOrchestrationRunInput,
+  GetNextClaudeTaskResult,
   PlanDraftInput,
   RendererContinuityState,
   SaveAgentProfileInput,
   SaveMcpServerInput,
+  SaveProjectContextInput,
   SaveSkillInput,
   StartOrchestrationInput,
   UpdateRoutingSettingsInput,
-  StartRunInput
+  StartRunInput,
 } from '../shared/domain.js';
 import { IPC_CHANNELS } from '../shared/ipc.js';
 import { LocalPersistenceStore } from './persistence.js';
@@ -60,8 +62,8 @@ const createMainWindow = async (): Promise<BrowserWindow> => {
       preload: preloadPath,
       contextIsolation: true,
       nodeIntegration: false,
-      sandbox: false
-    }
+      sandbox: false,
+    },
   });
 
   const devServerUrl = process.env.VITE_DEV_SERVER_URL;
@@ -110,12 +112,21 @@ const registerIpc = (): void => {
     return orchestratorService.updateRoutingSettings(input.settings);
   });
 
-  ipcMain.handle(
-    IPC_CHANNELS.createDraftConversation,
-    (_event, input: CreateDraftConversationInput) => {
-      return orchestratorService.createDraftConversation(input);
-    }
-  );
+  ipcMain.handle(IPC_CHANNELS.getProjectContext, () => {
+    return orchestratorService.getProjectContext();
+  });
+
+  ipcMain.handle(IPC_CHANNELS.saveProjectContext, (_event, input: SaveProjectContextInput) => {
+    return orchestratorService.saveProjectContext(input);
+  });
+
+  ipcMain.handle(IPC_CHANNELS.getNextClaudeTask, (): GetNextClaudeTaskResult => {
+    return { nextTask: orchestratorService.getNextClaudeTask() };
+  });
+
+  ipcMain.handle(IPC_CHANNELS.createDraftConversation, (_event, input: CreateDraftConversationInput) => {
+    return orchestratorService.createDraftConversation(input);
+  });
 
   ipcMain.handle(IPC_CHANNELS.createPlanDraft, (_event, input: PlanDraftInput) => {
     return orchestratorService.createPlanDraft(input);
@@ -158,7 +169,7 @@ const registerIpc = (): void => {
   });
 
   ipcMain.handle(IPC_CHANNELS.deleteAgentProfile, (_event, input: DeleteAgentProfileInput) => {
-    return orchestratorService.deleteAgentProfile(input);
+    orchestratorService.deleteAgentProfile(input);
   });
 
   // --- Skill channels ---
@@ -172,7 +183,7 @@ const registerIpc = (): void => {
   });
 
   ipcMain.handle(IPC_CHANNELS.deleteSkill, (_event, input: DeleteSkillInput) => {
-    return orchestratorService.deleteSkill(input);
+    orchestratorService.deleteSkill(input);
   });
 
   // --- MCP server channels ---
@@ -186,17 +197,17 @@ const registerIpc = (): void => {
   });
 
   ipcMain.handle(IPC_CHANNELS.deleteMcpServer, (_event, input: DeleteMcpServerInput) => {
-    return orchestratorService.deleteMcpServer(input);
+    orchestratorService.deleteMcpServer(input);
   });
 };
 
-app.whenReady().then(async () => {
+void app.whenReady().then(async () => {
   registerIpc();
   await createMainWindow();
 
-  app.on('activate', async () => {
+  app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) {
-      await createMainWindow();
+      void createMainWindow();
     }
   });
 });
@@ -211,7 +222,7 @@ process.on('uncaughtException', (error) => {
   console.error('[main] Uncaught exception:', error);
   dialog.showErrorBox(
     'CLI Orchestrator — Unexpected Error',
-    `The application encountered an unexpected error.\n\n${error.message}\n\nThe app may need to be restarted.`
+    `The application encountered an unexpected error.\n\n${error.message}\n\nThe app may need to be restarted.`,
   );
 });
 
@@ -220,6 +231,6 @@ process.on('unhandledRejection', (reason) => {
   console.error('[main] Unhandled promise rejection:', reason);
   dialog.showErrorBox(
     'CLI Orchestrator — Unhandled Rejection',
-    `An async operation failed unexpectedly.\n\n${message}`
+    `An async operation failed unexpectedly.\n\n${message}`,
   );
 });

@@ -12,7 +12,6 @@ import type {
   CliAdapter,
   McpServerDefinition,
   OrchestrationNode,
-  OrchestrationNodeStatus,
   OrchestrationRun,
   PlanConfidence,
   PlanDraft,
@@ -24,11 +23,8 @@ import type {
   PlanTaskDraft,
   RoutingSettings,
   SkillDefinition,
-  TaskRoutingProfile,
-  TaskRoutingRule,
-  TaskType
+  TaskType,
 } from '../../shared/domain.js';
-import { DEFAULT_ROUTING_SETTINGS as defaultRoutingSettings } from '../../shared/domain.js';
 
 // ---------------------------------------------------------------------------
 // Constants (moved from orchestratorService.ts)
@@ -47,7 +43,21 @@ const TASK_TYPE_KEYWORDS = {
   research: ['research', 'investigate', 'analyze', 'analyse', 'study', '调研', '研究', '分析'],
   git: ['git', 'commit', 'branch', 'rebase', 'merge', 'pull request', 'pr', '提交', '分支'],
   ops: ['deploy', 'docker', 'k8s', 'infra', 'ci', 'release', '运维', '部署'],
-  code: ['code', 'implement', 'refactor', 'bug', 'fix', 'typescript', 'javascript', 'python', 'api', '编码', '实现', '重构', '修复']
+  code: [
+    'code',
+    'implement',
+    'refactor',
+    'bug',
+    'fix',
+    'typescript',
+    'javascript',
+    'python',
+    'api',
+    '编码',
+    '实现',
+    '重构',
+    '修复',
+  ],
 } as const;
 
 // ---------------------------------------------------------------------------
@@ -73,7 +83,9 @@ const deriveTaskTitle = (cleanedPrompt: string, rawInput: string): string => {
 };
 
 const countWords = (value: string): number =>
-  normalizePlannerWhitespace(value).split(' ').filter((p) => p.length > 0).length;
+  normalizePlannerWhitespace(value)
+    .split(' ')
+    .filter((p) => p.length > 0).length;
 
 const isActionableSegment = (value: string): boolean => {
   const normalized = normalizePlannerWhitespace(value);
@@ -82,165 +94,199 @@ const isActionableSegment = (value: string): boolean => {
 };
 
 const packPlannerSegments = (segments: string[]): string[] => {
-  if (segments.length <= MAX_PLANNED_TASKS) return segments;
-  return [segments[0] ?? '', segments[1] ?? '', segments.slice(2).join('; ')].filter((s) => s.length > 0);
+  const packed: string[] = [];
+  let currentBatch = '';
+
+  for (const segment of segments) {
+    if (!isActionableSegment(segment)) continue;
+
+    if (currentBatch.length + segment.length + 1 <= 160) {
+      currentBatch = currentBatch ? `${currentBatch} ${segment}` : segment;
+    } else {
+      if (currentBatch.length > 0) packed.push(currentBatch);
+      currentBatch = segment;
+    }
+  }
+
+  if (currentBatch.length > 0) packed.push(currentBatch);
+  return packed.slice(0, MAX_PLANNED_TASKS);
 };
 
-const splitConjunctionSegments = (value: string): string[] => {
-  if (/\n/.test(value) || /[.!?]/.test(value)) return [];
-  const separators = [' and then ', ' then ', '; '];
-  for (const separator of separators) {
-    if (!value.toLowerCase().includes(separator.trim())) continue;
-    const segments = value
-      .split(new RegExp(separator.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'i'))
-      .map(normalizePlannerWhitespace)
+// ---------------------------------------------------------------------------
+// Planner input segmentation
+// ---------------------------------------------------------------------------
+
+const segmentPlannerInput = (
+  rawInput: string,
+): {
+  segments: string[];
+  segmentationSource: PlanSegmentationSource;
+} => {
+  const trimmed = normalizePlannerWhitespace(rawInput);
+
+  // Detect bullet points
+  const bulletMatches = trimmed.split('\n').filter((line) => BULLET_LINE_PATTERN.test(line));
+  if (bulletMatches.length >= 2) {
+    const segments = bulletMatches
+      .map((line) => {
+        const match = BULLET_LINE_PATTERN.exec(line);
+        return match?.[1] ?? '';
+      })
       .filter((s) => s.length > 0);
-    if (segments.length >= 2 && segments.length <= MAX_PLANNED_TASKS && segments.every(isActionableSegment)) {
-      return segments;
-    }
+    return { segments: packPlannerSegments(segments), segmentationSource: 'bullets' };
   }
-  return [];
+
+  // Detect line breaks
+  const lines = trimmed.split('\n').filter((l) => l.length > 0);
+  if (lines.length >= 2) {
+    return { segments: packPlannerSegments(lines), segmentationSource: 'lines' };
+  }
+
+  // Detect sentences
+  const sentences = trimmed.split(SENTENCE_SPLIT_PATTERN).filter((s) => s.length > 0);
+  if (sentences.length >= 2) {
+    return { segments: packPlannerSegments(sentences), segmentationSource: 'sentences' };
+  }
+
+  // Fallback: single segment
+  return { segments: [trimmed], segmentationSource: 'single_fallback' };
 };
 
 // ---------------------------------------------------------------------------
-// Segmentation (public export for backward compat)
+// Task classification and routing
 // ---------------------------------------------------------------------------
 
-export const segmentPlannerInput = (
-  rawInput: string
-): { segments: string[]; segmentationSource: PlanSegmentationSource } => {
-  const normalizedInput = rawInput.replace(/\r\n/g, '\n').trim();
-  if (!normalizedInput) return { segments: [''], segmentationSource: 'single_fallback' };
+const classifyTaskType = (prompt: string): TaskType => {
+  const normalizedPrompt = normalizePlannerWhitespace(prompt).toLowerCase();
 
-  const nonEmptyLines = normalizedInput.split('\n').map((l) => l.trim()).filter((l) => l.length > 0);
-
-  if (nonEmptyLines.length >= 2) {
-    const bulletSegments = nonEmptyLines
-      .map((line) => line.match(BULLET_LINE_PATTERN)?.[1]?.trim() ?? null)
-      .filter((l): l is string => Boolean(l));
-    if (bulletSegments.length === nonEmptyLines.length && bulletSegments.every(isActionableSegment)) {
-      return { segments: packPlannerSegments(bulletSegments), segmentationSource: 'bullets' };
-    }
-    if (nonEmptyLines.length <= 3 && nonEmptyLines.every(isActionableSegment)) {
-      return { segments: nonEmptyLines, segmentationSource: 'lines' };
+  for (const [taskType, keywords] of Object.entries(TASK_TYPE_KEYWORDS)) {
+    if (keywords.some((kw) => normalizedPrompt.includes(kw))) {
+      return taskType as TaskType;
     }
   }
 
-  const sentenceSegments = normalizedInput.split(SENTENCE_SPLIT_PATTERN).map(normalizePlannerWhitespace).filter((s) => s.length > 0);
-  if (sentenceSegments.length >= 2 && sentenceSegments.length <= MAX_PLANNED_TASKS && sentenceSegments.every(isActionableSegment)) {
-    return { segments: sentenceSegments, segmentationSource: 'sentences' };
+  return 'general';
+};
+
+const extractAdapterMentions = (rawInput: string): PlanDraftMention[] => {
+  const mentions: PlanDraftMention[] = [];
+  let match: RegExpExecArray | null;
+
+  while ((match = ADAPTER_MENTION_PATTERN.exec(rawInput)) !== null) {
+    const token = match[2] ?? '';
+    mentions.push({
+      token,
+      adapterId: token,
+      recognized: false, // Will be populated later
+    });
   }
 
-  const conjunctionSegments = splitConjunctionSegments(normalizedInput);
-  if (conjunctionSegments.length > 0) return { segments: conjunctionSegments, segmentationSource: 'conjunctions' };
-
-  return { segments: [normalizedInput], segmentationSource: 'single_fallback' };
+  return mentions;
 };
 
 // ---------------------------------------------------------------------------
-// Task classification
+// Plan draft construction
 // ---------------------------------------------------------------------------
 
-export const classifyTaskType = (
-  segmentInput: string
-): { taskType: TaskType; classificationReason: string } => {
-  const normalized = segmentInput.toLowerCase();
-  for (const taskType of ['planning', 'frontend', 'research', 'git', 'ops', 'code'] as const) {
-    const keyword = TASK_TYPE_KEYWORDS[taskType].find((entry) => normalized.includes(entry.toLowerCase()));
-    if (keyword) return { taskType, classificationReason: `Matched keyword "${keyword}" for ${taskType}.` };
-  }
-  return { taskType: 'general', classificationReason: 'No strong task-type keyword matched, so the task fell back to general.' };
-};
-
-// ---------------------------------------------------------------------------
-// Routing helpers
-// ---------------------------------------------------------------------------
-
-const getTaskRoutingRule = (routingSettings: RoutingSettings, taskType: TaskType): TaskRoutingRule =>
-  routingSettings.taskTypeRules[taskType] ?? defaultRoutingSettings.taskTypeRules[taskType];
-
-const getTaskRoutingProfile = (routingSettings: RoutingSettings, taskType: TaskType): TaskRoutingProfile | null =>
-  routingSettings.taskProfiles.find((p) => p.enabled && p.taskType === taskType) ?? null;
-
-// ---------------------------------------------------------------------------
-// buildPlanTaskDraft – legacy single-run planning (backward compat)
-// ---------------------------------------------------------------------------
-
-export const buildPlanTaskDraft = (
+const buildPlanTaskDraft = (
   segmentInput: string,
   enabledAdapters: CliAdapter[],
-  routingSettings: RoutingSettings
+  routingSettings: RoutingSettings,
 ): PlanTaskDraft => {
-  const enabledAdapterIds = new Set(enabledAdapters.map((a) => a.id));
-  const firstEnabledAdapter = enabledAdapters[0] ?? null;
-  const { taskType, classificationReason } = classifyTaskType(segmentInput);
-  const taskRoutingRule = getTaskRoutingRule(routingSettings, taskType);
-  const taskRoutingProfile = getTaskRoutingProfile(routingSettings, taskType);
-  const mentions: PlanDraftMention[] = [];
-  let explicitAdapterId: string | null = null;
-  const tokensToStrip = new Set<string>();
+  const cleanedPrompt = normalizePlannerWhitespace(segmentInput);
+  const taskType = classifyTaskType(cleanedPrompt);
+  const taskTitle = deriveTaskTitle(cleanedPrompt, segmentInput);
+  const mentions = extractAdapterMentions(segmentInput);
+  const taskRoutingProfile = routingSettings.taskProfiles.find((p) => p.enabled && p.taskType === taskType);
+  const taskRoutingRule = routingSettings.taskTypeRules[taskType];
 
-  for (const match of segmentInput.matchAll(ADAPTER_MENTION_PATTERN)) {
-    const adapterId = match[2];
-    if (!adapterId) continue;
-    const token = `@${adapterId}`;
-    const recognized = enabledAdapterIds.has(adapterId);
-    mentions.push({ token, adapterId, recognized });
-    if (recognized) {
-      tokensToStrip.add(token);
-      if (!explicitAdapterId) explicitAdapterId = adapterId;
-    }
-  }
-
-  let cleanedPrompt = segmentInput;
-  for (const token of tokensToStrip) cleanedPrompt = cleanedPrompt.replaceAll(token, ' ');
-  cleanedPrompt = normalizePlannerWhitespace(cleanedPrompt);
-
+  const displayCategory = taskRoutingProfile?.label ?? taskType;
+  const classificationReason = `Automatic classification detected ${taskType} keywords in the input.`;
   let recommendedAdapterId: string | null = null;
   let recommendedModel: string | null = null;
   let routingSource: PlanRoutingSource = 'no_enabled_adapter';
   let confidence: PlanConfidence = 'low';
-  let rationale = 'No enabled adapters are available for local routing.';
+  let rationale = 'No enabled adapters available.';
 
-  if (explicitAdapterId) {
-    const explicitAdapter = enabledAdapters.find((a) => a.id === explicitAdapterId) ?? null;
-    recommendedAdapterId = explicitAdapterId;
-    recommendedModel = explicitAdapter?.defaultModel ?? null;
-    routingSource = 'explicit_mention';
-    confidence = 'high';
-    rationale = `Detected explicit adapter mention @${explicitAdapterId} in this task segment.`;
-  } else if (taskRoutingProfile?.adapterId && enabledAdapterIds.has(taskRoutingProfile.adapterId)) {
-    const routedAdapter = enabledAdapters.find((a) => a.id === taskRoutingProfile.adapterId) ?? null;
-    recommendedAdapterId = taskRoutingProfile.adapterId;
-    recommendedModel = normalizeOptionalString(taskRoutingProfile.model) ?? routedAdapter?.defaultModel ?? null;
-    routingSource = 'task_type_rule';
-    confidence = 'high';
-    rationale = `Classified as ${taskType} and routed via the task profile "${taskRoutingProfile.label}" using @${taskRoutingProfile.adapterId}.`;
-  } else if (taskRoutingRule.adapterId && enabledAdapterIds.has(taskRoutingRule.adapterId)) {
-    const routedAdapter = enabledAdapters.find((a) => a.id === taskRoutingRule.adapterId) ?? null;
-    recommendedAdapterId = taskRoutingRule.adapterId;
-    recommendedModel = normalizeOptionalString(taskRoutingRule.model) ?? routedAdapter?.defaultModel ?? null;
-    routingSource = 'task_type_rule';
-    confidence = 'high';
-    rationale = `Classified as ${taskType} and routed via the fallback rule for @${taskRoutingRule.adapterId}.`;
-  } else if (firstEnabledAdapter) {
-    recommendedAdapterId = firstEnabledAdapter.id;
-    recommendedModel = normalizeOptionalString(taskRoutingProfile?.model) ?? normalizeOptionalString(taskRoutingRule.model) ?? firstEnabledAdapter.defaultModel;
-    routingSource = 'first_enabled_adapter';
-    confidence = 'medium';
-    rationale = taskRoutingProfile?.adapterId
-      ? `The task profile "${taskRoutingProfile.label}" points to @${taskRoutingProfile.adapterId}, but that adapter is disabled or unavailable, so the first enabled adapter @${firstEnabledAdapter.id} was selected.`
-      : taskRoutingRule.adapterId
-        ? `The ${taskType} routing rule points to @${taskRoutingRule.adapterId}, but that adapter is disabled or unavailable, so the first enabled adapter @${firstEnabledAdapter.id} was selected.`
-        : `No explicit adapter mention or task-type rule matched, so the first enabled adapter @${firstEnabledAdapter.id} was selected.`;
+  // Check for explicit mentions
+  const mentionedAdapterId = mentions.find((m) => enabledAdapters.find((a) => a.id === m.token))?.token;
+  if (mentionedAdapterId) {
+    const adapter = enabledAdapters.find((a) => a.id === mentionedAdapterId);
+    if (adapter) {
+      const mentionEntry = mentions.find((m) => m.token === mentionedAdapterId);
+      if (mentionEntry) mentionEntry.recognized = true;
+      recommendedAdapterId = adapter.id;
+      recommendedModel = normalizeOptionalString(adapter.defaultModel) ?? '';
+      routingSource = 'explicit_mention';
+      confidence = 'high';
+      rationale = `User explicitly mentioned @${adapter.id}.`;
+    }
+  } else if (taskRoutingProfile?.adapterId) {
+    // Check profile override
+    const profileAdapter = enabledAdapters.find((a) => a.id === taskRoutingProfile.adapterId);
+    if (profileAdapter) {
+      recommendedAdapterId = profileAdapter.id;
+      recommendedModel =
+        normalizeOptionalString(taskRoutingProfile.model) ?? normalizeOptionalString(profileAdapter.defaultModel) ?? '';
+      routingSource = 'task_type_rule';
+      confidence = 'high';
+      rationale = `Matched task profile "${taskRoutingProfile.label}".`;
+    } else {
+      // Profile points to disabled adapter, use first enabled
+      const firstEnabledAdapter = enabledAdapters[0];
+      if (firstEnabledAdapter) {
+        recommendedAdapterId = firstEnabledAdapter.id;
+        recommendedModel =
+          normalizeOptionalString(taskRoutingProfile.model) ??
+          normalizeOptionalString(taskRoutingRule.model) ??
+          firstEnabledAdapter.defaultModel;
+        routingSource = 'first_enabled_adapter';
+        confidence = 'medium';
+        rationale = `Profile adapter is unavailable, using first enabled @${firstEnabledAdapter.id}.`;
+      }
+    }
+  } else if (taskRoutingRule.adapterId) {
+    // Check routing rule
+    const ruleAdapter = enabledAdapters.find((a) => a.id === taskRoutingRule.adapterId);
+    if (ruleAdapter) {
+      recommendedAdapterId = ruleAdapter.id;
+      recommendedModel =
+        normalizeOptionalString(taskRoutingRule.model) ?? normalizeOptionalString(ruleAdapter.defaultModel) ?? '';
+      routingSource = 'task_type_rule';
+      confidence = 'medium';
+      rationale = `Matched task type rule for ${taskType}.`;
+    } else {
+      // Rule points to disabled adapter, use first enabled
+      const firstEnabledAdapter = enabledAdapters[0];
+      if (firstEnabledAdapter) {
+        recommendedAdapterId = firstEnabledAdapter.id;
+        recommendedModel =
+          normalizeOptionalString(taskRoutingRule.model) ??
+          normalizeOptionalString(firstEnabledAdapter.defaultModel) ??
+          '';
+        routingSource = 'first_enabled_adapter';
+        confidence = 'medium';
+        rationale = `Rule adapter is unavailable, using first enabled @${firstEnabledAdapter.id}.`;
+      }
+    }
+  } else if (enabledAdapters.length > 0) {
+    // No profile or rule, use first enabled
+    const firstEnabledAdapter = enabledAdapters[0];
+    if (firstEnabledAdapter) {
+      recommendedAdapterId = firstEnabledAdapter.id;
+      recommendedModel = normalizeOptionalString(firstEnabledAdapter.defaultModel) ?? '';
+      routingSource = 'first_enabled_adapter';
+      confidence = 'medium';
+      rationale = `No explicit mention or task-type rule matched, using first enabled @${firstEnabledAdapter.id}.`;
+    }
   }
 
   return {
     rawInput: segmentInput,
     cleanedPrompt,
-    taskTitle: deriveTaskTitle(cleanedPrompt, segmentInput),
+    taskTitle,
     taskType,
-    displayCategory: taskRoutingProfile?.label ?? taskType,
+    displayCategory,
     matchedProfileId: taskRoutingProfile?.id ?? null,
     classificationReason,
     mentions,
@@ -248,9 +294,53 @@ export const buildPlanTaskDraft = (
     recommendedModel,
     routingSource,
     confidence,
-    rationale
+    rationale,
   };
 };
+
+// ---------------------------------------------------------------------------
+// Plan draft result
+// ---------------------------------------------------------------------------
+
+export const createPlanDraft = (
+  input: PlanDraftInput,
+  enabledAdapters: CliAdapter[],
+  routingSettings: RoutingSettings,
+): PlanDraftResult => {
+  const { segments, segmentationSource } = segmentPlannerInput(input.rawInput);
+  const plannedTasks = segments.map((segment) => buildPlanTaskDraft(segment, enabledAdapters, routingSettings));
+
+  const firstTask = plannedTasks[0];
+  const draft: PlanDraft = {
+    rawInput: input.rawInput,
+    plannerVersion: PLANNER_VERSION,
+    segmentationSource,
+    plannedTasks,
+    cleanedPrompt: firstTask?.cleanedPrompt ?? '',
+    taskTitle: firstTask?.taskTitle ?? 'New CLI task',
+    taskType: firstTask?.taskType ?? 'general',
+    displayCategory: firstTask?.displayCategory ?? 'general',
+    matchedProfileId: firstTask?.matchedProfileId ?? null,
+    classificationReason: firstTask?.classificationReason ?? '',
+    mentions: firstTask?.mentions ?? [],
+    recommendedAdapterId: firstTask?.recommendedAdapterId ?? null,
+    recommendedModel: firstTask?.recommendedModel ?? null,
+    routingSource: firstTask?.routingSource ?? 'no_enabled_adapter',
+    confidence: firstTask?.confidence ?? 'low',
+    rationale: firstTask?.rationale ?? '',
+  };
+
+  return { draft };
+};
+
+// ---------------------------------------------------------------------------
+// Execution plan
+// ---------------------------------------------------------------------------
+
+interface ExecutionPlan {
+  orchestrationRun: OrchestrationRun;
+  nodes: OrchestrationNode[];
+}
 
 // ---------------------------------------------------------------------------
 // Role inference for execution plan nodes
@@ -263,10 +353,10 @@ const TASK_TYPE_TO_ROLE: Record<TaskType, AgentRoleType> = {
   frontend: 'coder',
   research: 'researcher',
   git: 'coder',
-  ops: 'coder'
+  ops: 'coder',
 };
 
-const inferAgentRole = (taskType: TaskType): AgentRoleType => TASK_TYPE_TO_ROLE[taskType] ?? 'custom';
+const inferAgentRole = (taskType: TaskType): AgentRoleType => TASK_TYPE_TO_ROLE[taskType];
 
 // ---------------------------------------------------------------------------
 // Skill matching helper
@@ -295,20 +385,27 @@ const resolveMcpServersForNode = (
   skillIds: string[],
   agentProfile: AgentProfile | null,
   skills: SkillDefinition[],
-  mcpServers: McpServerDefinition[]
+  mcpServers: McpServerDefinition[],
 ): string[] => {
   const serverIds = new Set<string>();
+
   // Agent profile base MCP set
   if (agentProfile) {
-    for (const id of agentProfile.enabledMcpServerIds) serverIds.add(id);
+    for (const id of agentProfile.enabledMcpServerIds) {
+      serverIds.add(id);
+    }
   }
+
   // Skill-level MCP dependencies
   for (const skillId of skillIds) {
     const skill = skills.find((s) => s.id === skillId);
     if (skill) {
-      for (const id of skill.requiredMcpServerIds) serverIds.add(id);
+      for (const id of skill.requiredMcpServerIds) {
+        serverIds.add(id);
+      }
     }
   }
+
   // Filter to only enabled servers
   const enabledServerIds = new Set(mcpServers.filter((s) => s.enabled).map((s) => s.id));
   return [...serverIds].filter((id) => enabledServerIds.has(id));
@@ -318,26 +415,20 @@ const resolveMcpServersForNode = (
 // Agent profile resolution
 // ---------------------------------------------------------------------------
 
-const resolveAgentProfileForNode = (
-  taskType: TaskType,
-  agentProfiles: AgentProfile[]
-): AgentProfile | null => {
+const resolveAgentProfileForNode = (taskType: TaskType, agentProfiles: AgentProfile[]): AgentProfile | null => {
   const desiredRole = inferAgentRole(taskType);
+
   // First try to find an enabled profile with the matching role
   const byRole = agentProfiles.find((p) => p.enabled && p.role === desiredRole);
   if (byRole) return byRole;
+
   // Fallback to any enabled profile
   return agentProfiles.find((p) => p.enabled) ?? null;
 };
 
 // ---------------------------------------------------------------------------
-// buildExecutionPlan – Phase 2: produces OrchestrationRun + OrchestrationNodes
+// Execution plan builder
 // ---------------------------------------------------------------------------
-
-export interface ExecutionPlan {
-  orchestrationRun: OrchestrationRun;
-  nodes: OrchestrationNode[];
-}
 
 export const buildExecutionPlan = (
   rawInput: string,
@@ -347,9 +438,100 @@ export const buildExecutionPlan = (
   agentProfiles: AgentProfile[],
   skills: SkillDefinition[],
   mcpServers: McpServerDefinition[],
-  masterAgentProfileId: string | null
+  masterAgentProfileId: string | null,
+  automationMode: 'standard' | 'review_loop' = 'standard',
+  projectContextSummary: string | null = null,
 ): ExecutionPlan => {
-  const { segments, segmentationSource } = segmentPlannerInput(rawInput);
+  if (automationMode === 'review_loop') {
+    const orchestrationRunId = createId('orch-run');
+    const now = new Date().toISOString();
+    const coderProfile =
+      agentProfiles.find((profile) => profile.enabled && profile.role === 'coder') ??
+      agentProfiles.find((profile) => profile.enabled) ??
+      null;
+    const reviewerProfile =
+      agentProfiles.find((profile) => profile.enabled && profile.role === 'reviewer') ?? coderProfile;
+    const contextPrefix = projectContextSummary?.trim()
+      ? `Project context summary:\n${projectContextSummary.trim()}\n\n`
+      : '';
+    const coderNodeId = createId('orch-node');
+    const reviewerNodeId = createId('orch-node');
+    const reviserNodeId = createId('orch-node');
+
+    return {
+      orchestrationRun: {
+        id: orchestrationRunId,
+        conversationId,
+        rootPrompt: rawInput,
+        status: 'planning',
+        masterAgentProfileId: masterAgentProfileId ?? null,
+        automationMode,
+        projectContextSummary,
+        currentIteration: 1,
+        maxIterations: 2,
+        stopReason: null,
+        planVersion: 1,
+        createdAt: now,
+        updatedAt: now,
+        finalSummary: null,
+      },
+      nodes: [
+        {
+          id: coderNodeId,
+          orchestrationRunId,
+          parentNodeId: null,
+          dependsOnNodeIds: [],
+          agentProfileId: coderProfile?.id ?? null,
+          skillIds: [],
+          mcpServerIds: [],
+          taskType: 'code',
+          title: 'Implement requested changes',
+          prompt: `${contextPrefix}Implement the requested changes in the repository and summarize what changed.\n\nUser request:\n${rawInput}`,
+          status: 'ready',
+          runId: null,
+          resultSummary: null,
+          resultPayload: null,
+          retryCount: 0,
+        },
+        {
+          id: reviewerNodeId,
+          orchestrationRunId,
+          parentNodeId: null,
+          dependsOnNodeIds: [coderNodeId],
+          agentProfileId: reviewerProfile?.id ?? null,
+          skillIds: [],
+          mcpServerIds: [],
+          taskType: 'research',
+          title: 'Review and write handoff',
+          prompt: `${contextPrefix}Review the latest implementation, update the repository review/debug artifacts, and list remaining issues clearly.\n\nOriginal request:\n${rawInput}`,
+          status: 'waiting_on_deps',
+          runId: null,
+          resultSummary: null,
+          resultPayload: null,
+          retryCount: 0,
+        },
+        {
+          id: reviserNodeId,
+          orchestrationRunId,
+          parentNodeId: null,
+          dependsOnNodeIds: [reviewerNodeId],
+          agentProfileId: coderProfile?.id ?? null,
+          skillIds: [],
+          mcpServerIds: [],
+          taskType: 'code',
+          title: 'Revise from review handoff',
+          prompt: `${contextPrefix}Read the generated debug/review artifacts in the repository and fix the remaining issues they describe.\n\nOriginal request:\n${rawInput}`,
+          status: 'waiting_on_deps',
+          runId: null,
+          resultSummary: null,
+          resultPayload: null,
+          retryCount: 0,
+        },
+      ],
+    };
+  }
+
+  const { segments } = segmentPlannerInput(rawInput);
   const orchestrationRunId = createId('orch-run');
   const now = new Date().toISOString();
 
@@ -372,111 +554,53 @@ export const buildExecutionPlan = (
       const prevNode = nodes[i - 1];
       // Research and planning tasks can potentially run in parallel with each other
       const isParallelCandidate = planTask.taskType === 'research' || planTask.taskType === 'planning';
-      const prevIsParallelCandidate = prevNode && (prevNode.taskType === 'research' || prevNode.taskType === 'planning');
+      const prevIsParallelCandidate =
+        prevNode && (prevNode.taskType === 'research' || prevNode.taskType === 'planning');
 
       if (!(isParallelCandidate && prevIsParallelCandidate)) {
-        // Sequential: depends on previous node
-        dependsOnNodeIds.push(nodeIds[i - 1]!);
+        // Sequential: depend on previous node
+        const prevNodeId = nodeIds[i - 1];
+        if (prevNodeId !== undefined) dependsOnNodeIds.push(prevNodeId);
       }
     }
 
-    const status: OrchestrationNodeStatus = dependsOnNodeIds.length === 0 ? 'ready' : 'waiting_on_deps';
-
-    const node: OrchestrationNode = {
+    nodeIds.push(nodeId);
+    nodes.push({
       id: nodeId,
       orchestrationRunId,
       parentNodeId: null,
       dependsOnNodeIds,
       agentProfileId: agentProfile?.id ?? null,
       skillIds: matchedSkillIds,
-      mcpServerIds,
+      mcpServerIds: mcpServerIds,
       taskType: planTask.taskType,
       title: planTask.taskTitle,
-      prompt: planTask.cleanedPrompt,
-      status,
+      prompt: segment,
+      status: i === 0 ? 'ready' : 'waiting_on_deps',
       runId: null,
       resultSummary: null,
       resultPayload: null,
-      retryCount: 0
-    };
-
-    nodes.push(node);
-    nodeIds.push(nodeId);
+      retryCount: 0,
+    });
   }
 
-  // If there are multiple nodes, add an aggregation node at the end
-  if (nodes.length > 1) {
-    const aggNodeId = createId('orch-node');
-    const allPriorIds = nodeIds.slice();
-    const aggNode: OrchestrationNode = {
-      id: aggNodeId,
-      orchestrationRunId,
-      parentNodeId: null,
-      dependsOnNodeIds: allPriorIds,
-      agentProfileId: masterAgentProfileId ?? null,
-      skillIds: [],
-      mcpServerIds: [],
-      taskType: 'general',
-      title: 'Aggregate results',
-      prompt: `Synthesize the outputs from all preceding agent nodes into a coherent final response for the user request: ${rawInput}`,
-      status: 'waiting_on_deps',
-      runId: null,
-      resultSummary: null,
-      resultPayload: null,
-      retryCount: 0
-    };
-    nodes.push(aggNode);
-  }
-
-  const orchestrationRun: OrchestrationRun = {
-    id: orchestrationRunId,
-    conversationId,
-    rootPrompt: rawInput,
-    status: 'planning',
-    masterAgentProfileId: masterAgentProfileId ?? null,
-    planVersion: 1,
-    createdAt: now,
-    updatedAt: now,
-    finalSummary: null
+  return {
+    orchestrationRun: {
+      id: orchestrationRunId,
+      conversationId,
+      rootPrompt: rawInput,
+      status: 'planning',
+      masterAgentProfileId: masterAgentProfileId ?? null,
+      automationMode,
+      projectContextSummary,
+      currentIteration: 1,
+      maxIterations: 1,
+      stopReason: null,
+      planVersion: 1,
+      createdAt: now,
+      updatedAt: now,
+      finalSummary: null,
+    },
+    nodes,
   };
-
-  return { orchestrationRun, nodes };
-};
-
-// ---------------------------------------------------------------------------
-// createPlanDraft – backward-compatible wrapper
-// ---------------------------------------------------------------------------
-
-export const createPlanDraft = (
-  input: PlanDraftInput,
-  enabledAdapters: CliAdapter[],
-  routingSettings: RoutingSettings
-): PlanDraftResult => {
-  const rawInput = input.rawInput;
-  if (typeof rawInput !== 'string') throw new Error('Planner input must be a string.');
-
-  const { segments, segmentationSource } = segmentPlannerInput(rawInput);
-  const plannedTasks = segments.map((segment) => buildPlanTaskDraft(segment, enabledAdapters, routingSettings));
-  const primaryTask = plannedTasks[0] ?? buildPlanTaskDraft(rawInput, enabledAdapters, routingSettings);
-
-  const draft: PlanDraft = {
-    rawInput,
-    plannerVersion: PLANNER_VERSION,
-    segmentationSource,
-    plannedTasks,
-    cleanedPrompt: primaryTask.cleanedPrompt,
-    taskTitle: primaryTask.taskTitle,
-    taskType: primaryTask.taskType,
-    displayCategory: primaryTask.displayCategory,
-    matchedProfileId: primaryTask.matchedProfileId,
-    classificationReason: primaryTask.classificationReason,
-    mentions: primaryTask.mentions,
-    recommendedAdapterId: primaryTask.recommendedAdapterId,
-    recommendedModel: primaryTask.recommendedModel,
-    routingSource: primaryTask.routingSource,
-    confidence: primaryTask.confidence,
-    rationale: primaryTask.rationale
-  };
-
-  return { draft: structuredClone(draft) };
 };

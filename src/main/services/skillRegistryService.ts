@@ -54,7 +54,8 @@ export class SkillRegistryService {
         byId.set(s.id, s);
       } else {
         // Persisted overrides config for enabled state
-        const existing = byId.get(s.id)!;
+        const existing = byId.get(s.id);
+        if (!existing) continue;
         byId.set(s.id, { ...existing, enabled: s.enabled });
       }
     }

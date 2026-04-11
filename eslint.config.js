@@ -13,17 +13,35 @@ export default tseslint.config(
   // Base JS recommended rules
   js.configs.recommended,
 
-  // TypeScript strict + stylistic type-checked rules
-  ...tseslint.configs.strictTypeChecked,
-  ...tseslint.configs.stylisticTypeChecked,
-
-  // TypeScript parser options (applies to all TS/TSX files)
+  // TypeScript strict + stylistic type-checked rules (TS/TSX files only)
   {
+    files: ['src/**/*.{ts,tsx}', 'vite.config.ts'],
+    extends: [
+      ...tseslint.configs.strictTypeChecked,
+      ...tseslint.configs.stylisticTypeChecked,
+    ],
     languageOptions: {
       parserOptions: {
         projectService: true,
         tsconfigRootDir: import.meta.dirname,
       },
+    },
+    rules: {
+      // Allow `||` on primitive types where empty-string / 0 / false → fallback
+      // is the intended semantic (e.g. `displayName || 'Unknown'`).
+      '@typescript-eslint/prefer-nullish-coalescing': ['error', {
+        ignorePrimitives: { string: true, number: true, boolean: true },
+      }],
+      // Allow `void expr` inside statements (used for fire-and-forget promises).
+      '@typescript-eslint/no-confusing-void-expression': ['error', {
+        ignoreVoidOperator: true,
+      }],
+      // Allow template literals with boolean/number; require explicit handling
+      // only for truly unsafe types (object, any).
+      '@typescript-eslint/restrict-template-expressions': ['error', {
+        allowBoolean: true,
+        allowNumber: true,
+      }],
     },
   },
 

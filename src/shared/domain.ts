@@ -53,11 +53,13 @@ export type CliAdapterHealth = 'healthy' | 'idle' | 'attention';
 export type CliAdapterVisibility = 'user' | 'internal';
 export type CliAdapterAvailability = 'available' | 'unavailable';
 export type CliAdapterReadiness = 'ready' | 'blocked_by_environment' | 'unavailable';
+export type CliAdapterLaunchMode = 'cli' | 'manual_handoff';
 
 export interface CliAdapter {
   id: string;
   displayName: string;
   command: string;
+  launchMode: CliAdapterLaunchMode;
   description: string;
   capabilities: string[];
   health: CliAdapterHealth;
@@ -69,6 +71,7 @@ export interface CliAdapter {
   enabled: boolean;
   defaultTimeoutMs: number | null;
   defaultModel: string | null;
+  supportedModels: string[];
 }
 
 export interface Task {
@@ -124,6 +127,31 @@ export interface RunSession {
   transcript: ExecutionTranscriptEntry[];
 }
 
+export interface ProjectContextState {
+  summary: string;
+  updatedAt: string | null;
+}
+
+export interface HandoffArtifact {
+  kind: 'run_handoff';
+  runId: string;
+  adapterId: string;
+  model: string | null;
+  status: RunStatus;
+  changedFiles: string[];
+  diffStat: string | null;
+  transcriptSummary: string | null;
+  reviewNotes: string[];
+  generatedAt: string;
+}
+
+export interface NextClaudeTaskState {
+  prompt: string;
+  sourceOrchestrationRunId: string | null;
+  generatedAt: string | null;
+  status: 'idle' | 'ready';
+}
+
 export interface LaunchFormDraft {
   title: string;
   prompt: string;
@@ -139,7 +167,7 @@ export const DEFAULT_LAUNCH_FORM_DRAFT: LaunchFormDraft = {
   adapterId: '',
   model: '',
   conversationId: '',
-  timeoutMs: ''
+  timeoutMs: '',
 };
 
 export type Locale = AppLocale;
@@ -215,7 +243,7 @@ export interface PlanDraftResult {
   draft: PlanDraft;
 }
 
-export interface UiContinuityState extends RendererContinuityState {}
+export type UiContinuityState = RendererContinuityState;
 
 export const DEFAULT_UI_CONTINUITY_STATE: UiContinuityState = {
   locale: 'en',
@@ -223,7 +251,7 @@ export const DEFAULT_UI_CONTINUITY_STATE: UiContinuityState = {
   selectedConversationId: null,
   selectedPlannedTaskIndex: 0,
   launchForm: DEFAULT_LAUNCH_FORM_DRAFT,
-  planDraft: null
+  planDraft: null,
 };
 
 export interface UpdateUiContinuityInput {
@@ -270,7 +298,7 @@ export const DEFAULT_TASK_ROUTING_PROFILES: TaskRoutingProfile[] = [
   { id: 'profile-frontend', label: 'Frontend', taskType: 'frontend', adapterId: null, model: '', enabled: true },
   { id: 'profile-research', label: 'Research', taskType: 'research', adapterId: null, model: '', enabled: true },
   { id: 'profile-git', label: 'Git', taskType: 'git', adapterId: null, model: '', enabled: true },
-  { id: 'profile-ops', label: 'Ops', taskType: 'ops', adapterId: null, model: '', enabled: true }
+  { id: 'profile-ops', label: 'Ops', taskType: 'ops', adapterId: null, model: '', enabled: true },
 ];
 
 export const DEFAULT_ROUTING_SETTINGS: RoutingSettings = {
@@ -282,9 +310,9 @@ export const DEFAULT_ROUTING_SETTINGS: RoutingSettings = {
     frontend: { adapterId: null, model: '' },
     research: { adapterId: null, model: '' },
     git: { adapterId: null, model: '' },
-    ops: { adapterId: null, model: '' }
+    ops: { adapterId: null, model: '' },
   },
-  taskProfiles: DEFAULT_TASK_ROUTING_PROFILES
+  taskProfiles: DEFAULT_TASK_ROUTING_PROFILES,
 };
 
 export interface UpdateRoutingSettingsInput {
@@ -339,14 +367,7 @@ export interface GetRecentRunsByCategoryInput {
 // ---------------------------------------------------------------------------
 
 /** Agent role determines the behavioral archetype of an agent node. */
-export type AgentRoleType =
-  | 'master'
-  | 'planner'
-  | 'researcher'
-  | 'coder'
-  | 'reviewer'
-  | 'tester'
-  | 'custom';
+export type AgentRoleType = 'master' | 'planner' | 'researcher' | 'coder' | 'reviewer' | 'tester' | 'custom';
 
 /** Retry policy controls how failed nodes are retried. */
 export interface RetryPolicy {
@@ -358,7 +379,7 @@ export interface RetryPolicy {
 export const DEFAULT_RETRY_POLICY: RetryPolicy = {
   maxRetries: 1,
   delayMs: 2000,
-  backoffMultiplier: 2
+  backoffMultiplier: 2,
 };
 
 /**
@@ -428,13 +449,7 @@ export interface McpServerDefinition {
 // Orchestration Run Types
 // ---------------------------------------------------------------------------
 
-export type OrchestrationRunStatus =
-  | 'planning'
-  | 'executing'
-  | 'aggregating'
-  | 'completed'
-  | 'failed'
-  | 'cancelled';
+export type OrchestrationRunStatus = 'planning' | 'executing' | 'aggregating' | 'completed' | 'failed' | 'cancelled';
 
 export type OrchestrationNodeStatus =
   | 'pending'
@@ -456,6 +471,11 @@ export interface OrchestrationRun {
   rootPrompt: string;
   status: OrchestrationRunStatus;
   masterAgentProfileId: string | null;
+  automationMode: 'standard' | 'review_loop';
+  projectContextSummary: string | null;
+  currentIteration: number;
+  maxIterations: number;
+  stopReason: string | null;
   planVersion: number;
   createdAt: string;
   updatedAt: string;
@@ -480,7 +500,7 @@ export interface OrchestrationNode {
   status: OrchestrationNodeStatus;
   runId: string | null;
   resultSummary: string | null;
-  resultPayload: Record<string, unknown> | null;
+  resultPayload: HandoffArtifact | null;
   retryCount: number;
   /** Per-orchestration adapter override (takes precedence over profile). */
   adapterOverride?: string | null;
@@ -497,6 +517,8 @@ export interface AppState {
   adapters: CliAdapter[];
   tasks: Task[];
   runs: RunSession[];
+  projectContext: ProjectContextState;
+  nextClaudeTask: NextClaudeTaskState;
   agentProfiles: AgentProfile[];
   skills: SkillDefinition[];
   mcpServers: McpServerDefinition[];
@@ -512,6 +534,8 @@ export interface StartOrchestrationInput {
   prompt: string;
   conversationId?: string;
   masterAgentProfileId?: string | null;
+  automationMode?: 'standard' | 'review_loop';
+  maxIterations?: number | null;
   /** Override the model used by all nodes (takes precedence over profile defaults). */
   modelOverride?: string | null;
   /** Override the adapter used by all nodes (takes precedence over profile defaults). */
@@ -576,6 +600,14 @@ export interface DeleteMcpServerInput {
   serverId: string;
 }
 
+export interface SaveProjectContextInput {
+  summary: string;
+}
+
+export interface GetNextClaudeTaskResult {
+  nextTask: NextClaudeTaskState;
+}
+
 // ---------------------------------------------------------------------------
 // Extended Persisted State
 // ---------------------------------------------------------------------------
@@ -584,6 +616,7 @@ export interface PersistedAppState {
   conversations: Conversation[];
   tasks: Task[];
   runs: RunSession[];
+  projectContext: ProjectContextState;
   agentProfiles: AgentProfile[];
   skills: SkillDefinition[];
   mcpServers: McpServerDefinition[];

@@ -9,23 +9,11 @@ import type {
   RoutingSettings,
   StartRunInput,
   TaskRoutingProfile,
-  TaskType
+  TaskType,
 } from '../../shared/domain.js';
 import { DEFAULT_ROUTING_SETTINGS } from '../../shared/domain.js';
-import {
-  COPY,
-  type Notice,
-  type PrimaryPage,
-  type NewTaskProfileDraft,
-  MUTABLE_RUN_STATUSES
-} from './copy.js';
-import {
-  countEvents,
-  formatTime,
-  formatTimeoutValue,
-  getPlanDraftTasks,
-  renderNotice
-} from './helpers.js';
+import { COPY, type Notice, type PrimaryPage, type NewTaskProfileDraft, MUTABLE_RUN_STATUSES } from './copy.js';
+import { countEvents, formatTime, formatTimeoutValue, getPlanDraftTasks, renderNotice } from './helpers.js';
 import { LaunchPage } from './LaunchPage.js';
 import { OrchestrationPage } from './OrchestrationPage.js';
 import { SessionsPage } from './SessionsPage.js';
@@ -40,7 +28,7 @@ const DEFAULT_LAUNCH_FORM: LaunchFormState = {
   adapterId: '',
   model: '',
   conversationId: '',
-  timeoutMs: ''
+  timeoutMs: '',
 };
 
 const DEFAULT_LOAD_ERROR = COPY.en.loadError;
@@ -48,7 +36,7 @@ const DEFAULT_LOAD_ERROR = COPY.en.loadError;
 export function App(): React.JSX.Element {
   const [locale, setLocale] = useState<Locale>('en');
   const [state, setState] = useState<AppState | null>(null);
-  const [routingSettings, setRoutingSettings] = useState<RoutingSettings>(DEFAULT_ROUTING_SETTINGS);
+  const [routingSettings, setRoutingSettings] = useState(DEFAULT_ROUTING_SETTINGS);
   const [selectedRunId, setSelectedRunId] = useState<string | null>(null);
   const [notice, setNotice] = useState<Notice>({ type: 'loading' });
   const [planDraft, setPlanDraft] = useState<PlanDraft | null>(null);
@@ -60,7 +48,7 @@ export function App(): React.JSX.Element {
   const [isCancelling, setIsCancelling] = useState(false);
   const [isSavingSettings, setIsSavingSettings] = useState(false);
   const [isRefreshingTools, setIsRefreshingTools] = useState(false);
-  const [launchForm, setLaunchForm] = useState<LaunchFormState>(DEFAULT_LAUNCH_FORM);
+  const [launchForm, setLaunchForm] = useState(DEFAULT_LAUNCH_FORM);
   const [isContinuityHydrated, setIsContinuityHydrated] = useState(false);
   const latestContinuityStateRef = useRef<RendererContinuityState | null>(null);
 
@@ -86,14 +74,14 @@ export function App(): React.JSX.Element {
       setNotice({
         type: 'runEvent',
         runId: event.runId,
-        message: event.message
+        message: event.message,
       });
     });
 
     void Promise.all([
       window.desktopApi.getAppState(),
       window.desktopApi.getContinuityState(),
-      window.desktopApi.getRoutingSettings()
+      window.desktopApi.getRoutingSettings(),
     ])
       .then(([nextState, continuity, nextRoutingSettings]) => {
         if (!isActive) {
@@ -111,10 +99,10 @@ export function App(): React.JSX.Element {
         setNotice({
           type: 'ready',
           adapters: nextState.adapters.length,
-          runs: nextState.runs.length
+          runs: nextState.runs.length,
         });
       })
-      .catch((error) => {
+      .catch((error: unknown) => {
         if (!isActive) {
           return;
         }
@@ -122,7 +110,7 @@ export function App(): React.JSX.Element {
         setIsContinuityHydrated(true);
         setNotice({
           type: 'error',
-          message: error instanceof Error ? error.message : DEFAULT_LOAD_ERROR
+          message: error instanceof Error ? error.message : DEFAULT_LOAD_ERROR,
         });
       });
 
@@ -166,7 +154,10 @@ export function App(): React.JSX.Element {
       const nextAdapterId = enabledAdapterIds.has(current.adapterId) ? current.adapterId : firstAdapterId;
       const nextConversationId =
         current.conversationId && conversationIds.has(current.conversationId) ? current.conversationId : '';
-      const nextModel = nextAdapterId ? (state.adapters.find((adapter) => adapter.id === nextAdapterId)?.defaultModel ?? '') : '';
+      const nextAdapter = nextAdapterId
+        ? (state.adapters.find((adapter) => adapter.id === nextAdapterId) ?? null)
+        : null;
+      const nextModel = nextAdapter ? (nextAdapter.defaultModel ?? nextAdapter.supportedModels[0] ?? '') : '';
 
       if (
         current.adapterId === nextAdapterId &&
@@ -180,7 +171,7 @@ export function App(): React.JSX.Element {
         ...current,
         adapterId: nextAdapterId,
         model: current.adapterId === nextAdapterId ? current.model : nextModel,
-        conversationId: nextConversationId
+        conversationId: nextConversationId,
       };
     });
   }, [enabledAdapters, state]);
@@ -197,7 +188,7 @@ export function App(): React.JSX.Element {
       launchForm,
       selectedRunId,
       selectedConversationId: launchForm.conversationId || null,
-      locale
+      locale,
     };
     latestContinuityStateRef.current = continuityState;
     const timeoutId = window.setTimeout(() => {
@@ -239,7 +230,10 @@ export function App(): React.JSX.Element {
     return routingSettings.taskProfiles;
   }, [routingSettings.taskProfiles]);
 
-  const updateAdapterSettingDraft = (adapterId: string, updates: Partial<RoutingSettings['adapterSettings'][string]>): void => {
+  const updateAdapterSettingDraft = (
+    adapterId: string,
+    updates: Partial<RoutingSettings['adapterSettings'][string]>,
+  ): void => {
     setRoutingSettings((current) => ({
       ...current,
       adapterSettings: {
@@ -248,22 +242,25 @@ export function App(): React.JSX.Element {
           enabled: current.adapterSettings[adapterId]?.enabled ?? true,
           defaultModel: current.adapterSettings[adapterId]?.defaultModel ?? '',
           customCommand: current.adapterSettings[adapterId]?.customCommand ?? '',
-          ...updates
-        }
-      }
+          ...updates,
+        },
+      },
     }));
   };
 
-  const updateTaskRoutingRuleDraft = (taskType: TaskType, updates: Partial<RoutingSettings['taskTypeRules'][TaskType]>): void => {
+  const updateTaskRoutingRuleDraft = (
+    taskType: TaskType,
+    updates: Partial<RoutingSettings['taskTypeRules'][TaskType]>,
+  ): void => {
     setRoutingSettings((current) => ({
       ...current,
       taskTypeRules: {
         ...current.taskTypeRules,
         [taskType]: {
           ...current.taskTypeRules[taskType],
-          ...updates
-        }
-      }
+          ...updates,
+        },
+      },
     }));
   };
 
@@ -277,9 +274,9 @@ export function App(): React.JSX.Element {
 
         return {
           ...profile,
-          ...updates
+          ...updates,
         };
-      })
+      }),
     }));
   };
 
@@ -297,19 +294,19 @@ export function App(): React.JSX.Element {
       taskType: draft.taskType,
       adapterId: draft.adapterId || null,
       model: draft.model.trim(),
-      enabled: true
+      enabled: true,
     };
 
     setRoutingSettings((current) => ({
       ...current,
-      taskProfiles: [...current.taskProfiles, profile]
+      taskProfiles: [...current.taskProfiles, profile],
     }));
   };
 
   const handleRemoveTaskProfile = (profileId: string): void => {
     setRoutingSettings((current) => ({
       ...current,
-      taskProfiles: current.taskProfiles.filter((profile) => profile.id !== profileId)
+      taskProfiles: current.taskProfiles.filter((profile) => profile.id !== profileId),
     }));
   };
 
@@ -319,7 +316,7 @@ export function App(): React.JSX.Element {
     } catch (error) {
       setNotice({
         type: 'error',
-        message: error instanceof Error ? error.message : copy.loadError
+        message: error instanceof Error ? error.message : copy.loadError,
       });
     }
   };
@@ -330,7 +327,7 @@ export function App(): React.JSX.Element {
     } catch (error) {
       setNotice({
         type: 'error',
-        message: error instanceof Error ? error.message : copy.loadError
+        message: error instanceof Error ? error.message : copy.loadError,
       });
     }
   };
@@ -345,12 +342,14 @@ export function App(): React.JSX.Element {
       setRoutingSettings(refreshedRoutingSettings);
       setNotice({
         type: 'toolsRefreshed',
-        adapters: refreshedState.adapters.filter((adapter) => adapter.visibility === 'user' && adapter.availability === 'available').length
+        adapters: refreshedState.adapters.filter(
+          (adapter) => adapter.visibility === 'user' && adapter.availability === 'available',
+        ).length,
       });
     } catch (error) {
       setNotice({
         type: 'error',
-        message: error instanceof Error ? error.message : copy.loadError
+        message: error instanceof Error ? error.message : copy.loadError,
       });
     } finally {
       setIsRefreshingTools(false);
@@ -367,7 +366,7 @@ export function App(): React.JSX.Element {
     } catch (error) {
       setNotice({
         type: 'error',
-        message: error instanceof Error ? `${copy.settingsSaveFailed} ${error.message}` : copy.settingsSaveFailed
+        message: error instanceof Error ? `${copy.settingsSaveFailed} ${error.message}` : copy.settingsSaveFailed,
       });
     } finally {
       setIsSavingSettings(false);
@@ -396,15 +395,15 @@ export function App(): React.JSX.Element {
 
   const selectedPlannedTask = plannedTasks[selectedPlannedTaskIndex] ?? plannedTasks[0] ?? null;
 
-  const selectedTask = selectedRun ? taskByRunId.get(selectedRun.id) ?? null : null;
-  const selectedConversation = selectedRun ? conversationById.get(selectedRun.activeConversationId) ?? null : null;
-  const selectedAdapter = selectedRun ? adapterById.get(selectedRun.adapterId) ?? null : null;
+  const selectedTask = selectedRun ? (taskByRunId.get(selectedRun.id) ?? null) : null;
+  const selectedConversation = selectedRun ? (conversationById.get(selectedRun.activeConversationId) ?? null) : null;
+  const selectedAdapter = selectedRun ? (adapterById.get(selectedRun.adapterId) ?? null) : null;
   const selectedRunIsMutable = selectedRun ? MUTABLE_RUN_STATUSES.includes(selectedRun.status) : false;
   const selectedRunCancelPending = Boolean(selectedRun?.cancelRequestedAt);
   const launchAdapter = adapterById.get(launchForm.adapterId) ?? null;
   const launchConversation = conversationById.get(launchForm.conversationId) ?? null;
   const plannedAdapter = selectedPlannedTask?.recommendedAdapterId
-    ? adapterById.get(selectedPlannedTask.recommendedAdapterId) ?? null
+    ? (adapterById.get(selectedPlannedTask.recommendedAdapterId) ?? null)
     : null;
   const launchDefaultTimeoutLabel = formatTimeoutValue(locale, launchAdapter?.defaultTimeoutMs ?? null, copy.noTimeout);
   const selectedRunTimeoutLabel = selectedRun
@@ -417,7 +416,7 @@ export function App(): React.JSX.Element {
 
   const updateLaunchField = <Field extends keyof LaunchFormState>(
     field: Field,
-    value: LaunchFormState[Field]
+    value: LaunchFormState[Field],
   ): void => {
     if (field === 'prompt') {
       setPlanDraft(null);
@@ -429,9 +428,9 @@ export function App(): React.JSX.Element {
       [field]: value,
       ...(field === 'adapterId'
         ? {
-            model: adapterById.get(value as string)?.defaultModel ?? ''
+            model: adapterById.get(value as string)?.defaultModel ?? '',
           }
-        : {})
+        : {}),
     }));
   };
 
@@ -464,7 +463,7 @@ export function App(): React.JSX.Element {
       const nextPlannedTasks = getPlanDraftTasks(result.draft);
       const primaryTask = nextPlannedTasks[0] ?? null;
       const recommendedAdapterName = primaryTask?.recommendedAdapterId
-        ? adapterById.get(primaryTask.recommendedAdapterId)?.displayName ?? primaryTask.recommendedAdapterId
+        ? (adapterById.get(primaryTask.recommendedAdapterId)?.displayName ?? primaryTask.recommendedAdapterId)
         : copy.plannerNoAdapter;
 
       setPlanDraft(result.draft);
@@ -473,7 +472,7 @@ export function App(): React.JSX.Element {
     } catch (error) {
       setNotice({
         type: 'error',
-        message: error instanceof Error ? error.message : copy.loadError
+        message: error instanceof Error ? error.message : copy.loadError,
       });
     } finally {
       setIsPlanning(false);
@@ -488,7 +487,7 @@ export function App(): React.JSX.Element {
     const nextPrompt = selectedPlannedTask.cleanedPrompt || selectedPlannedTask.rawInput.trim();
     const nextAdapterId = selectedPlannedTask.recommendedAdapterId ?? launchForm.adapterId;
     const adapterName = nextAdapterId
-      ? adapterById.get(nextAdapterId)?.displayName ?? nextAdapterId
+      ? (adapterById.get(nextAdapterId)?.displayName ?? nextAdapterId)
       : copy.plannerNoAdapter;
 
     setLaunchForm((current) => ({
@@ -496,12 +495,12 @@ export function App(): React.JSX.Element {
       title: selectedPlannedTask.taskTitle,
       prompt: nextPrompt,
       adapterId: nextAdapterId,
-      model: selectedPlannedTask.recommendedModel ?? adapterById.get(nextAdapterId)?.defaultModel ?? ''
+      model: selectedPlannedTask.recommendedModel ?? adapterById.get(nextAdapterId)?.defaultModel ?? '',
     }));
     setNotice({
       type: 'planApplied',
       title: selectedPlannedTask.taskTitle,
-      adapterName
+      adapterName,
     });
   };
 
@@ -552,7 +551,7 @@ export function App(): React.JSX.Element {
         adapterId: launchForm.adapterId,
         model: launchForm.model.trim() || null,
         ...(launchForm.conversationId ? { conversationId: launchForm.conversationId } : {}),
-        timeoutMs
+        timeoutMs,
       };
       const result = await window.desktopApi.startRun(input);
       const adapterName = adapterById.get(result.run.adapterId)?.displayName ?? result.run.adapterId;
@@ -561,19 +560,19 @@ export function App(): React.JSX.Element {
       setLaunchForm((current) => ({
         ...current,
         title: '',
-        prompt: ''
+        prompt: '',
       }));
       setPlanDraft(null);
       setNotice({
         type: 'runStarted',
         title: result.task.title,
-        adapterName
+        adapterName,
       });
       setActivePage('sessions');
     } catch (error) {
       setNotice({
         type: 'error',
-        message: error instanceof Error ? error.message : copy.loadError
+        message: error instanceof Error ? error.message : copy.loadError,
       });
     } finally {
       setIsLaunching(false);
@@ -592,13 +591,13 @@ export function App(): React.JSX.Element {
 
       setNotice({
         type: 'cancelRequested',
-        title: result.task.title
+        title: result.task.title,
       });
     } catch (error) {
       setNotice({
         type: 'cancelFailed',
         title: selectedTask?.title ?? selectedRun.id,
-        message: error instanceof Error ? error.message : copy.loadError
+        message: error instanceof Error ? error.message : copy.loadError,
       });
     } finally {
       setIsCancelling(false);
@@ -611,24 +610,27 @@ export function App(): React.JSX.Element {
       ? {
           eyebrow: copy.launchEyebrow,
           title: copy.launchTitle,
-          description: copy.launchCopy
+          description: copy.launchCopy,
         }
       : activePage === 'sessions'
         ? {
             eyebrow: copy.sessionsEyebrow,
             title: copy.sessionsTitle,
-            description: copy.sessionsCopy
+            description: copy.sessionsCopy,
           }
         : activePage === 'orchestration'
           ? {
               eyebrow: locale === 'zh' ? '多代理' : 'Multi-Agent',
               title: locale === 'zh' ? '编排运行' : 'Orchestration Runs',
-              description: locale === 'zh' ? '将复杂请求分解为多个协作代理节点。' : 'Decompose complex requests into multiple collaborating agent nodes.'
+              description:
+                locale === 'zh'
+                  ? '将复杂请求分解为多个协作代理节点。'
+                  : 'Decompose complex requests into multiple collaborating agent nodes.',
             }
           : {
               eyebrow: copy.adaptersEyebrow,
               title: copy.routingTitle,
-              description: copy.routingCopy
+              description: copy.routingCopy,
             };
 
   if (!state) {
@@ -644,7 +646,7 @@ export function App(): React.JSX.Element {
           totalEvents={totalEvents}
           onSetLocale={setLocale}
           onSetActivePage={setActivePage}
-          onToggleSidebar={() => setIsSidebarCompact((current) => !current)}
+          onToggleSidebar={() => { setIsSidebarCompact((current) => !current); }}
         />
 
         <section className="content-shell">
@@ -679,7 +681,7 @@ export function App(): React.JSX.Element {
         totalEvents={totalEvents}
         onSetLocale={setLocale}
         onSetActivePage={setActivePage}
-        onToggleSidebar={() => setIsSidebarCompact((current) => !current)}
+        onToggleSidebar={() => { setIsSidebarCompact((current) => !current); }}
       />
 
       <section className="content-shell">
@@ -693,10 +695,20 @@ export function App(): React.JSX.Element {
             <div className="page-header-actions">
               {activePage === 'settings' ? (
                 <>
-                  <button type="button" className="secondary-button" onClick={handleRefreshAdapters} disabled={isRefreshingTools}>
+                  <button
+                    type="button"
+                    className="secondary-button"
+                    onClick={() => { void handleRefreshAdapters(); }}
+                    disabled={isRefreshingTools}
+                  >
                     {isRefreshingTools ? copy.refreshingTools : copy.refreshTools}
                   </button>
-                  <button type="button" className="secondary-button" onClick={handleSaveRoutingSettings} disabled={isSavingSettings}>
+                  <button
+                    type="button"
+                    className="secondary-button"
+                    onClick={() => { void handleSaveRoutingSettings(); }}
+                    disabled={isSavingSettings}
+                  >
                     {isSavingSettings ? copy.savingSettings : copy.saveSettings}
                   </button>
                 </>
@@ -706,7 +718,7 @@ export function App(): React.JSX.Element {
                 </span>
               ) : activePage === 'orchestration' ? (
                 <span className="status-pill">
-                  {state.orchestrationRuns?.length ?? 0} {locale === 'zh' ? '编排' : 'runs'}
+                  {state.orchestrationRuns.length} {locale === 'zh' ? '编排' : 'runs'}
                 </span>
               ) : (
                 <span className="status-pill">
@@ -783,8 +795,8 @@ export function App(): React.JSX.Element {
               onUpdateTaskProfile={updateTaskProfileDraft}
               onAddTaskProfile={handleAddTaskProfile}
               onRemoveTaskProfile={handleRemoveTaskProfile}
-              onSaveAgentProfile={handleSaveAgentProfile}
-              onDeleteAgentProfile={handleDeleteAgentProfile}
+              onSaveAgentProfile={(profile) => { void handleSaveAgentProfile(profile); }}
+              onDeleteAgentProfile={(profileId) => { void handleDeleteAgentProfile(profileId); }}
             />
           ) : null}
 
@@ -793,17 +805,28 @@ export function App(): React.JSX.Element {
               state={state}
               locale={locale}
               enabledAdapters={enabledAdapters}
-              onStartOrchestration={async (input) => {
-                try {
-                  await window.desktopApi.startOrchestration(input);
-                  setNotice({ type: 'ready', adapters: enabledAdapters.length, runs: state.runs.length });
-                } catch (error) {
-                  setNotice({ type: 'error', message: error instanceof Error ? error.message : String(error) });
-                }
+              onStartOrchestration={(input) => {
+                void (async () => {
+                  try {
+                    await window.desktopApi.startOrchestration(input);
+                    setNotice({ type: 'ready', adapters: enabledAdapters.length, runs: state.runs.length });
+                  } catch (error) {
+                    setNotice({ type: 'error', message: error instanceof Error ? error.message : String(error) });
+                  }
+                })();
               }}
-              onCancelOrchestration={async (orchRunId) => {
+              onCancelOrchestration={(orchRunId) => {
+                void (async () => {
+                  try {
+                    await window.desktopApi.cancelOrchestration({ orchestrationRunId: orchRunId });
+                  } catch (error) {
+                    setNotice({ type: 'error', message: error instanceof Error ? error.message : String(error) });
+                  }
+                })();
+              }}
+              onSaveProjectContext={async (summary) => {
                 try {
-                  await window.desktopApi.cancelOrchestration({ orchestrationRunId: orchRunId });
+                  await window.desktopApi.saveProjectContext({ summary });
                 } catch (error) {
                   setNotice({ type: 'error', message: error instanceof Error ? error.message : String(error) });
                 }

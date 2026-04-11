@@ -27,10 +27,10 @@ const createState = (): AppState => {
             id: 'msg-1',
             role: 'customer',
             content: 'hello',
-            createdAt: '2026-03-20T10:00:00.000Z'
-          }
-        ]
-      }
+            createdAt: '2026-03-20T10:00:00.000Z',
+          },
+        ],
+      },
     ],
     tasks: [
       {
@@ -44,7 +44,7 @@ const createState = (): AppState => {
         requestedBy: 'Desktop Operator',
         sourceConversationId: 'conv-1',
         cliMention: '@adapter-1',
-        runId: 'run-pending'
+        runId: 'run-pending',
       },
       {
         id: 'task-running',
@@ -57,8 +57,8 @@ const createState = (): AppState => {
         requestedBy: 'Desktop Operator',
         sourceConversationId: 'conv-1',
         cliMention: '@adapter-1',
-        runId: 'run-running'
-      }
+        runId: 'run-running',
+      },
     ],
     runs: [
       {
@@ -76,7 +76,7 @@ const createState = (): AppState => {
         exitCode: null,
         endedAt: null,
         events: [],
-        transcript: []
+        transcript: [],
       },
       {
         id: 'run-running',
@@ -93,14 +93,16 @@ const createState = (): AppState => {
         exitCode: null,
         endedAt: null,
         events: [],
-        transcript: []
-      }
+        transcript: [],
+      },
     ],
+    projectContext: { summary: '', updatedAt: null },
+    nextClaudeTask: { prompt: '', sourceOrchestrationRunId: null, generatedAt: null, status: 'idle' },
     agentProfiles: [],
     skills: [],
     mcpServers: [],
     orchestrationRuns: [],
-    orchestrationNodes: []
+    orchestrationNodes: [],
   };
 };
 
@@ -114,11 +116,11 @@ const createContinuity = (): RendererContinuityState => {
       adapterId: 'adapter-1',
       model: 'gpt-5.4',
       conversationId: 'conv-1',
-      timeoutMs: '5000'
+      timeoutMs: '5000',
     },
     selectedRunId: 'run-running',
     selectedConversationId: 'conv-1',
-    locale: 'zh'
+    locale: 'zh',
   };
 };
 
@@ -128,8 +130,8 @@ const createRoutingSettings = (): RoutingSettings => {
       'adapter-1': {
         enabled: false,
         defaultModel: 'gpt-5.4',
-        customCommand: ''
-      }
+        customCommand: '',
+      },
     },
     taskTypeRules: {
       general: { adapterId: null, model: '' },
@@ -138,7 +140,7 @@ const createRoutingSettings = (): RoutingSettings => {
       frontend: { adapterId: null, model: '' },
       research: { adapterId: 'adapter-1', model: 'gpt-5.4' },
       git: { adapterId: null, model: '' },
-      ops: { adapterId: null, model: '' }
+      ops: { adapterId: null, model: '' },
     },
     taskProfiles: [
       {
@@ -147,7 +149,7 @@ const createRoutingSettings = (): RoutingSettings => {
         taskType: 'planning',
         adapterId: 'adapter-1',
         model: 'gpt-5.4',
-        enabled: true
+        enabled: true,
       },
       {
         id: 'profile-code',
@@ -155,13 +157,13 @@ const createRoutingSettings = (): RoutingSettings => {
         taskType: 'code',
         adapterId: 'adapter-1',
         model: 'codex-latest',
-        enabled: true
-      }
-    ]
+        enabled: true,
+      },
+    ],
   };
 };
 
-test('LocalPersistenceStore recovers stale runs and preserves continuity', () => {
+void test('LocalPersistenceStore recovers stale runs and preserves continuity', () => {
   const rootDir = createRootDir('persistence-test-recovery');
 
   try {
@@ -187,21 +189,15 @@ test('LocalPersistenceStore recovers stale runs and preserves continuity', () =>
     assert.equal(runningRun.pid, null);
     assert.equal(typeof pendingRun.endedAt, 'string');
     assert.equal(typeof runningRun.endedAt, 'string');
-    assert.match(
-      pendingRun.events.at(-1)?.message ?? '',
-      /Restart recovery marked this pending run as interrupted/
-    );
-    assert.match(
-      runningRun.events.at(-1)?.message ?? '',
-      /Restart recovery marked this running run as interrupted/
-    );
+    assert.match(pendingRun.events.at(-1)?.message ?? '', /Restart recovery marked this pending run as interrupted/);
+    assert.match(runningRun.events.at(-1)?.message ?? '', /Restart recovery marked this running run as interrupted/);
     assert.deepEqual(recovered.continuity, createContinuity());
   } finally {
     rmSync(rootDir, { recursive: true, force: true });
   }
 });
 
-test('LocalPersistenceStore falls back to the backup envelope when the primary file is invalid', () => {
+void test('LocalPersistenceStore falls back to the backup envelope when the primary file is invalid', () => {
   const rootDir = createRootDir('persistence-test-backup-fallback');
   const persistenceDir = path.resolve(rootDir, '.cli-orchestrator');
   const primaryPath = path.resolve(persistenceDir, 'desktop-state.v1.json');
@@ -220,14 +216,266 @@ test('LocalPersistenceStore falls back to the backup envelope when the primary f
     const recovered = new LocalPersistenceStore(rootDir).load();
 
     assert.deepEqual(recovered.continuity, continuity);
-    assert.equal(recovered.appData?.runs.find((run) => run.id === 'run-pending')?.status, 'interrupted');
-    assert.equal(recovered.appData?.runs.find((run) => run.id === 'run-running')?.status, 'interrupted');
+    assert.ok(recovered.appData);
+    assert.equal(recovered.appData.runs.find((run) => run.id === 'run-pending')?.status, 'interrupted');
+    assert.equal(recovered.appData.runs.find((run) => run.id === 'run-running')?.status, 'interrupted');
   } finally {
     rmSync(rootDir, { recursive: true, force: true });
   }
 });
 
-test('LocalPersistenceStore persists routing settings', () => {
+void test('LocalPersistenceStore preserves handoff artifact (resultPayload) through save/load', () => {
+  const rootDir = createRootDir('persistence-test-handoff-artifact');
+
+  try {
+    const stateWithArtifact = createState();
+    stateWithArtifact.orchestrationRuns = [
+      {
+        id: 'orch-1',
+        conversationId: 'conv-1',
+        rootPrompt: 'Implement feature X',
+        status: 'completed',
+        masterAgentProfileId: null,
+        automationMode: 'review_loop',
+        projectContextSummary: 'Project summary here',
+        currentIteration: 1,
+        maxIterations: 2,
+        stopReason: null,
+        planVersion: 1,
+        createdAt: '2026-04-10T10:00:00.000Z',
+        updatedAt: '2026-04-10T10:05:00.000Z',
+        finalSummary: 'Completed successfully.',
+      },
+    ];
+    stateWithArtifact.orchestrationNodes = [
+      {
+        id: 'node-1',
+        orchestrationRunId: 'orch-1',
+        parentNodeId: null,
+        dependsOnNodeIds: [],
+        agentProfileId: null,
+        skillIds: [],
+        mcpServerIds: [],
+        taskType: 'code',
+        title: 'Implement requested changes',
+        prompt: 'Implement feature X',
+        status: 'completed',
+        runId: 'run-abc',
+        resultSummary: 'Node completed successfully.',
+        resultPayload: {
+          kind: 'run_handoff',
+          runId: 'run-abc',
+          adapterId: 'claude-wsl',
+          model: 'sonnet',
+          status: 'succeeded',
+          changedFiles: ['src/main/persistence.ts', 'src/shared/domain.ts'],
+          diffStat: '2 files changed, 45 insertions(+), 3 deletions(-)',
+          transcriptSummary: 'Implemented the feature and ran tests.',
+          reviewNotes: ['Focus on changed files: src/main/persistence.ts'],
+          generatedAt: '2026-04-10T10:04:00.000Z',
+        },
+        retryCount: 0,
+      },
+    ];
+
+    const initialStore = new LocalPersistenceStore(rootDir);
+    initialStore.saveAppState(stateWithArtifact);
+
+    const recovered = new LocalPersistenceStore(rootDir).load();
+    const recoveredNode = recovered.appData?.orchestrationNodes.find((n) => n.id === 'node-1');
+
+    assert.ok(recoveredNode, 'Node should be recovered');
+    assert.ok(recoveredNode.resultPayload, 'resultPayload should be preserved');
+    assert.equal(recoveredNode.resultPayload.kind, 'run_handoff');
+    assert.equal(recoveredNode.resultPayload.runId, 'run-abc');
+    assert.equal(recoveredNode.resultPayload.adapterId, 'claude-wsl');
+    assert.equal(recoveredNode.resultPayload.model, 'sonnet');
+    assert.equal(recoveredNode.resultPayload.status, 'succeeded');
+    assert.deepEqual(recoveredNode.resultPayload.changedFiles, ['src/main/persistence.ts', 'src/shared/domain.ts']);
+    assert.equal(recoveredNode.resultPayload.diffStat, '2 files changed, 45 insertions(+), 3 deletions(-)');
+    assert.equal(recoveredNode.resultPayload.transcriptSummary, 'Implemented the feature and ran tests.');
+    assert.deepEqual(recoveredNode.resultPayload.reviewNotes, ['Focus on changed files: src/main/persistence.ts']);
+    assert.equal(recoveredNode.resultPayload.generatedAt, '2026-04-10T10:04:00.000Z');
+  } finally {
+    rmSync(rootDir, { recursive: true, force: true });
+  }
+});
+
+void test('LocalPersistenceStore normalizes malformed resultPayload to null', () => {
+  const rootDir = createRootDir('persistence-test-malformed-artifact');
+  const persistenceDir = path.resolve(rootDir, '.cli-orchestrator');
+  const primaryPath = path.resolve(persistenceDir, 'desktop-state.v1.json');
+
+  try {
+    // Write an envelope with a malformed resultPayload directly
+    mkdirSync(persistenceDir, { recursive: true });
+    const envelope = {
+      version: 1,
+      projectRoot: rootDir,
+      savedAt: new Date().toISOString(),
+      appState: {
+        conversations: [],
+        tasks: [],
+        runs: [],
+        nextClaudeTask: { prompt: '', sourceOrchestrationRunId: null, generatedAt: null, status: 'idle' },
+        agentProfiles: [],
+        skills: [],
+        mcpServers: [],
+        orchestrationRuns: [
+          {
+            id: 'orch-2',
+            conversationId: 'conv-1',
+            rootPrompt: 'test',
+            status: 'completed',
+            masterAgentProfileId: null,
+            automationMode: 'standard',
+            projectContextSummary: null,
+            currentIteration: 1,
+            maxIterations: 1,
+            stopReason: null,
+            planVersion: 1,
+            createdAt: '2026-04-10T10:00:00.000Z',
+            updatedAt: '2026-04-10T10:00:00.000Z',
+            finalSummary: null,
+          },
+        ],
+        orchestrationNodes: [
+          {
+            id: 'node-bad',
+            orchestrationRunId: 'orch-2',
+            parentNodeId: null,
+            dependsOnNodeIds: [],
+            agentProfileId: null,
+            skillIds: [],
+            mcpServerIds: [],
+            taskType: 'general',
+            title: 'Bad node',
+            prompt: 'test',
+            status: 'completed',
+            runId: 'run-bad',
+            resultSummary: 'Done',
+            resultPayload: { kind: 'unknown_kind', garbage: true },
+            retryCount: 0,
+          },
+        ],
+        projectContext: { summary: '', updatedAt: null },
+      },
+      continuity: {
+        planDraft: null,
+        selectedPlannedTaskIndex: 0,
+        launchForm: { title: '', prompt: '', adapterId: '', model: '', conversationId: '', timeoutMs: '' },
+        selectedRunId: null,
+        selectedConversationId: null,
+        locale: 'en',
+      },
+      routing: {
+        adapterSettings: {},
+        taskTypeRules: {
+          general: { adapterId: null, model: '' },
+          planning: { adapterId: null, model: '' },
+          code: { adapterId: null, model: '' },
+          frontend: { adapterId: null, model: '' },
+          research: { adapterId: null, model: '' },
+          git: { adapterId: null, model: '' },
+          ops: { adapterId: null, model: '' },
+        },
+        taskProfiles: [],
+      },
+    };
+    writeFileSync(primaryPath, JSON.stringify(envelope, null, 2), 'utf8');
+
+    const recovered = new LocalPersistenceStore(rootDir).load();
+    const recoveredNode = recovered.appData?.orchestrationNodes.find((n) => n.id === 'node-bad');
+
+    assert.ok(recoveredNode, 'Node should be recovered');
+    assert.equal(recoveredNode.resultPayload, null, 'Malformed resultPayload should normalize to null');
+  } finally {
+    rmSync(rootDir, { recursive: true, force: true });
+  }
+});
+
+void test('LocalPersistenceStore preserves adapterOverride and modelOverride on orchestration nodes', () => {
+  const rootDir = createRootDir('persistence-test-node-overrides');
+
+  try {
+    const stateWithOverrides = createState();
+    stateWithOverrides.orchestrationRuns = [
+      {
+        id: 'orch-o1',
+        conversationId: 'conv-1',
+        rootPrompt: 'Test overrides',
+        status: 'completed',
+        masterAgentProfileId: null,
+        automationMode: 'standard',
+        projectContextSummary: null,
+        currentIteration: 1,
+        maxIterations: 1,
+        stopReason: null,
+        planVersion: 1,
+        createdAt: '2026-04-11T10:00:00.000Z',
+        updatedAt: '2026-04-11T10:01:00.000Z',
+        finalSummary: 'Done.',
+      },
+    ];
+    stateWithOverrides.orchestrationNodes = [
+      {
+        id: 'node-with-overrides',
+        orchestrationRunId: 'orch-o1',
+        parentNodeId: null,
+        dependsOnNodeIds: [],
+        agentProfileId: null,
+        skillIds: [],
+        mcpServerIds: [],
+        taskType: 'code',
+        title: 'Node with overrides',
+        prompt: 'Test prompt',
+        status: 'completed',
+        runId: 'run-ovr',
+        resultSummary: 'Completed.',
+        resultPayload: null,
+        retryCount: 0,
+        adapterOverride: 'claude-wsl',
+        modelOverride: 'sonnet',
+      },
+      {
+        id: 'node-without-overrides',
+        orchestrationRunId: 'orch-o1',
+        parentNodeId: null,
+        dependsOnNodeIds: [],
+        agentProfileId: null,
+        skillIds: [],
+        mcpServerIds: [],
+        taskType: 'general',
+        title: 'Node without overrides',
+        prompt: 'Test prompt 2',
+        status: 'completed',
+        runId: 'run-no-ovr',
+        resultSummary: 'Also completed.',
+        resultPayload: null,
+        retryCount: 0,
+      },
+    ];
+
+    const initialStore = new LocalPersistenceStore(rootDir);
+    initialStore.saveAppState(stateWithOverrides);
+
+    const recovered = new LocalPersistenceStore(rootDir).load();
+    const nodeWith = recovered.appData?.orchestrationNodes.find((n) => n.id === 'node-with-overrides');
+    const nodeWithout = recovered.appData?.orchestrationNodes.find((n) => n.id === 'node-without-overrides');
+
+    assert.ok(nodeWith, 'Node with overrides should be recovered');
+    assert.equal(nodeWith.adapterOverride, 'claude-wsl');
+    assert.equal(nodeWith.modelOverride, 'sonnet');
+
+    assert.ok(nodeWithout, 'Node without overrides should be recovered');
+    assert.equal(nodeWithout.adapterOverride, undefined);
+    assert.equal(nodeWithout.modelOverride, undefined);
+  } finally {
+    rmSync(rootDir, { recursive: true, force: true });
+  }
+});
+
+void test('LocalPersistenceStore persists routing settings', () => {
   const rootDir = createRootDir('persistence-test-routing-settings');
 
   try {

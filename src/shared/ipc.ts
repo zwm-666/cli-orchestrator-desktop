@@ -13,14 +13,17 @@ import type {
   DeleteSkillInput,
   GetOrchestrationRunInput,
   GetOrchestrationRunResult,
+  GetNextClaudeTaskResult,
   McpServerDefinition,
   PlanDraftInput,
   PlanDraftResult,
+  ProjectContextState,
   RendererContinuityState,
   RoutingSettings,
   RunEvent,
   SaveAgentProfileInput,
   SaveMcpServerInput,
+  SaveProjectContextInput,
   SaveSkillInput,
   SkillDefinition,
   StartOrchestrationInput,
@@ -28,7 +31,7 @@ import type {
   StartRunInput,
   StartRunResult,
   TaskType,
-  UpdateRoutingSettingsInput
+  UpdateRoutingSettingsInput,
 } from './domain.js';
 
 export const IPC_CHANNELS = {
@@ -39,6 +42,9 @@ export const IPC_CHANNELS = {
   saveContinuityState: 'app:save-continuity-state',
   getRoutingSettings: 'routing:get-settings',
   saveRoutingSettings: 'routing:save-settings',
+  getProjectContext: 'project:get-context',
+  saveProjectContext: 'project:save-context',
+  getNextClaudeTask: 'project:get-next-claude-task',
   createDraftConversation: 'conversation:create-draft',
   createPlanDraft: 'plan:create-draft',
   startRun: 'run:start',
@@ -66,7 +72,6 @@ export const IPC_CHANNELS = {
   getMcpServers: 'mcp:get-servers',
   saveMcpServer: 'mcp:save-server',
   deleteMcpServer: 'mcp:delete-server',
-
 } as const;
 
 export interface DesktopApi {
@@ -77,9 +82,10 @@ export interface DesktopApi {
   saveContinuityState: (state: RendererContinuityState) => Promise<RendererContinuityState>;
   getRoutingSettings: () => Promise<RoutingSettings>;
   saveRoutingSettings: (input: UpdateRoutingSettingsInput) => Promise<RoutingSettings>;
-  createDraftConversation: (
-    input: CreateDraftConversationInput
-  ) => Promise<CreateDraftConversationResult>;
+  getProjectContext: () => Promise<ProjectContextState>;
+  saveProjectContext: (input: SaveProjectContextInput) => Promise<ProjectContextState>;
+  getNextClaudeTask: () => Promise<GetNextClaudeTaskResult>;
+  createDraftConversation: (input: CreateDraftConversationInput) => Promise<CreateDraftConversationResult>;
   createPlanDraft: (input: PlanDraftInput) => Promise<PlanDraftResult>;
   startRun: (input: StartRunInput) => Promise<StartRunResult>;
   cancelRun: (input: CancelRunInput) => Promise<CancelRunResult>;
@@ -106,7 +112,6 @@ export interface DesktopApi {
   getMcpServers: () => Promise<McpServerDefinition[]>;
   saveMcpServer: (input: SaveMcpServerInput) => Promise<McpServerDefinition>;
   deleteMcpServer: (input: DeleteMcpServerInput) => Promise<void>;
-
 }
 
 export interface IpcRequestMap {
@@ -116,6 +121,9 @@ export interface IpcRequestMap {
   [IPC_CHANNELS.saveContinuityState]: RendererContinuityState;
   [IPC_CHANNELS.getRoutingSettings]: undefined;
   [IPC_CHANNELS.saveRoutingSettings]: UpdateRoutingSettingsInput;
+  [IPC_CHANNELS.getProjectContext]: undefined;
+  [IPC_CHANNELS.saveProjectContext]: SaveProjectContextInput;
+  [IPC_CHANNELS.getNextClaudeTask]: undefined;
   [IPC_CHANNELS.createDraftConversation]: CreateDraftConversationInput;
   [IPC_CHANNELS.createPlanDraft]: PlanDraftInput;
   [IPC_CHANNELS.startRun]: StartRunInput;
@@ -150,6 +158,9 @@ export interface IpcResponseMap {
   [IPC_CHANNELS.saveContinuityState]: RendererContinuityState;
   [IPC_CHANNELS.getRoutingSettings]: RoutingSettings;
   [IPC_CHANNELS.saveRoutingSettings]: RoutingSettings;
+  [IPC_CHANNELS.getProjectContext]: ProjectContextState;
+  [IPC_CHANNELS.saveProjectContext]: ProjectContextState;
+  [IPC_CHANNELS.getNextClaudeTask]: GetNextClaudeTaskResult;
   [IPC_CHANNELS.createDraftConversation]: CreateDraftConversationResult;
   [IPC_CHANNELS.createPlanDraft]: PlanDraftResult;
   [IPC_CHANNELS.startRun]: StartRunResult;
@@ -164,15 +175,15 @@ export interface IpcResponseMap {
   // Agent profiles
   [IPC_CHANNELS.getAgentProfiles]: AgentProfile[];
   [IPC_CHANNELS.saveAgentProfile]: AgentProfile;
-  [IPC_CHANNELS.deleteAgentProfile]: void;
+  [IPC_CHANNELS.deleteAgentProfile]: undefined;
 
   // Skills
   [IPC_CHANNELS.getSkills]: SkillDefinition[];
   [IPC_CHANNELS.saveSkill]: SkillDefinition;
-  [IPC_CHANNELS.deleteSkill]: void;
+  [IPC_CHANNELS.deleteSkill]: undefined;
 
   // MCP servers
   [IPC_CHANNELS.getMcpServers]: McpServerDefinition[];
   [IPC_CHANNELS.saveMcpServer]: McpServerDefinition;
-  [IPC_CHANNELS.deleteMcpServer]: void;
+  [IPC_CHANNELS.deleteMcpServer]: undefined;
 }

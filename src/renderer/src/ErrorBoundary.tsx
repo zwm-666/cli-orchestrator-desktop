@@ -48,14 +48,14 @@ export class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundarySt
                 <button
                   type="button"
                   className="secondary-button"
-                  onClick={() => window.location.reload()}
+                  onClick={() => { window.location.reload(); }}
                 >
                   Reload window
                 </button>
                 <button
                   type="button"
                   className="secondary-button"
-                  onClick={() => this.setState({ hasError: false, error: null })}
+                  onClick={() => { this.setState({ hasError: false, error: null }); }}
                 >
                   Try again
                 </button>

@@ -1,6 +1,5 @@
 import type { AppState, CliAdapter, Locale } from '../../shared/domain.js';
 import { COPY, type PrimaryPage, LOCALE_NAMES, LOCALES } from './copy.js';
-import { countEvents } from './helpers.js';
 
 interface SidebarProps {
   locale: Locale;
@@ -31,7 +30,7 @@ export function Sidebar(props: SidebarProps): React.JSX.Element {
 
   const copy = COPY[locale];
 
-  const pageTabs: Array<{ id: Exclude<PrimaryPage, 'settings'>; label: string; compactLabel: string }> = [
+  const pageTabs: { id: Exclude<PrimaryPage, 'settings'>; label: string; compactLabel: string }[] = [
     { id: 'launch', label: copy.navLaunch, compactLabel: copy.navLaunchShort },
     { id: 'sessions', label: copy.navSessions, compactLabel: copy.navSessionsShort },
     { id: 'orchestration', label: locale === 'zh' ? '编排' : 'Orchestration', compactLabel: locale === 'zh' ? '编排' : 'Orch' }
@@ -45,7 +44,7 @@ export function Sidebar(props: SidebarProps): React.JSX.Element {
           key={entry}
           type="button"
           className={`locale-button ${locale === entry ? 'is-active' : ''}`}
-          onClick={() => onSetLocale(entry)}
+          onClick={() => { onSetLocale(entry); }}
         >
           {LOCALE_NAMES[entry]}
         </button>
@@ -76,7 +75,7 @@ export function Sidebar(props: SidebarProps): React.JSX.Element {
                   const count = page.id === 'launch'
                     ? enabledAdapters.length
                     : page.id === 'orchestration'
-                      ? (state.orchestrationRuns?.length ?? 0)
+                      ? (state.orchestrationRuns.length)
                       : state.runs.length;
 
                   return (
@@ -86,7 +85,7 @@ export function Sidebar(props: SidebarProps): React.JSX.Element {
                       className={`sidebar-nav-button ${activePage === page.id ? 'is-active' : ''}`}
                       aria-current={activePage === page.id ? 'page' : undefined}
                       title={page.label}
-                      onClick={() => onSetActivePage(page.id)}
+                      onClick={() => { onSetActivePage(page.id); }}
                     >
                       <span className="nav-label-group">
                         <span className="nav-short-label" aria-hidden="true">
@@ -125,7 +124,7 @@ export function Sidebar(props: SidebarProps): React.JSX.Element {
                 <button
                   type="button"
                   className={`utility-link ${activePage === 'settings' ? 'is-active' : ''}`}
-                  onClick={() => onSetActivePage('settings')}
+                  onClick={() => { onSetActivePage('settings'); }}
                   disabled={!state}
                   title={copy.navSettings}
                 >

@@ -23,7 +23,7 @@ export const getPlanDraftTasks = (draft: PlanDraft): PlanTaskDraft[] => {
       cleanedPrompt: draft.cleanedPrompt,
       taskTitle: draft.taskTitle,
       taskType: draft.taskType,
-      displayCategory: draft.displayCategory ?? draft.taskType,
+      displayCategory: draft.displayCategory,
       matchedProfileId: draft.matchedProfileId ?? null,
       classificationReason: draft.classificationReason,
       mentions: draft.mentions,

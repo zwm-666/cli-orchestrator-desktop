@@ -10,12 +10,12 @@ export interface AggregationResult {
   successCount: number;
   failedCount: number;
   skippedCount: number;
-  nodeResults: Array<{
+  nodeResults: {
     nodeId: string;
     title: string;
     status: OrchestrationNode['status'];
     summary: string | null;
-  }>;
+  }[];
 }
 
 export class ResultAggregationService {

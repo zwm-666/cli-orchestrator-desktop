@@ -6,7 +6,7 @@ import type {
   LaunchFormDraft,
   Locale,
   PlanDraft,
-  PlanTaskDraft
+  PlanTaskDraft,
 } from '../../shared/domain.js';
 import {
   COPY,
@@ -16,14 +16,13 @@ import {
   READINESS_LABELS,
   ROUTING_SOURCE_LABELS,
   SEGMENTATION_SOURCE_LABELS,
-  TASK_TYPE_LABELS
+  TASK_TYPE_LABELS,
 } from './copy.js';
 import {
   formatTime,
-  formatTimeoutValue,
   getLatestConversationMessage,
   getLocalizedCliMessage,
-  renderTimeoutHint
+  renderTimeoutHint,
 } from './helpers.js';
 
 type LaunchFormState = LaunchFormDraft;
@@ -75,10 +74,14 @@ export function LaunchPage(props: LaunchPageProps): React.JSX.Element {
     onPlanDraft,
     onApplyPlan,
     onLaunchRun,
-    onSelectPlannedTask
+    onSelectPlannedTask,
   } = props;
 
   const copy = COPY[locale];
+  const selectedAdapter = launchForm.adapterId
+    ? (enabledAdapters.find((adapter) => adapter.id === launchForm.adapterId) ?? null)
+    : null;
+  const hasModelOptions = (selectedAdapter?.supportedModels.length ?? 0) > 0;
 
   return (
     <section className="page-layout launch-page-layout">
@@ -88,13 +91,13 @@ export function LaunchPage(props: LaunchPageProps): React.JSX.Element {
             <h3>{copy.launchFormTitle}</h3>
           </div>
 
-          <form className="launch-form" onSubmit={onLaunchRun}>
+          <form className="launch-form" onSubmit={(e) => { void onLaunchRun(e); }}>
             <label className="field span-two">
               <span>{copy.runTitleLabel}</span>
               <input
                 value={launchForm.title}
                 placeholder={copy.runTitlePlaceholder}
-                onChange={(event) => onUpdateLaunchField('title', event.target.value)}
+                onChange={(event) => { onUpdateLaunchField('title', event.target.value); }}
               />
             </label>
 
@@ -102,7 +105,7 @@ export function LaunchPage(props: LaunchPageProps): React.JSX.Element {
               <span>{copy.adapterLabel}</span>
               <select
                 value={launchForm.adapterId}
-                onChange={(event) => onUpdateLaunchField('adapterId', event.target.value)}
+                onChange={(event) => { onUpdateLaunchField('adapterId', event.target.value); }}
                 disabled={enabledAdapters.length === 0}
               >
                 {enabledAdapters.length === 0 ? <option value="">{copy.noEnabledAdapters}</option> : null}
@@ -116,18 +119,29 @@ export function LaunchPage(props: LaunchPageProps): React.JSX.Element {
 
             <label className="field">
               <span>{copy.modelLabel}</span>
-              <input
-                value={launchForm.model}
-                placeholder={copy.modelPlaceholder}
-                onChange={(event) => onUpdateLaunchField('model', event.target.value)}
-              />
+              {hasModelOptions ? (
+                <select value={launchForm.model} onChange={(event) => { onUpdateLaunchField('model', event.target.value); }}>
+                  {selectedAdapter?.supportedModels.map((model) => (
+                    <option key={model} value={model}>
+                      {model}
+                    </option>
+                  ))}
+                  <option value="">{copy.useAdapterDefault}</option>
+                </select>
+              ) : (
+                <input
+                  value={launchForm.model}
+                  placeholder={copy.modelPlaceholder}
+                  onChange={(event) => { onUpdateLaunchField('model', event.target.value); }}
+                />
+              )}
             </label>
 
             <label className="field">
               <span>{copy.conversationLabel}</span>
               <select
                 value={launchForm.conversationId}
-                onChange={(event) => onUpdateLaunchField('conversationId', event.target.value)}
+                onChange={(event) => { onUpdateLaunchField('conversationId', event.target.value); }}
               >
                 <option value="">{copy.newConversationOption}</option>
                 {state.conversations.map((conversation) => (
@@ -147,7 +161,7 @@ export function LaunchPage(props: LaunchPageProps): React.JSX.Element {
                 inputMode="numeric"
                 value={launchForm.timeoutMs}
                 placeholder={copy.timeoutPlaceholder}
-                onChange={(event) => onUpdateLaunchField('timeoutMs', event.target.value)}
+                onChange={(event) => { onUpdateLaunchField('timeoutMs', event.target.value); }}
               />
               <span className="field-note">{renderTimeoutHint(locale, launchDefaultTimeoutLabel)}</span>
             </label>
@@ -158,7 +172,7 @@ export function LaunchPage(props: LaunchPageProps): React.JSX.Element {
                 value={launchForm.prompt}
                 rows={6}
                 placeholder={copy.promptPlaceholder}
-                onChange={(event) => onUpdateLaunchField('prompt', event.target.value)}
+                onChange={(event) => { onUpdateLaunchField('prompt', event.target.value); }}
               />
             </label>
 
@@ -182,7 +196,14 @@ export function LaunchPage(props: LaunchPageProps): React.JSX.Element {
             ) : null}
 
             <div className="form-actions span-two">
-              <button type="button" className="secondary-button" onClick={onPlanDraft} disabled={isPlanning}>
+              <button
+                type="button"
+                className="secondary-button"
+                onClick={() => {
+                  void onPlanDraft();
+                }}
+                disabled={isPlanning}
+              >
                 {isPlanning ? copy.planningAction : copy.planAction}
               </button>
               <button type="submit" className="primary-button" disabled={isLaunching || enabledAdapters.length === 0}>
@@ -219,7 +240,7 @@ export function LaunchPage(props: LaunchPageProps): React.JSX.Element {
                 {plannedTasks.map((taskDraft, index) => {
                   const isActive = index === selectedPlannedTaskIndex;
                   const taskAdapter = taskDraft.recommendedAdapterId
-                    ? adapterById.get(taskDraft.recommendedAdapterId) ?? null
+                    ? (adapterById.get(taskDraft.recommendedAdapterId) ?? null)
                     : null;
 
                   return (
@@ -227,7 +248,7 @@ export function LaunchPage(props: LaunchPageProps): React.JSX.Element {
                       key={`${taskDraft.taskTitle}-${taskDraft.rawInput}`}
                       type="button"
                       className={`planner-task-button ${isActive ? 'is-active' : ''}`}
-                      onClick={() => onSelectPlannedTask(index)}
+                      onClick={() => { onSelectPlannedTask(index); }}
                     >
                       <div className="planner-task-topline">
                         <span className="status-pill">
@@ -251,7 +272,9 @@ export function LaunchPage(props: LaunchPageProps): React.JSX.Element {
                   </div>
                   <div>
                     <span>{copy.plannerTaskType}</span>
-                    <strong>{selectedPlannedTask.displayCategory || TASK_TYPE_LABELS[locale][selectedPlannedTask.taskType]}</strong>
+                    <strong>
+                      {selectedPlannedTask.displayCategory || TASK_TYPE_LABELS[locale][selectedPlannedTask.taskType]}
+                    </strong>
                   </div>
                   <div>
                     <span>{copy.plannerRecommendedAdapter}</span>
@@ -396,7 +419,7 @@ export function LaunchPage(props: LaunchPageProps): React.JSX.Element {
                   key={conversation.id}
                   type="button"
                   className={`list-card conversation-card ${launchForm.conversationId === conversation.id ? 'is-selected' : ''}`}
-                  onClick={() => onUpdateLaunchField('conversationId', conversation.id)}
+                  onClick={() => { onUpdateLaunchField('conversationId', conversation.id); }}
                 >
                   <div className="list-topline">
                     <h3>{conversation.title}</h3>
@@ -407,7 +430,9 @@ export function LaunchPage(props: LaunchPageProps): React.JSX.Element {
                     <span>
                       {conversation.messages.length} {copy.messageCount}
                     </span>
-                    <span>{launchForm.conversationId === conversation.id ? copy.selectedContext : conversation.id}</span>
+                    <span>
+                      {launchForm.conversationId === conversation.id ? copy.selectedContext : conversation.id}
+                    </span>
                   </div>
                 </button>
               ))

@@ -7,7 +7,7 @@ import type {
   Locale,
   RoutingSettings,
   TaskRoutingProfile,
-  TaskType
+  TaskType,
 } from '../../shared/domain.js';
 import { DEFAULT_RETRY_POLICY, TASK_TYPES } from '../../shared/domain.js';
 import {
@@ -20,7 +20,7 @@ import {
   READINESS_BADGE_CLASSES,
   READINESS_LABELS,
   RUN_STATUS_LABELS,
-  TASK_TYPE_LABELS
+  TASK_TYPE_LABELS,
 } from './copy.js';
 import { renderAdapterMetaLine } from './helpers.js';
 
@@ -56,24 +56,77 @@ export function SettingsPage(props: SettingsPageProps): React.JSX.Element {
     onAddTaskProfile,
     onRemoveTaskProfile,
     onSaveAgentProfile,
-    onDeleteAgentProfile
+    onDeleteAgentProfile,
   } = props;
 
   const copy = COPY[locale];
-  const [newTaskProfile, setNewTaskProfile] = useState<NewTaskProfileDraft>(DEFAULT_NEW_TASK_PROFILE);
+  const [newTaskProfile, setNewTaskProfile] = useState(DEFAULT_NEW_TASK_PROFILE);
   const [expandedProfileId, setExpandedProfileId] = useState<string | null>(null);
   const [newProfileDraft, setNewProfileDraft] = useState({
     name: '',
     role: 'coder' as AgentRoleType,
-    adapterId: ''
+    adapterId: '',
+    model: '',
   });
+
+  const getSupportedModels = (adapterId: string | null | undefined): string[] => {
+    if (!adapterId) {
+      return [];
+    }
+
+    return adapterById.get(adapterId)?.supportedModels ?? [];
+  };
+
+  const getDefaultModelForAdapter = (adapterId: string | null | undefined): string => {
+    if (!adapterId) {
+      return '';
+    }
+
+    return adapterById.get(adapterId)?.defaultModel ?? '';
+  };
+
+  const renderModelField = (
+    value: string,
+    adapterId: string | null | undefined,
+    onChange: (value: string) => void,
+  ): React.JSX.Element => {
+    const supportedModels = getSupportedModels(adapterId);
+
+    if (supportedModels.length > 0) {
+      return (
+        <select
+          value={value}
+          onChange={(event) => {
+            onChange(event.target.value);
+          }}
+        >
+          <option value="">{copy.useAdapterDefault}</option>
+          {supportedModels.map((model) => (
+            <option key={model} value={model}>
+              {model}
+            </option>
+          ))}
+        </select>
+      );
+    }
+
+    return (
+      <input
+        value={value}
+        placeholder={copy.modelPlaceholder}
+        onChange={(event) => {
+          onChange(event.target.value);
+        }}
+      />
+    );
+  };
 
   const handleAddTaskProfile = (): void => {
     onAddTaskProfile(newTaskProfile);
     setNewTaskProfile(DEFAULT_NEW_TASK_PROFILE);
   };
 
-  const agentProfiles = state.agentProfiles ?? [];
+  const agentProfiles = state.agentProfiles;
 
   const handleAddAgentProfile = (): void => {
     const name = newProfileDraft.name.trim();
@@ -83,17 +136,17 @@ export function SettingsPage(props: SettingsPageProps): React.JSX.Element {
       name,
       role: newProfileDraft.role,
       adapterId: newProfileDraft.adapterId || visibleAdapters[0]?.id || '',
-      model: '',
+      model: newProfileDraft.model,
       systemPrompt: '',
       enabledSkillIds: [],
       enabledMcpServerIds: [],
       maxParallelChildren: newProfileDraft.role === 'master' ? 3 : 1,
       retryPolicy: { ...DEFAULT_RETRY_POLICY },
       timeoutMs: null,
-      enabled: true
+      enabled: true,
     };
     onSaveAgentProfile(profile);
-    setNewProfileDraft({ name: '', role: 'coder', adapterId: '' });
+    setNewProfileDraft({ name: '', role: 'coder', adapterId: '', model: '' });
   };
 
   const handleUpdateAgentProfile = (profileId: string, updates: Partial<AgentProfile>): void => {
@@ -116,7 +169,7 @@ export function SettingsPage(props: SettingsPageProps): React.JSX.Element {
               const adapterSetting = routingSettings.adapterSettings[adapter.id] ?? {
                 enabled: true,
                 defaultModel: adapter.defaultModel ?? '',
-                customCommand: ''
+                customCommand: '',
               };
 
               return (
@@ -130,14 +183,18 @@ export function SettingsPage(props: SettingsPageProps): React.JSX.Element {
                       <input
                         type="checkbox"
                         checked={adapterSetting.enabled}
-                        onChange={(event) => onUpdateAdapterSetting(adapter.id, { enabled: event.target.checked })}
+                        onChange={(event) => {
+                          onUpdateAdapterSetting(adapter.id, { enabled: event.target.checked });
+                        }}
                         disabled={adapter.availability !== 'available'}
                       />
                       <span>{adapterSetting.enabled ? copy.enabled : copy.disabled}</span>
                     </label>
                   </div>
                   <div className="badge-pair">
-                    <span className={`state-badge ${adapter.availability === 'available' ? 'state-succeeded' : 'state-cancelled'}`}>
+                    <span
+                      className={`state-badge ${adapter.availability === 'available' ? 'state-succeeded' : 'state-cancelled'}`}
+                    >
                       {adapter.availability === 'available' ? copy.available : copy.unavailable}
                     </span>
                     <span className={`state-badge ${READINESS_BADGE_CLASSES[adapter.readiness]}`}>
@@ -154,15 +211,19 @@ export function SettingsPage(props: SettingsPageProps): React.JSX.Element {
                       <input
                         value={adapterSetting.defaultModel}
                         placeholder={copy.modelPlaceholder}
-                        onChange={(event) => onUpdateAdapterSetting(adapter.id, { defaultModel: event.target.value })}
+                        onChange={(event) => {
+                          onUpdateAdapterSetting(adapter.id, { defaultModel: event.target.value });
+                        }}
                       />
                     </label>
                     <label className="field">
                       <span>{copy.customCommandLabel}</span>
                       <input
-                        value={adapterSetting.customCommand ?? ''}
+                        value={adapterSetting.customCommand}
                         placeholder={copy.customCommandPlaceholder}
-                        onChange={(event) => onUpdateAdapterSetting(adapter.id, { customCommand: event.target.value })}
+                        onChange={(event) => {
+                          onUpdateAdapterSetting(adapter.id, { customCommand: event.target.value });
+                        }}
                       />
                     </label>
                     <div className="brief-block compact-brief-block">
@@ -199,16 +260,18 @@ export function SettingsPage(props: SettingsPageProps): React.JSX.Element {
                   <input
                     value={newTaskProfile.label}
                     placeholder={copy.taskProfileNameLabel}
-                    onChange={(event) => setNewTaskProfile((current) => ({ ...current, label: event.target.value }))}
+                    onChange={(event) => {
+                      setNewTaskProfile((current) => ({ ...current, label: event.target.value }));
+                    }}
                   />
                 </label>
                 <label className="field">
                   <span>{copy.taskProfileBaseTypeLabel}</span>
                   <select
                     value={newTaskProfile.taskType}
-                    onChange={(event) =>
-                      setNewTaskProfile((current) => ({ ...current, taskType: event.target.value as TaskType }))
-                    }
+                    onChange={(event) => {
+                      setNewTaskProfile((current) => ({ ...current, taskType: event.target.value as TaskType }));
+                    }}
                   >
                     {TASK_TYPES.map((taskType) => (
                       <option key={taskType} value={taskType}>
@@ -221,7 +284,14 @@ export function SettingsPage(props: SettingsPageProps): React.JSX.Element {
                   <span>{copy.adapterLabel}</span>
                   <select
                     value={newTaskProfile.adapterId}
-                    onChange={(event) => setNewTaskProfile((current) => ({ ...current, adapterId: event.target.value }))}
+                    onChange={(event) => {
+                      const adapterId = event.target.value;
+                      setNewTaskProfile((current) => ({
+                        ...current,
+                        adapterId,
+                        model: getDefaultModelForAdapter(adapterId),
+                      }));
+                    }}
                   >
                     <option value="">{copy.useAdapterDefault}</option>
                     {visibleAdapters.map((adapter) => (
@@ -233,11 +303,9 @@ export function SettingsPage(props: SettingsPageProps): React.JSX.Element {
                 </label>
                 <label className="field">
                   <span>{copy.modelLabel}</span>
-                  <input
-                    value={newTaskProfile.model}
-                    placeholder={copy.modelPlaceholder}
-                    onChange={(event) => setNewTaskProfile((current) => ({ ...current, model: event.target.value }))}
-                  />
+                  {renderModelField(newTaskProfile.model, newTaskProfile.adapterId, (model) => {
+                    setNewTaskProfile((current) => ({ ...current, model }));
+                  })}
                 </label>
               </div>
               <div className="form-actions">
@@ -256,7 +324,13 @@ export function SettingsPage(props: SettingsPageProps): React.JSX.Element {
                     <strong>{profile.label}</strong>
                     <p>{TASK_TYPE_LABELS[locale][profile.taskType]}</p>
                   </div>
-                  <button type="button" className="secondary-button" onClick={() => onRemoveTaskProfile(profile.id)}>
+                  <button
+                    type="button"
+                    className="secondary-button"
+                    onClick={() => {
+                      onRemoveTaskProfile(profile.id);
+                    }}
+                  >
                     {copy.taskProfileDelete}
                   </button>
                 </div>
@@ -265,14 +339,18 @@ export function SettingsPage(props: SettingsPageProps): React.JSX.Element {
                     <span>{copy.taskProfileNameLabel}</span>
                     <input
                       value={profile.label}
-                      onChange={(event) => onUpdateTaskProfile(profile.id, { label: event.target.value })}
+                      onChange={(event) => {
+                        onUpdateTaskProfile(profile.id, { label: event.target.value });
+                      }}
                     />
                   </label>
                   <label className="field">
                     <span>{copy.taskProfileBaseTypeLabel}</span>
                     <select
                       value={profile.taskType}
-                      onChange={(event) => onUpdateTaskProfile(profile.id, { taskType: event.target.value as TaskType })}
+                      onChange={(event) => {
+                        onUpdateTaskProfile(profile.id, { taskType: event.target.value as TaskType });
+                      }}
                     >
                       {TASK_TYPES.map((taskType) => (
                         <option key={taskType} value={taskType}>
@@ -285,7 +363,13 @@ export function SettingsPage(props: SettingsPageProps): React.JSX.Element {
                     <span>{copy.adapterLabel}</span>
                     <select
                       value={profile.adapterId ?? ''}
-                      onChange={(event) => onUpdateTaskProfile(profile.id, { adapterId: event.target.value || null })}
+                      onChange={(event) => {
+                        const adapterId = event.target.value || null;
+                        onUpdateTaskProfile(profile.id, {
+                          adapterId,
+                          model: getDefaultModelForAdapter(adapterId),
+                        });
+                      }}
                     >
                       <option value="">{copy.useAdapterDefault}</option>
                       {visibleAdapters.map((adapter) => (
@@ -297,26 +381,26 @@ export function SettingsPage(props: SettingsPageProps): React.JSX.Element {
                   </label>
                   <label className="field">
                     <span>{copy.modelLabel}</span>
-                    <input
-                      value={profile.model}
-                      placeholder={copy.modelPlaceholder}
-                      onChange={(event) => onUpdateTaskProfile(profile.id, { model: event.target.value })}
-                    />
+                    {renderModelField(profile.model, profile.adapterId, (model) => {
+                      onUpdateTaskProfile(profile.id, { model });
+                    })}
                   </label>
                   <label className="toggle-field">
                     <input
                       type="checkbox"
                       checked={profile.enabled}
-                      onChange={(event) => onUpdateTaskProfile(profile.id, { enabled: event.target.checked })}
+                      onChange={(event) => {
+                        onUpdateTaskProfile(profile.id, { enabled: event.target.checked });
+                      }}
                     />
                     <span>{profile.enabled ? copy.enabled : copy.disabled}</span>
                   </label>
                 </div>
                 {(() => {
-                  const recentRuns = (state?.runs ?? [])
+                  const recentRuns = state.runs
                     .filter((run) => {
-                      const task = (state?.tasks ?? []).find((t) => t.runId === run.id);
-                      return task && task.taskType === profile.taskType;
+                      const task = state.tasks.find((t) => t.runId === run.id);
+                      return task?.taskType === profile.taskType;
                     })
                     .sort((a, b) => b.startedAt.localeCompare(a.startedAt))
                     .slice(0, 3);
@@ -326,8 +410,11 @@ export function SettingsPage(props: SettingsPageProps): React.JSX.Element {
                       <p className="eyebrow">{locale === 'zh' ? '最近运行' : 'Recent runs'}</p>
                       <div className="mini-run-list">
                         {recentRuns.map((run) => (
-                          <span key={run.id} className={`state-badge state-${run.status === 'succeeded' ? 'succeeded' : run.status === 'running' ? 'running' : 'cancelled'}`}>
-                            {(adapterById.get(run.adapterId)?.displayName ?? run.adapterId)}
+                          <span
+                            key={run.id}
+                            className={`state-badge state-${run.status === 'succeeded' ? 'succeeded' : run.status === 'running' ? 'running' : 'cancelled'}`}
+                          >
+                            {adapterById.get(run.adapterId)?.displayName ?? run.adapterId}
                             {' · '}
                             {RUN_STATUS_LABELS[locale][run.status]}
                           </span>
@@ -364,7 +451,13 @@ export function SettingsPage(props: SettingsPageProps): React.JSX.Element {
                       <span>{copy.adapterLabel}</span>
                       <select
                         value={rule.adapterId ?? ''}
-                        onChange={(event) => onUpdateTaskRoutingRule(taskType, { adapterId: event.target.value || null })}
+                        onChange={(event) => {
+                          const adapterId = event.target.value || null;
+                          onUpdateTaskRoutingRule(taskType, {
+                            adapterId,
+                            model: getDefaultModelForAdapter(adapterId),
+                          });
+                        }}
                       >
                         <option value="">{copy.useAdapterDefault}</option>
                         {visibleAdapters.map((adapter) => (
@@ -376,11 +469,9 @@ export function SettingsPage(props: SettingsPageProps): React.JSX.Element {
                     </label>
                     <label className="field">
                       <span>{copy.modelLabel}</span>
-                      <input
-                        value={rule.model}
-                        placeholder={copy.modelPlaceholder}
-                        onChange={(event) => onUpdateTaskRoutingRule(taskType, { model: event.target.value })}
-                      />
+                      {renderModelField(rule.model, rule.adapterId, (model) => {
+                        onUpdateTaskRoutingRule(taskType, { model });
+                      })}
                     </label>
                   </div>
                 </section>
@@ -410,17 +501,23 @@ export function SettingsPage(props: SettingsPageProps): React.JSX.Element {
                   <input
                     value={newProfileDraft.name}
                     placeholder={locale === 'zh' ? '例如 My Coder' : 'e.g. My Coder'}
-                    onChange={(e) => setNewProfileDraft((c) => ({ ...c, name: e.target.value }))}
+                    onChange={(e) => {
+                      setNewProfileDraft((c) => ({ ...c, name: e.target.value }));
+                    }}
                   />
                 </label>
                 <label className="field">
                   <span>{locale === 'zh' ? '角色' : 'Role'}</span>
                   <select
                     value={newProfileDraft.role}
-                    onChange={(e) => setNewProfileDraft((c) => ({ ...c, role: e.target.value as AgentRoleType }))}
+                    onChange={(e) => {
+                      setNewProfileDraft((c) => ({ ...c, role: e.target.value as AgentRoleType }));
+                    }}
                   >
                     {AGENT_ROLES.map((role) => (
-                      <option key={role} value={role}>{AGENT_ROLE_LABELS[locale][role]}</option>
+                      <option key={role} value={role}>
+                        {AGENT_ROLE_LABELS[locale][role]}
+                      </option>
                     ))}
                   </select>
                 </label>
@@ -428,13 +525,28 @@ export function SettingsPage(props: SettingsPageProps): React.JSX.Element {
                   <span>{copy.adapterLabel}</span>
                   <select
                     value={newProfileDraft.adapterId}
-                    onChange={(e) => setNewProfileDraft((c) => ({ ...c, adapterId: e.target.value }))}
+                    onChange={(e) => {
+                      const adapterId = e.target.value;
+                      setNewProfileDraft((c) => ({
+                        ...c,
+                        adapterId,
+                        model: getDefaultModelForAdapter(adapterId),
+                      }));
+                    }}
                   >
                     <option value="">{copy.useAdapterDefault}</option>
                     {visibleAdapters.map((adapter) => (
-                      <option key={adapter.id} value={adapter.id}>{adapter.displayName}</option>
+                      <option key={adapter.id} value={adapter.id}>
+                        {adapter.displayName}
+                      </option>
                     ))}
                   </select>
+                </label>
+                <label className="field">
+                  <span>{copy.modelLabel}</span>
+                  {renderModelField(newProfileDraft.model, newProfileDraft.adapterId, (model) => {
+                    setNewProfileDraft((current) => ({ ...current, model }));
+                  })}
                 </label>
               </div>
               <div className="form-actions">
@@ -459,25 +571,38 @@ export function SettingsPage(props: SettingsPageProps): React.JSX.Element {
                   <div className="settings-row-topline">
                     <div>
                       <strong>{profile.name}</strong>
-                      <p>{AGENT_ROLE_LABELS[locale][profile.role]} · {adapterById.get(profile.adapterId)?.displayName ?? profile.adapterId}</p>
+                      <p>
+                        {AGENT_ROLE_LABELS[locale][profile.role]} ·{' '}
+                        {adapterById.get(profile.adapterId)?.displayName ?? profile.adapterId}
+                      </p>
                     </div>
                     <div style={{ display: 'flex', gap: '6px', alignItems: 'center' }}>
                       <label className="toggle-field">
                         <input
                           type="checkbox"
                           checked={profile.enabled}
-                          onChange={(e) => handleUpdateAgentProfile(profile.id, { enabled: e.target.checked })}
+                          onChange={(e) => {
+                            handleUpdateAgentProfile(profile.id, { enabled: e.target.checked });
+                          }}
                         />
                         <span>{profile.enabled ? copy.enabled : copy.disabled}</span>
                       </label>
                       <button
                         type="button"
                         className="secondary-button"
-                        onClick={() => setExpandedProfileId(isExpanded ? null : profile.id)}
+                        onClick={() => {
+                          setExpandedProfileId(isExpanded ? null : profile.id);
+                        }}
                       >
-                        {isExpanded ? (locale === 'zh' ? '收起' : 'Collapse') : (locale === 'zh' ? '编辑' : 'Edit')}
+                        {isExpanded ? (locale === 'zh' ? '收起' : 'Collapse') : locale === 'zh' ? '编辑' : 'Edit'}
                       </button>
-                      <button type="button" className="secondary-button" onClick={() => onDeleteAgentProfile(profile.id)}>
+                      <button
+                        type="button"
+                        className="secondary-button"
+                        onClick={() => {
+                          onDeleteAgentProfile(profile.id);
+                        }}
+                      >
                         {copy.taskProfileDelete}
                       </button>
                     </div>
@@ -489,17 +614,23 @@ export function SettingsPage(props: SettingsPageProps): React.JSX.Element {
                         <span>{locale === 'zh' ? '名称' : 'Name'}</span>
                         <input
                           value={profile.name}
-                          onChange={(e) => handleUpdateAgentProfile(profile.id, { name: e.target.value })}
+                          onChange={(e) => {
+                            handleUpdateAgentProfile(profile.id, { name: e.target.value });
+                          }}
                         />
                       </label>
                       <label className="field">
                         <span>{locale === 'zh' ? '角色' : 'Role'}</span>
                         <select
                           value={profile.role}
-                          onChange={(e) => handleUpdateAgentProfile(profile.id, { role: e.target.value as AgentRoleType })}
+                          onChange={(e) => {
+                            handleUpdateAgentProfile(profile.id, { role: e.target.value as AgentRoleType });
+                          }}
                         >
                           {AGENT_ROLES.map((role) => (
-                            <option key={role} value={role}>{AGENT_ROLE_LABELS[locale][role]}</option>
+                            <option key={role} value={role}>
+                              {AGENT_ROLE_LABELS[locale][role]}
+                            </option>
                           ))}
                         </select>
                       </label>
@@ -507,20 +638,26 @@ export function SettingsPage(props: SettingsPageProps): React.JSX.Element {
                         <span>{copy.adapterLabel}</span>
                         <select
                           value={profile.adapterId}
-                          onChange={(e) => handleUpdateAgentProfile(profile.id, { adapterId: e.target.value })}
+                          onChange={(e) => {
+                            const adapterId = e.target.value;
+                            handleUpdateAgentProfile(profile.id, {
+                              adapterId,
+                              model: getDefaultModelForAdapter(adapterId),
+                            });
+                          }}
                         >
                           {visibleAdapters.map((adapter) => (
-                            <option key={adapter.id} value={adapter.id}>{adapter.displayName}</option>
+                            <option key={adapter.id} value={adapter.id}>
+                              {adapter.displayName}
+                            </option>
                           ))}
                         </select>
                       </label>
                       <label className="field">
                         <span>{copy.modelLabel}</span>
-                        <input
-                          value={profile.model}
-                          placeholder={copy.modelPlaceholder}
-                          onChange={(e) => handleUpdateAgentProfile(profile.id, { model: e.target.value })}
-                        />
+                        {renderModelField(profile.model, profile.adapterId, (model) => {
+                          handleUpdateAgentProfile(profile.id, { model });
+                        })}
                       </label>
                       <label className="field" style={{ gridColumn: '1 / -1' }}>
                         <span>{locale === 'zh' ? '系统提示词' : 'System prompt'}</span>
@@ -528,8 +665,18 @@ export function SettingsPage(props: SettingsPageProps): React.JSX.Element {
                           rows={3}
                           value={profile.systemPrompt}
                           placeholder={locale === 'zh' ? '代理行为指引...' : 'Agent behavioral instructions...'}
-                          onChange={(e) => handleUpdateAgentProfile(profile.id, { systemPrompt: e.target.value })}
-                          style={{ width: '100%', resize: 'vertical', fontFamily: 'inherit', fontSize: 'inherit', padding: '6px 8px', border: '1px solid #ccc', borderRadius: '4px' }}
+                          onChange={(e) => {
+                            handleUpdateAgentProfile(profile.id, { systemPrompt: e.target.value });
+                          }}
+                          style={{
+                            width: '100%',
+                            resize: 'vertical',
+                            fontFamily: 'inherit',
+                            fontSize: 'inherit',
+                            padding: '6px 8px',
+                            border: '1px solid #ccc',
+                            borderRadius: '4px',
+                          }}
                         />
                       </label>
                       <label className="field">
@@ -539,7 +686,9 @@ export function SettingsPage(props: SettingsPageProps): React.JSX.Element {
                           min={1}
                           max={10}
                           value={profile.maxParallelChildren}
-                          onChange={(e) => handleUpdateAgentProfile(profile.id, { maxParallelChildren: Number(e.target.value) || 1 })}
+                          onChange={(e) => {
+                            handleUpdateAgentProfile(profile.id, { maxParallelChildren: Number(e.target.value) || 1 });
+                          }}
                         />
                       </label>
                       <label className="field">
@@ -549,9 +698,11 @@ export function SettingsPage(props: SettingsPageProps): React.JSX.Element {
                           min={0}
                           max={5}
                           value={profile.retryPolicy.maxRetries}
-                          onChange={(e) => handleUpdateAgentProfile(profile.id, {
-                            retryPolicy: { ...profile.retryPolicy, maxRetries: Number(e.target.value) || 0 }
-                          })}
+                          onChange={(e) => {
+                            handleUpdateAgentProfile(profile.id, {
+                              retryPolicy: { ...profile.retryPolicy, maxRetries: Number(e.target.value) || 0 },
+                            });
+                          }}
                         />
                       </label>
                       <label className="field">
@@ -588,8 +739,12 @@ export function SettingsPage(props: SettingsPageProps): React.JSX.Element {
                 <div className="list-topline">
                   <h3>{adapter.displayName}</h3>
                   <div className="badge-pair">
-                    <span className={`state-badge state-${adapter.health}`}>{HEALTH_LABELS[locale][adapter.health]}</span>
-                    <span className={`state-badge ${adapter.availability === 'available' ? 'state-succeeded' : 'state-cancelled'}`}>
+                    <span className={`state-badge state-${adapter.health}`}>
+                      {HEALTH_LABELS[locale][adapter.health]}
+                    </span>
+                    <span
+                      className={`state-badge ${adapter.availability === 'available' ? 'state-succeeded' : 'state-cancelled'}`}
+                    >
                       {adapter.availability === 'available' ? copy.available : copy.unavailable}
                     </span>
                     <span className={`state-badge ${READINESS_BADGE_CLASSES[adapter.readiness]}`}>

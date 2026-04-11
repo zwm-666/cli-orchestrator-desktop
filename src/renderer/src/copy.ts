@@ -9,7 +9,7 @@ import type {
   RunEvent,
   RunSession,
   Task,
-  TaskType
+  TaskType,
 } from '../../shared/domain.js';
 
 export type PrimaryPage = 'launch' | 'sessions' | 'settings' | 'orchestration';
@@ -40,12 +40,12 @@ export const DEFAULT_NEW_TASK_PROFILE: NewTaskProfileDraft = {
   label: '',
   taskType: 'general',
   adapterId: '',
-  model: ''
+  model: '',
 };
 
 export const LOCALE_NAMES: Record<Locale, string> = {
   en: 'EN',
-  zh: '中文'
+  zh: '中文',
 };
 
 export const COPY = {
@@ -183,7 +183,8 @@ export const COPY = {
     adapterSettingsTitle: 'Adapter settings',
     taskRoutingTitle: 'Task-type routing',
     taskProfilesTitle: 'Custom task categories',
-    taskProfilesCopy: 'Create your own task categories, map each one to an internal planner type, then choose the preferred CLI and model.',
+    taskProfilesCopy:
+      'Create your own task categories, map each one to an internal planner type, then choose the preferred CLI and model.',
     taskProfileNameLabel: 'Category name',
     taskProfileBaseTypeLabel: 'Planner base type',
     taskProfileAddAction: 'Add category',
@@ -218,7 +219,7 @@ export const COPY = {
     timeoutPositive: 'Timeout must be greater than 0 ms.',
     noTimeout: 'No timeout',
     unknown: 'Unknown',
-    emptyValue: '--'
+    emptyValue: '--',
   },
   zh: {
     heroEyebrow: '桌面调度台',
@@ -385,8 +386,8 @@ export const COPY = {
     timeoutPositive: '超时时间必须大于 0 毫秒。',
     noTimeout: '不设超时',
     unknown: '未知',
-    emptyValue: '--'
-  }
+    emptyValue: '--',
+  },
 } as const;
 
 export const RUN_STATUS_LABELS: Record<Locale, Record<RunSession['status'], string>> = {
@@ -398,7 +399,7 @@ export const RUN_STATUS_LABELS: Record<Locale, Record<RunSession['status'], stri
     spawn_failed: 'Spawn failed',
     failed: 'Failed',
     cancelled: 'Cancelled',
-    timed_out: 'Timed out'
+    timed_out: 'Timed out',
   },
   zh: {
     pending: '等待中',
@@ -408,8 +409,8 @@ export const RUN_STATUS_LABELS: Record<Locale, Record<RunSession['status'], stri
     spawn_failed: '启动失败',
     failed: '已失败',
     cancelled: '已取消',
-    timed_out: '已超时'
-  }
+    timed_out: '已超时',
+  },
 };
 
 export const TASK_STATUS_LABELS: Record<Locale, Record<Task['status'], string>> = {
@@ -422,7 +423,7 @@ export const TASK_STATUS_LABELS: Record<Locale, Record<Task['status'], string>> 
     interrupted: 'Interrupted',
     cancelled: 'Cancelled',
     timed_out: 'Timed out',
-    spawn_failed: 'Spawn failed'
+    spawn_failed: 'Spawn failed',
   },
   zh: {
     queued: '排队中',
@@ -433,40 +434,40 @@ export const TASK_STATUS_LABELS: Record<Locale, Record<Task['status'], string>> 
     interrupted: '已中断',
     cancelled: '已取消',
     timed_out: '已超时',
-    spawn_failed: '启动失败'
-  }
+    spawn_failed: '启动失败',
+  },
 };
 
 export const HEALTH_LABELS: Record<Locale, Record<CliAdapter['health'], string>> = {
   en: {
     healthy: 'Healthy',
     idle: 'Idle',
-    attention: 'Needs attention'
+    attention: 'Needs attention',
   },
   zh: {
     healthy: '健康',
     idle: '空闲',
-    attention: '需关注'
-  }
+    attention: '需关注',
+  },
 };
 
 export const READINESS_LABELS: Record<Locale, Record<CliAdapter['readiness'], string>> = {
   en: {
     ready: COPY.en.readinessReady,
     blocked_by_environment: COPY.en.readinessBlockedByEnvironment,
-    unavailable: COPY.en.readinessUnavailable
+    unavailable: COPY.en.readinessUnavailable,
   },
   zh: {
     ready: COPY.zh.readinessReady,
     blocked_by_environment: COPY.zh.readinessBlockedByEnvironment,
-    unavailable: COPY.zh.readinessUnavailable
-  }
+    unavailable: COPY.zh.readinessUnavailable,
+  },
 };
 
 export const READINESS_BADGE_CLASSES: Record<CliAdapter['readiness'], string> = {
   ready: 'state-succeeded',
   blocked_by_environment: 'state-attention',
-  unavailable: 'state-cancelled'
+  unavailable: 'state-cancelled',
 };
 
 export const EVENT_LEVEL_LABELS: Record<Locale, Record<RunEvent['level'], string>> = {
@@ -476,7 +477,7 @@ export const EVENT_LEVEL_LABELS: Record<Locale, Record<RunEvent['level'], string
     success: 'Success',
     stdout: 'Stdout',
     stderr: 'Stderr',
-    error: 'Error'
+    error: 'Error',
   },
   zh: {
     info: '信息',
@@ -484,8 +485,8 @@ export const EVENT_LEVEL_LABELS: Record<Locale, Record<RunEvent['level'], string
     success: '成功',
     stdout: '标准输出',
     stderr: '标准错误',
-    error: '错误'
-  }
+    error: '错误',
+  },
 };
 
 export const TRANSCRIPT_KIND_LABELS: Record<Locale, Record<ExecutionTranscriptEntry['kind'], string>> = {
@@ -496,7 +497,7 @@ export const TRANSCRIPT_KIND_LABELS: Record<Locale, Record<ExecutionTranscriptEn
     step_completed: 'Step completed',
     step_failed: 'Step failed',
     run_completed: 'Run completed',
-    run_failed: 'Run failed'
+    run_failed: 'Run failed',
   },
   zh: {
     run_started: '运行开始',
@@ -505,8 +506,8 @@ export const TRANSCRIPT_KIND_LABELS: Record<Locale, Record<ExecutionTranscriptEn
     step_completed: '步骤完成',
     step_failed: '步骤失败',
     run_completed: '运行完成',
-    run_failed: '运行失败'
-  }
+    run_failed: '运行失败',
+  },
 };
 
 export const ROUTING_SOURCE_LABELS: Record<Locale, Record<PlanRoutingSource, string>> = {
@@ -514,14 +515,14 @@ export const ROUTING_SOURCE_LABELS: Record<Locale, Record<PlanRoutingSource, str
     explicit_mention: 'Explicit mention',
     task_type_rule: 'Task-type rule',
     first_enabled_adapter: 'First enabled adapter',
-    no_enabled_adapter: 'No enabled adapter'
+    no_enabled_adapter: 'No enabled adapter',
   },
   zh: {
     explicit_mention: '显式标记',
     task_type_rule: '任务类型规则',
     first_enabled_adapter: '首个启用适配器',
-    no_enabled_adapter: '没有启用适配器'
-  }
+    no_enabled_adapter: '没有启用适配器',
+  },
 };
 
 export const SEGMENTATION_SOURCE_LABELS: Record<Locale, Record<PlanSegmentationSource, string>> = {
@@ -530,28 +531,28 @@ export const SEGMENTATION_SOURCE_LABELS: Record<Locale, Record<PlanSegmentationS
     bullets: 'Bullet split',
     lines: 'Line split',
     sentences: 'Sentence split',
-    conjunctions: 'Conjunction split'
+    conjunctions: 'Conjunction split',
   },
   zh: {
     single_fallback: '单段回退',
     bullets: '按项目符号拆分',
     lines: '按换行拆分',
     sentences: '按句拆分',
-    conjunctions: '按连词拆分'
-  }
+    conjunctions: '按连词拆分',
+  },
 };
 
 export const PLAN_CONFIDENCE_LABELS: Record<Locale, Record<PlanConfidence, string>> = {
   en: {
     high: 'High',
     medium: 'Medium',
-    low: 'Low'
+    low: 'Low',
   },
   zh: {
     high: '高',
     medium: '中',
-    low: '低'
-  }
+    low: '低',
+  },
 };
 
 export const TASK_TYPE_LABELS: Record<Locale, Record<TaskType, string>> = {
@@ -562,7 +563,7 @@ export const TASK_TYPE_LABELS: Record<Locale, Record<TaskType, string>> = {
     frontend: 'Frontend',
     research: 'Research',
     git: 'Git',
-    ops: 'Ops'
+    ops: 'Ops',
   },
   zh: {
     general: '通用',
@@ -571,8 +572,8 @@ export const TASK_TYPE_LABELS: Record<Locale, Record<TaskType, string>> = {
     frontend: '前端',
     research: '研究',
     git: 'Git',
-    ops: '运维'
-  }
+    ops: '运维',
+  },
 };
 
 export const AGENT_ROLE_LABELS: Record<Locale, Record<AgentRoleType, string>> = {
@@ -583,7 +584,7 @@ export const AGENT_ROLE_LABELS: Record<Locale, Record<AgentRoleType, string>> = 
     coder: 'Coder',
     reviewer: 'Reviewer',
     tester: 'Tester',
-    custom: 'Custom'
+    custom: 'Custom',
   },
   zh: {
     master: '主控',
@@ -592,10 +593,18 @@ export const AGENT_ROLE_LABELS: Record<Locale, Record<AgentRoleType, string>> = 
     coder: '编码',
     reviewer: '审查',
     tester: '测试',
-    custom: '自定义'
-  }
+    custom: '自定义',
+  },
 };
 
-export const AGENT_ROLES: AgentRoleType[] = ['master', 'planner', 'researcher', 'coder', 'reviewer', 'tester', 'custom'];
+export const AGENT_ROLES: AgentRoleType[] = [
+  'master',
+  'planner',
+  'researcher',
+  'coder',
+  'reviewer',
+  'tester',
+  'custom',
+];
 
 export const MUTABLE_RUN_STATUSES: RunSession['status'][] = ['pending', 'running'];

@@ -1,24 +1,6 @@
-import type {
-  AppState,
-  CliAdapter,
-  Conversation,
-  Locale,
-  RunSession,
-  Task
-} from '../../shared/domain.js';
-import {
-  COPY,
-  EVENT_LEVEL_LABELS,
-  RUN_STATUS_LABELS,
-  TASK_STATUS_LABELS,
-  TRANSCRIPT_KIND_LABELS
-} from './copy.js';
-import {
-  formatTime,
-  formatTimeoutValue,
-  getRunInvocationStateCopy,
-  getRunStatusCopy
-} from './helpers.js';
+import type { AppState, CliAdapter, Conversation, Locale, RunSession, Task } from '../../shared/domain.js';
+import { COPY, EVENT_LEVEL_LABELS, RUN_STATUS_LABELS, TASK_STATUS_LABELS, TRANSCRIPT_KIND_LABELS } from './copy.js';
+import { formatTime, getRunInvocationStateCopy, getRunStatusCopy } from './helpers.js';
 
 interface SessionsPageProps {
   locale: Locale;
@@ -56,7 +38,7 @@ export function SessionsPage(props: SessionsPageProps): React.JSX.Element {
     adapterById,
     isCancelling,
     onSelectRun,
-    onCancelRun
+    onCancelRun,
   } = props;
 
   const copy = COPY[locale];
@@ -83,7 +65,9 @@ export function SessionsPage(props: SessionsPageProps): React.JSX.Element {
                     key={run.id}
                     type="button"
                     className={`run-button ${selectedRunId === run.id ? 'is-active' : ''}`}
-                    onClick={() => onSelectRun(run.id)}
+                    onClick={() => {
+                      onSelectRun(run.id);
+                    }}
                   >
                     <div className="run-button-topline">
                       <span className={`state-badge state-${run.status}`}>{RUN_STATUS_LABELS[locale][run.status]}</span>
@@ -119,11 +103,15 @@ export function SessionsPage(props: SessionsPageProps): React.JSX.Element {
                   key={task.id}
                   type="button"
                   className={`list-card task-button ${task.runId === selectedRunId ? 'is-selected' : ''}`}
-                  onClick={() => onSelectRun(task.runId)}
+                  onClick={() => {
+                    onSelectRun(task.runId);
+                  }}
                 >
                   <div className="list-topline">
                     <h3>{task.title}</h3>
-                    <span className={`state-badge state-${task.status}`}>{TASK_STATUS_LABELS[locale][task.status]}</span>
+                    <span className={`state-badge state-${task.status}`}>
+                      {TASK_STATUS_LABELS[locale][task.status]}
+                    </span>
                   </div>
                   <p>{task.summary}</p>
                   <div className="mini-meta-row">
@@ -156,7 +144,9 @@ export function SessionsPage(props: SessionsPageProps): React.JSX.Element {
                     <button
                       type="button"
                       className="secondary-button secondary-button-danger"
-                      onClick={onCancelRun}
+                      onClick={() => {
+                        void onCancelRun();
+                      }}
                       disabled={isCancelling || selectedRunCancelPending}
                     >
                       {selectedRunCancelPending
@@ -196,7 +186,7 @@ export function SessionsPage(props: SessionsPageProps): React.JSX.Element {
                   </section>
                   <section className="info-card">
                     <span>{copy.processId}</span>
-                    <strong>{selectedRun.pid === null ? copy.emptyValue : selectedRun.pid}</strong>
+                    <strong>{selectedRun.pid ?? copy.emptyValue}</strong>
                   </section>
                   <section className="info-card">
                     <span>{copy.startedAt}</span>
@@ -208,7 +198,7 @@ export function SessionsPage(props: SessionsPageProps): React.JSX.Element {
                   </section>
                   <section className="info-card">
                     <span>{copy.exitCode}</span>
-                    <strong>{selectedRun.exitCode === null ? copy.emptyValue : selectedRun.exitCode}</strong>
+                    <strong>{selectedRun.exitCode ?? copy.emptyValue}</strong>
                   </section>
                   <section className="info-card">
                     <span>{copy.cancellationState}</span>
@@ -238,7 +228,9 @@ export function SessionsPage(props: SessionsPageProps): React.JSX.Element {
                     selectedRun.transcript.map((entry) => (
                       <section key={entry.id} className={`timeline-entry timeline-${entry.status}`}>
                         <div className="stream-label">
-                          <span className={`stream-chip stream-chip-${entry.status === 'failed' ? 'stderr' : entry.status === 'completed' ? 'success' : 'info'}`}>
+                          <span
+                            className={`stream-chip stream-chip-${entry.status === 'failed' ? 'stderr' : entry.status === 'completed' ? 'success' : 'info'}`}
+                          >
                             {TRANSCRIPT_KIND_LABELS[locale][entry.kind]}
                           </span>
                           <span className="mini-meta">{formatTime(locale, entry.timestamp)}</span>
@@ -311,7 +303,9 @@ export function SessionsPage(props: SessionsPageProps): React.JSX.Element {
                   <div className="stack-meta">
                     <div>
                       <span>{copy.status}</span>
-                      <strong>{selectedTask ? TASK_STATUS_LABELS[locale][selectedTask.status] : copy.emptyValue}</strong>
+                      <strong>
+                        {selectedTask ? TASK_STATUS_LABELS[locale][selectedTask.status] : copy.emptyValue}
+                      </strong>
                     </div>
                     <div>
                       <span>{copy.requestedBy}</span>
