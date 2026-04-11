@@ -1,0 +1,119 @@
+[
+  {
+    "id": "node-success",
+    "displayName": "Node Success",
+    "visibility": "internal",
+    "requiresDiscovery": false,
+    "command": "$NODE_EXEC_PATH",
+    "promptTransport": "arg",
+    "args": [
+      "-e",
+      "console.log('success adapter start'); console.log(process.argv[1]); setTimeout(() => { console.log('success adapter done'); process.exit(0); }, 50);",
+      "{{prompt}}"
+    ],
+    "description": "Deterministic smoke adapter that always succeeds after echoing the prompt.",
+    "capabilities": ["local execution", "success verification", "event streaming"],
+    "health": "healthy",
+    "enabled": true,
+    "defaultTimeoutMs": null,
+    "defaultModel": ""
+  },
+  {
+    "id": "node-failure",
+    "displayName": "Node Failure",
+    "visibility": "internal",
+    "requiresDiscovery": false,
+    "command": "$NODE_EXEC_PATH",
+    "promptTransport": "arg",
+    "args": [
+      "-e",
+      "console.error('failure adapter start'); console.error(process.argv[1]); setTimeout(() => { console.error('failure adapter done'); process.exit(7); }, 50);",
+      "{{prompt}}"
+    ],
+    "description": "Deterministic smoke adapter that always exits with a non-zero code.",
+    "capabilities": ["local execution", "failure verification", "event streaming"],
+    "health": "healthy",
+    "enabled": true,
+    "defaultTimeoutMs": null,
+    "defaultModel": ""
+  },
+  {
+    "id": "node-long-run",
+    "displayName": "Node Long Run",
+    "visibility": "internal",
+    "requiresDiscovery": false,
+    "command": "$NODE_EXEC_PATH",
+    "promptTransport": "arg",
+    "args": [
+      "-e",
+      "console.log('long run adapter start'); console.log(process.argv[1]); let tick = 0; const timer = setInterval(() => { tick += 1; console.log(`tick:${tick}`); }, 200); const shutdown = (signal) => { clearInterval(timer); console.log(`shutdown:${signal}`); process.exit(0); }; process.on('SIGTERM', () => shutdown('SIGTERM')); process.on('SIGINT', () => shutdown('SIGINT'));",
+      "{{prompt}}"
+    ],
+    "description": "Deterministic smoke adapter that keeps running until cancelled or timed out.",
+    "capabilities": ["local execution", "cancel verification", "timeout verification"],
+    "health": "idle",
+    "enabled": true,
+    "defaultTimeoutMs": null,
+    "defaultModel": ""
+  },
+  {
+    "id": "claude",
+    "displayName": "Claude Code",
+    "visibility": "user",
+    "requiresDiscovery": true,
+    "command": "claude",
+    "promptTransport": "arg",
+    "args": ["-p", "--output-format", "text", "--model", "{{model}}", "{{prompt}}"],
+    "description": "Use a locally installed Claude Code CLI for non-interactive planning and implementation runs. On some Windows setups, non-TTY print mode may require local auth/terminal support.",
+    "capabilities": ["planning", "implementation", "verification"],
+    "health": "idle",
+    "enabled": true,
+    "defaultTimeoutMs": null,
+    "defaultModel": "sonnet"
+  },
+  {
+    "id": "codex",
+    "displayName": "Codex CLI",
+    "visibility": "user",
+    "requiresDiscovery": true,
+    "command": "codex",
+    "promptTransport": "arg",
+    "args": ["exec", "--model", "{{model}}", "--json", "--", "{{prompt}}"],
+    "description": "Use a locally installed Codex CLI for non-interactive repository tasks with JSON event output for timeline parsing.",
+    "capabilities": ["code", "planning", "implementation"],
+    "health": "idle",
+    "enabled": true,
+    "defaultTimeoutMs": null,
+    "defaultModel": "gpt-5.4"
+  },
+  {
+    "id": "openai",
+    "displayName": "OpenAI CLI",
+    "visibility": "user",
+    "requiresDiscovery": true,
+    "command": "openai",
+    "promptTransport": "arg",
+    "args": ["responses.create", "--model", "{{model}}", "--input", "{{prompt}}"],
+    "description": "Use a locally installed OpenAI CLI when it is available on this machine.",
+    "capabilities": ["planning", "research"],
+    "health": "idle",
+    "enabled": true,
+    "defaultTimeoutMs": null,
+    "defaultModel": "gpt-5.4"
+  },
+  {
+    "id": "opencode",
+    "displayName": "OpenCode CLI",
+    "visibility": "user",
+    "requiresDiscovery": true,
+    "command": "opencode",
+    "promptTransport": "arg",
+    "args": ["run", "--model", "{{model}}", "--format", "json", "--title", "{{title}}", "{{prompt}}"],
+    "description": "Use a locally installed OpenCode CLI for local code execution workflows. Non-interactive mode may depend on local session state in some versions.",
+    "capabilities": ["implementation", "verification"],
+    "health": "idle",
+    "enabled": true,
+    "defaultTimeoutMs": null,
+    "defaultModel": "anthropic/claude-sonnet-4-20250514"
+  }
+]

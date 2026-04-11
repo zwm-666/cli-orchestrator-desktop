@@ -1,0 +1,40 @@
+[
+  {
+    "id": "filesystem",
+    "name": "Filesystem MCP",
+    "transport": "stdio",
+    "command": "npx",
+    "args": ["-y", "@modelcontextprotocol/server-filesystem", "."],
+    "env": {},
+    "toolAllowlist": [],
+    "healthStatus": "unknown",
+    "healthReason": "",
+    "enabled": false
+  },
+  {
+    "id": "git",
+    "name": "Git MCP",
+    "transport": "stdio",
+    "command": "npx",
+    "args": ["-y", "@modelcontextprotocol/server-git"],
+    "env": {},
+    "toolAllowlist": [],
+    "healthStatus": "unknown",
+    "healthReason": "",
+    "enabled": false
+  },
+  {
+    "id": "web-search",
+    "name": "Web Search MCP",
+    "transport": "stdio",
+    "command": "npx",
+    "args": ["-y", "@modelcontextprotocol/server-brave-search"],
+    "env": {
+      "BRAVE_API_KEY": ""
+    },
+    "toolAllowlist": [],
+    "healthStatus": "unknown",
+    "healthReason": "",
+    "enabled": false
+  }
+]

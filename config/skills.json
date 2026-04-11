@@ -1,0 +1,98 @@
+[
+  {
+    "id": "code-implementation",
+    "name": "Code Implementation",
+    "description": "Handles code writing, implementation, and feature development tasks.",
+    "trigger": {
+      "keywords": ["implement", "code", "write", "create", "build", "develop", "feature"],
+      "taskTypes": ["code", "frontend"]
+    },
+    "promptTemplate": "You are implementing code. Focus on clean, well-structured, production-ready code. Follow existing project conventions. Include appropriate error handling and comments for complex logic.",
+    "allowedTaskTypes": ["code", "frontend"],
+    "recommendedAgentRole": "coder",
+    "requiredMcpServerIds": [],
+    "inputSchema": null,
+    "enabled": true,
+    "version": "1.0.0"
+  },
+  {
+    "id": "bug-debugging",
+    "name": "Bug Debugging",
+    "description": "Systematic debugging and bug fixing with root cause analysis.",
+    "trigger": {
+      "keywords": ["bug", "fix", "debug", "error", "issue", "broken", "crash", "failing"],
+      "taskTypes": ["code"]
+    },
+    "promptTemplate": "You are debugging an issue. Follow a systematic approach: 1) Reproduce the problem, 2) Identify the root cause, 3) Implement the fix, 4) Verify the fix doesn't introduce regressions. Explain your reasoning at each step.",
+    "allowedTaskTypes": ["code", "frontend"],
+    "recommendedAgentRole": "coder",
+    "requiredMcpServerIds": [],
+    "inputSchema": null,
+    "enabled": true,
+    "version": "1.0.0"
+  },
+  {
+    "id": "repo-research",
+    "name": "Repository Research",
+    "description": "Codebase exploration, architecture understanding, and dependency analysis.",
+    "trigger": {
+      "keywords": ["research", "investigate", "explore", "understand", "analyze", "architecture", "dependencies"],
+      "taskTypes": ["research"]
+    },
+    "promptTemplate": "You are researching a codebase. Provide a thorough analysis including: file structure, key abstractions, dependency graph, and architectural patterns. Focus on facts rather than opinions.",
+    "allowedTaskTypes": ["research", "general"],
+    "recommendedAgentRole": "researcher",
+    "requiredMcpServerIds": [],
+    "inputSchema": null,
+    "enabled": true,
+    "version": "1.0.0"
+  },
+  {
+    "id": "test-writing",
+    "name": "Test Writing",
+    "description": "Writing unit tests, integration tests, and test plans.",
+    "trigger": {
+      "keywords": ["test", "testing", "spec", "unit test", "integration test", "coverage"],
+      "taskTypes": ["code"]
+    },
+    "promptTemplate": "You are writing tests. Ensure comprehensive coverage of: happy paths, edge cases, error conditions, and boundary values. Follow the project's existing test patterns and frameworks.",
+    "allowedTaskTypes": ["code"],
+    "recommendedAgentRole": "tester",
+    "requiredMcpServerIds": [],
+    "inputSchema": null,
+    "enabled": true,
+    "version": "1.0.0"
+  },
+  {
+    "id": "code-review",
+    "name": "Code Review",
+    "description": "Reviewing code for quality, correctness, security, and maintainability.",
+    "trigger": {
+      "keywords": ["review", "check", "audit", "quality", "security"],
+      "taskTypes": ["code"]
+    },
+    "promptTemplate": "You are reviewing code. Check for: correctness, security vulnerabilities, performance issues, maintainability, and adherence to project conventions. Provide specific, actionable feedback with line references.",
+    "allowedTaskTypes": ["code", "frontend"],
+    "recommendedAgentRole": "reviewer",
+    "requiredMcpServerIds": [],
+    "inputSchema": null,
+    "enabled": true,
+    "version": "1.0.0"
+  },
+  {
+    "id": "frontend-polish",
+    "name": "Frontend Polish",
+    "description": "UI/UX refinement, styling, accessibility, and responsive design.",
+    "trigger": {
+      "keywords": ["style", "css", "ui", "ux", "layout", "responsive", "accessibility", "design"],
+      "taskTypes": ["frontend"]
+    },
+    "promptTemplate": "You are polishing the frontend. Focus on: visual consistency, accessibility (WCAG), responsive behavior, smooth animations, and user experience. Use existing design system tokens and patterns.",
+    "allowedTaskTypes": ["frontend"],
+    "recommendedAgentRole": "coder",
+    "requiredMcpServerIds": [],
+    "inputSchema": null,
+    "enabled": true,
+    "version": "1.0.0"
+  }
+]
