@@ -1,7 +1,10 @@
+import { open, readdir, stat } from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { app, BrowserWindow, dialog, ipcMain } from 'electron';
 import type {
+  BrowseWorkspaceInput,
+  BrowseWorkspaceResult,
   CancelOrchestrationInput,
   CancelRunInput,
   CreateDraftConversationInput,
@@ -11,30 +14,38 @@ import type {
   GetOrchestrationRunInput,
   GetNextClaudeTaskResult,
   PlanDraftInput,
+  ReadWorkspaceFileInput,
+  ReadWorkspaceFileResult,
   RendererContinuityState,
   SaveAgentProfileInput,
   SaveMcpServerInput,
   SaveProjectContextInput,
   SaveSkillInput,
+  SaveWorkbenchStateInput,
   StartOrchestrationInput,
   UpdateRoutingSettingsInput,
   StartRunInput,
 } from '../shared/domain.js';
 import { IPC_CHANNELS } from '../shared/ipc.js';
+import type { SavePromptBuilderConfigInput } from '../shared/promptBuilder.js';
 import { LocalPersistenceStore } from './persistence.js';
 import { OrchestratorService } from './orchestratorService.js';
+import { PromptBuilderConfigService } from './services/promptBuilderConfigService.js';
 
 const currentDir = path.dirname(fileURLToPath(import.meta.url));
 const rootDir = path.resolve(currentDir, '..', '..');
 const electronDataDir = path.resolve(rootDir, '.cli-orchestrator', 'electron-data');
 const preloadPath = path.resolve(rootDir, 'dist/preload/preload.js');
 const rendererHtmlPath = path.resolve(rootDir, 'dist/renderer/index.html');
+const WORKSPACE_IGNORED_NAMES = new Set(['.cli-orchestrator', '.git', 'dist', 'node_modules', 'release']);
+const WORKSPACE_PREVIEW_BYTE_LIMIT = 256 * 1024;
 
 app.setPath('userData', electronDataDir);
 app.setPath('sessionData', path.resolve(electronDataDir, 'session'));
 
 const persistenceStore = new LocalPersistenceStore(rootDir);
 const orchestratorService = new OrchestratorService(rootDir, persistenceStore);
+const promptBuilderConfigService = new PromptBuilderConfigService(rootDir);
 
 const broadcastState = (): void => {
   const snapshot = orchestratorService.getAppState();
@@ -48,6 +59,124 @@ const broadcastRunEvent = (runEvent: import('../shared/domain.js').RunEvent): vo
   BrowserWindow.getAllWindows().forEach((window) => {
     window.webContents.send(IPC_CHANNELS.runEvent, runEvent);
   });
+};
+
+const normalizeWorkspaceRelativePath = (relativePath: string | null | undefined): string => {
+  const candidatePath = (relativePath ?? '').replace(/\\/g, '/').trim();
+
+  if (!candidatePath) {
+    return '';
+  }
+
+  const normalizedPath = path.posix.normalize(candidatePath).replace(/^\.\//, '');
+
+  if (normalizedPath === '.' || normalizedPath === '') {
+    return '';
+  }
+
+  if (normalizedPath === '..' || normalizedPath.startsWith('../')) {
+    throw new Error('Workspace browsing is restricted to the repository root.');
+  }
+
+  return normalizedPath;
+};
+
+const resolveWorkspacePath = (relativePath: string): string => {
+  const normalizedPath = normalizeWorkspaceRelativePath(relativePath);
+  const absolutePath = path.resolve(rootDir, normalizedPath);
+
+  if (absolutePath !== rootDir && !absolutePath.startsWith(`${rootDir}${path.sep}`)) {
+    throw new Error('Workspace browsing is restricted to the repository root.');
+  }
+
+  return absolutePath;
+};
+
+const getParentWorkspacePath = (relativePath: string): string | null => {
+  if (!relativePath) {
+    return null;
+  }
+
+  const parentPath = path.posix.dirname(relativePath);
+
+  return parentPath === '.' ? null : parentPath;
+};
+
+const browseWorkspace = async (input: BrowseWorkspaceInput): Promise<BrowseWorkspaceResult> => {
+  const currentPath = normalizeWorkspaceRelativePath(input.relativePath);
+  const absolutePath = resolveWorkspacePath(currentPath);
+  const currentStats = await stat(absolutePath);
+
+  if (!currentStats.isDirectory()) {
+    throw new Error('Only directories can be browsed in the workbench explorer.');
+  }
+
+  const directoryEntries = await readdir(absolutePath, { withFileTypes: true });
+  const entries = directoryEntries
+    .filter((entry) => !WORKSPACE_IGNORED_NAMES.has(entry.name))
+    .filter((entry) => entry.isDirectory() || entry.isFile())
+    .map((entry) => {
+      const relativeEntryPath = currentPath ? `${currentPath}/${entry.name}` : entry.name;
+      const extension = entry.isFile() ? path.extname(entry.name) || null : null;
+
+      return {
+        name: entry.name,
+        relativePath: relativeEntryPath,
+        type: entry.isDirectory() ? ('directory' as const) : ('file' as const),
+        extension,
+      };
+    })
+    .sort((leftEntry, rightEntry) => {
+      if (leftEntry.type !== rightEntry.type) {
+        return leftEntry.type === 'directory' ? -1 : 1;
+      }
+
+      return leftEntry.name.localeCompare(rightEntry.name);
+    });
+
+  return {
+    rootLabel: path.basename(rootDir),
+    currentPath,
+    parentPath: getParentWorkspacePath(currentPath),
+    entries,
+  };
+};
+
+const readWorkspaceFile = async (input: ReadWorkspaceFileInput): Promise<ReadWorkspaceFileResult> => {
+  const relativePath = normalizeWorkspaceRelativePath(input.relativePath);
+
+  if (!relativePath) {
+    throw new Error('Select a file inside the repository to preview it.');
+  }
+
+  const absolutePath = resolveWorkspacePath(relativePath);
+  const fileStats = await stat(absolutePath);
+
+  if (!fileStats.isFile()) {
+    throw new Error('Only text files can be previewed in the workbench.');
+  }
+
+  const byteLength = Math.min(fileStats.size, WORKSPACE_PREVIEW_BYTE_LIMIT);
+  const fileHandle = await open(absolutePath, 'r');
+
+  try {
+    const buffer = Buffer.alloc(byteLength);
+    await fileHandle.read(buffer, 0, byteLength, 0);
+
+    if (buffer.subarray(0, Math.min(buffer.length, 4096)).includes(0)) {
+      throw new Error('Binary files cannot be previewed in the workbench.');
+    }
+
+    return {
+      rootLabel: path.basename(rootDir),
+      relativePath,
+      content: buffer.toString('utf8'),
+      truncated: fileStats.size > WORKSPACE_PREVIEW_BYTE_LIMIT,
+      totalBytes: fileStats.size,
+    };
+  } finally {
+    await fileHandle.close();
+  }
 };
 
 const createMainWindow = async (): Promise<BrowserWindow> => {
@@ -118,6 +247,18 @@ const registerIpc = (): void => {
 
   ipcMain.handle(IPC_CHANNELS.saveProjectContext, (_event, input: SaveProjectContextInput) => {
     return orchestratorService.saveProjectContext(input);
+  });
+
+  ipcMain.handle(IPC_CHANNELS.saveWorkbenchState, (_event, input: SaveWorkbenchStateInput) => {
+    return orchestratorService.saveWorkbenchState(input);
+  });
+
+  ipcMain.handle(IPC_CHANNELS.getPromptBuilderConfig, () => {
+    return promptBuilderConfigService.loadConfig();
+  });
+
+  ipcMain.handle(IPC_CHANNELS.savePromptBuilderConfig, (_event, input: SavePromptBuilderConfigInput) => {
+    return promptBuilderConfigService.saveConfig(input.config);
   });
 
   ipcMain.handle(IPC_CHANNELS.getNextClaudeTask, (): GetNextClaudeTaskResult => {
@@ -198,6 +339,14 @@ const registerIpc = (): void => {
 
   ipcMain.handle(IPC_CHANNELS.deleteMcpServer, (_event, input: DeleteMcpServerInput) => {
     orchestratorService.deleteMcpServer(input);
+  });
+
+  ipcMain.handle(IPC_CHANNELS.browseWorkspace, (_event, input: BrowseWorkspaceInput) => {
+    return browseWorkspace(input);
+  });
+
+  ipcMain.handle(IPC_CHANNELS.readWorkspaceFile, (_event, input: ReadWorkspaceFileInput) => {
+    return readWorkspaceFile(input);
   });
 };
 

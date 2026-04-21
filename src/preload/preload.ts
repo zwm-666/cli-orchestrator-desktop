@@ -2,6 +2,8 @@ import { contextBridge, ipcRenderer } from 'electron';
 import type {
   AgentProfile,
   AppState,
+  BrowseWorkspaceInput,
+  BrowseWorkspaceResult,
   CancelOrchestrationInput,
   CancelRunInput,
   CategoryRunSummary,
@@ -16,6 +18,8 @@ import type {
   PlanDraftInput,
   PlanDraftResult,
   ProjectContextState,
+  ReadWorkspaceFileInput,
+  ReadWorkspaceFileResult,
   RendererContinuityState,
   RoutingSettings,
   RunEvent,
@@ -23,6 +27,7 @@ import type {
   SaveMcpServerInput,
   SaveProjectContextInput,
   SaveSkillInput,
+  SaveWorkbenchStateInput,
   SkillDefinition,
   StartOrchestrationInput,
   StartRunInput,
@@ -30,6 +35,7 @@ import type {
   UpdateRoutingSettingsInput,
 } from '../shared/domain.js';
 import { type DesktopApi, IPC_CHANNELS } from '../shared/ipc.js';
+import type { PromptBuilderConfig, SavePromptBuilderConfigInput } from '../shared/promptBuilder.js';
 
 const desktopApi: DesktopApi = {
   // Existing methods
@@ -44,6 +50,11 @@ const desktopApi: DesktopApi = {
   getProjectContext: (): Promise<ProjectContextState> => ipcRenderer.invoke(IPC_CHANNELS.getProjectContext),
   saveProjectContext: (input: SaveProjectContextInput): Promise<ProjectContextState> =>
     ipcRenderer.invoke(IPC_CHANNELS.saveProjectContext, input),
+  saveWorkbenchState: (input: SaveWorkbenchStateInput): Promise<AppState> =>
+    ipcRenderer.invoke(IPC_CHANNELS.saveWorkbenchState, input),
+  getPromptBuilderConfig: (): Promise<PromptBuilderConfig> => ipcRenderer.invoke(IPC_CHANNELS.getPromptBuilderConfig),
+  savePromptBuilderConfig: (input: SavePromptBuilderConfigInput): Promise<PromptBuilderConfig> =>
+    ipcRenderer.invoke(IPC_CHANNELS.savePromptBuilderConfig, input),
   getNextClaudeTask: (): Promise<GetNextClaudeTaskResult> => ipcRenderer.invoke(IPC_CHANNELS.getNextClaudeTask),
   createDraftConversation: (input: CreateDraftConversationInput) =>
     ipcRenderer.invoke(IPC_CHANNELS.createDraftConversation, input),
@@ -88,6 +99,10 @@ const desktopApi: DesktopApi = {
     ipcRenderer.invoke(IPC_CHANNELS.saveMcpServer, input),
   deleteMcpServer: (input: DeleteMcpServerInput): Promise<void> =>
     ipcRenderer.invoke(IPC_CHANNELS.deleteMcpServer, input),
+  browseWorkspace: (input: BrowseWorkspaceInput): Promise<BrowseWorkspaceResult> =>
+    ipcRenderer.invoke(IPC_CHANNELS.browseWorkspace, input),
+  readWorkspaceFile: (input: ReadWorkspaceFileInput): Promise<ReadWorkspaceFileResult> =>
+    ipcRenderer.invoke(IPC_CHANNELS.readWorkspaceFile, input),
 };
 
 contextBridge.exposeInMainWorld('desktopApi', desktopApi);

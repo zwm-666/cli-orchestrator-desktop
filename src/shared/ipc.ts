@@ -1,6 +1,8 @@
 import type {
   AgentProfile,
   AppState,
+  BrowseWorkspaceInput,
+  BrowseWorkspaceResult,
   CancelOrchestrationInput,
   CancelOrchestrationResult,
   CancelRunInput,
@@ -18,6 +20,8 @@ import type {
   PlanDraftInput,
   PlanDraftResult,
   ProjectContextState,
+  ReadWorkspaceFileInput,
+  ReadWorkspaceFileResult,
   RendererContinuityState,
   RoutingSettings,
   RunEvent,
@@ -25,6 +29,7 @@ import type {
   SaveMcpServerInput,
   SaveProjectContextInput,
   SaveSkillInput,
+  SaveWorkbenchStateInput,
   SkillDefinition,
   StartOrchestrationInput,
   StartOrchestrationResult,
@@ -33,6 +38,7 @@ import type {
   TaskType,
   UpdateRoutingSettingsInput,
 } from './domain.js';
+import type { PromptBuilderConfig, SavePromptBuilderConfigInput } from './promptBuilder.js';
 
 export const IPC_CHANNELS = {
   // Existing channels
@@ -44,6 +50,9 @@ export const IPC_CHANNELS = {
   saveRoutingSettings: 'routing:save-settings',
   getProjectContext: 'project:get-context',
   saveProjectContext: 'project:save-context',
+  saveWorkbenchState: 'workbench:save-state',
+  getPromptBuilderConfig: 'prompt-builder:get-config',
+  savePromptBuilderConfig: 'prompt-builder:save-config',
   getNextClaudeTask: 'project:get-next-claude-task',
   createDraftConversation: 'conversation:create-draft',
   createPlanDraft: 'plan:create-draft',
@@ -72,6 +81,8 @@ export const IPC_CHANNELS = {
   getMcpServers: 'mcp:get-servers',
   saveMcpServer: 'mcp:save-server',
   deleteMcpServer: 'mcp:delete-server',
+  browseWorkspace: 'workspace:browse',
+  readWorkspaceFile: 'workspace:read-file',
 } as const;
 
 export interface DesktopApi {
@@ -84,6 +95,9 @@ export interface DesktopApi {
   saveRoutingSettings: (input: UpdateRoutingSettingsInput) => Promise<RoutingSettings>;
   getProjectContext: () => Promise<ProjectContextState>;
   saveProjectContext: (input: SaveProjectContextInput) => Promise<ProjectContextState>;
+  saveWorkbenchState: (input: SaveWorkbenchStateInput) => Promise<AppState>;
+  getPromptBuilderConfig: () => Promise<PromptBuilderConfig>;
+  savePromptBuilderConfig: (input: SavePromptBuilderConfigInput) => Promise<PromptBuilderConfig>;
   getNextClaudeTask: () => Promise<GetNextClaudeTaskResult>;
   createDraftConversation: (input: CreateDraftConversationInput) => Promise<CreateDraftConversationResult>;
   createPlanDraft: (input: PlanDraftInput) => Promise<PlanDraftResult>;
@@ -112,6 +126,8 @@ export interface DesktopApi {
   getMcpServers: () => Promise<McpServerDefinition[]>;
   saveMcpServer: (input: SaveMcpServerInput) => Promise<McpServerDefinition>;
   deleteMcpServer: (input: DeleteMcpServerInput) => Promise<void>;
+  browseWorkspace: (input: BrowseWorkspaceInput) => Promise<BrowseWorkspaceResult>;
+  readWorkspaceFile: (input: ReadWorkspaceFileInput) => Promise<ReadWorkspaceFileResult>;
 }
 
 export interface IpcRequestMap {
@@ -123,6 +139,9 @@ export interface IpcRequestMap {
   [IPC_CHANNELS.saveRoutingSettings]: UpdateRoutingSettingsInput;
   [IPC_CHANNELS.getProjectContext]: undefined;
   [IPC_CHANNELS.saveProjectContext]: SaveProjectContextInput;
+  [IPC_CHANNELS.saveWorkbenchState]: SaveWorkbenchStateInput;
+  [IPC_CHANNELS.getPromptBuilderConfig]: undefined;
+  [IPC_CHANNELS.savePromptBuilderConfig]: SavePromptBuilderConfigInput;
   [IPC_CHANNELS.getNextClaudeTask]: undefined;
   [IPC_CHANNELS.createDraftConversation]: CreateDraftConversationInput;
   [IPC_CHANNELS.createPlanDraft]: PlanDraftInput;
@@ -149,6 +168,8 @@ export interface IpcRequestMap {
   [IPC_CHANNELS.getMcpServers]: undefined;
   [IPC_CHANNELS.saveMcpServer]: SaveMcpServerInput;
   [IPC_CHANNELS.deleteMcpServer]: DeleteMcpServerInput;
+  [IPC_CHANNELS.browseWorkspace]: BrowseWorkspaceInput;
+  [IPC_CHANNELS.readWorkspaceFile]: ReadWorkspaceFileInput;
 }
 
 export interface IpcResponseMap {
@@ -160,6 +181,9 @@ export interface IpcResponseMap {
   [IPC_CHANNELS.saveRoutingSettings]: RoutingSettings;
   [IPC_CHANNELS.getProjectContext]: ProjectContextState;
   [IPC_CHANNELS.saveProjectContext]: ProjectContextState;
+  [IPC_CHANNELS.saveWorkbenchState]: AppState;
+  [IPC_CHANNELS.getPromptBuilderConfig]: PromptBuilderConfig;
+  [IPC_CHANNELS.savePromptBuilderConfig]: PromptBuilderConfig;
   [IPC_CHANNELS.getNextClaudeTask]: GetNextClaudeTaskResult;
   [IPC_CHANNELS.createDraftConversation]: CreateDraftConversationResult;
   [IPC_CHANNELS.createPlanDraft]: PlanDraftResult;
@@ -186,4 +210,6 @@ export interface IpcResponseMap {
   [IPC_CHANNELS.getMcpServers]: McpServerDefinition[];
   [IPC_CHANNELS.saveMcpServer]: McpServerDefinition;
   [IPC_CHANNELS.deleteMcpServer]: undefined;
+  [IPC_CHANNELS.browseWorkspace]: BrowseWorkspaceResult;
+  [IPC_CHANNELS.readWorkspaceFile]: ReadWorkspaceFileResult;
 }

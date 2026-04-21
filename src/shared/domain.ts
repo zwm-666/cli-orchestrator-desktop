@@ -152,6 +152,64 @@ export interface NextClaudeTaskState {
   status: 'idle' | 'ready';
 }
 
+export type WorkbenchTaskStatus = 'pending' | 'in_progress' | 'completed';
+export type WorkbenchTaskSource = 'planner' | 'assistant' | 'manual';
+export type WorkbenchTargetKind = 'provider' | 'adapter';
+
+export interface WorkbenchTaskItem {
+  id: string;
+  title: string;
+  detail: string;
+  status: WorkbenchTaskStatus;
+  source: WorkbenchTaskSource;
+  createdAt: string;
+  updatedAt: string;
+  completedAt: string | null;
+}
+
+export interface WorkbenchSkillBinding {
+  id: string;
+  targetKind: WorkbenchTargetKind;
+  targetId: string;
+  modelPattern: string;
+  enabledSkillIds: string[];
+}
+
+export interface WorkbenchActivitySummary {
+  sourceKind: WorkbenchTargetKind;
+  sourceId: string;
+  sourceLabel: string;
+  modelLabel: string;
+  status: string;
+  detail: string;
+  taskUpdateSummary: string;
+  recordedAt: string;
+}
+
+export interface WorkbenchState {
+  objective: string;
+  tasks: WorkbenchTaskItem[];
+  skillBindings: WorkbenchSkillBinding[];
+  promptBuilderCommand: string | null;
+  processedRunIds: string[];
+  latestProviderActivity: WorkbenchActivitySummary | null;
+  latestAdapterActivity: WorkbenchActivitySummary | null;
+  generatedAt: string | null;
+  updatedAt: string | null;
+}
+
+export const DEFAULT_WORKBENCH_STATE: WorkbenchState = {
+  objective: '',
+  tasks: [],
+  skillBindings: [],
+  promptBuilderCommand: null,
+  processedRunIds: [],
+  latestProviderActivity: null,
+  latestAdapterActivity: null,
+  generatedAt: null,
+  updatedAt: null,
+};
+
 export interface LaunchFormDraft {
   title: string;
   prompt: string;
@@ -524,6 +582,7 @@ export interface AppState {
   mcpServers: McpServerDefinition[];
   orchestrationRuns: OrchestrationRun[];
   orchestrationNodes: OrchestrationNode[];
+  workbench?: WorkbenchState;
 }
 
 // ---------------------------------------------------------------------------
@@ -604,8 +663,44 @@ export interface SaveProjectContextInput {
   summary: string;
 }
 
+export interface SaveWorkbenchStateInput {
+  state: WorkbenchState;
+}
+
 export interface GetNextClaudeTaskResult {
   nextTask: NextClaudeTaskState;
+}
+
+export type WorkspaceEntryType = 'directory' | 'file';
+
+export interface WorkspaceEntry {
+  name: string;
+  relativePath: string;
+  type: WorkspaceEntryType;
+  extension: string | null;
+}
+
+export interface BrowseWorkspaceInput {
+  relativePath: string | null;
+}
+
+export interface BrowseWorkspaceResult {
+  rootLabel: string;
+  currentPath: string;
+  parentPath: string | null;
+  entries: WorkspaceEntry[];
+}
+
+export interface ReadWorkspaceFileInput {
+  relativePath: string;
+}
+
+export interface ReadWorkspaceFileResult {
+  rootLabel: string;
+  relativePath: string;
+  content: string;
+  truncated: boolean;
+  totalBytes: number;
 }
 
 // ---------------------------------------------------------------------------
@@ -622,6 +717,7 @@ export interface PersistedAppState {
   mcpServers: McpServerDefinition[];
   orchestrationRuns: OrchestrationRun[];
   orchestrationNodes: OrchestrationNode[];
+  workbench?: WorkbenchState;
 }
 
 export interface PersistedAppEnvelope {

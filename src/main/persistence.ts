@@ -27,8 +27,13 @@ import type {
   TaskRoutingProfile,
   TaskRoutingRule,
   TaskType,
+  WorkbenchSkillBinding,
+  WorkbenchActivitySummary,
+  WorkbenchState,
+  WorkbenchTaskItem,
 } from '../shared/domain.js';
 import {
+  DEFAULT_WORKBENCH_STATE,
   DEFAULT_RETRY_POLICY,
   DEFAULT_ROUTING_SETTINGS,
   DEFAULT_TASK_ROUTING_PROFILES,
@@ -50,6 +55,7 @@ interface PersistedAppData {
   orchestrationRuns: OrchestrationRun[];
   orchestrationNodes: OrchestrationNode[];
   projectContext: { summary: string; updatedAt: string | null };
+  workbench?: WorkbenchState;
 }
 interface PersistedEnvelopeV1 {
   version: typeof PERSISTENCE_VERSION;
@@ -251,6 +257,92 @@ const normalizeContinuityState = (value: unknown): RendererContinuityState => {
     selectedRunId: normalizeNullableString(value.selectedRunId),
     selectedConversationId,
     locale: value.locale === 'zh' ? 'zh' : 'en',
+  };
+};
+
+const normalizeWorkbenchTaskItem = (value: unknown): WorkbenchTaskItem | null => {
+  if (!isJsonObject(value) || typeof value.id !== 'string' || value.id.trim().length === 0) {
+    return null;
+  }
+
+  const status = value.status === 'in_progress' || value.status === 'completed' ? value.status : 'pending';
+  const source = value.source === 'assistant' || value.source === 'manual' ? value.source : 'planner';
+
+  return {
+    id: value.id.trim(),
+    title: typeof value.title === 'string' ? value.title : '',
+    detail: typeof value.detail === 'string' ? value.detail : '',
+    status,
+    source,
+    createdAt: typeof value.createdAt === 'string' ? value.createdAt : new Date().toISOString(),
+    updatedAt: typeof value.updatedAt === 'string' ? value.updatedAt : new Date().toISOString(),
+    completedAt: normalizeNullableString(value.completedAt),
+  };
+};
+
+const normalizeWorkbenchSkillBinding = (value: unknown): WorkbenchSkillBinding | null => {
+  if (!isJsonObject(value) || typeof value.id !== 'string' || value.id.trim().length === 0) {
+    return null;
+  }
+
+  return {
+    id: value.id.trim(),
+    targetKind: value.targetKind === 'adapter' ? 'adapter' : 'provider',
+    targetId: typeof value.targetId === 'string' ? value.targetId : '',
+    modelPattern: typeof value.modelPattern === 'string' ? value.modelPattern : '',
+    enabledSkillIds: Array.isArray(value.enabledSkillIds)
+      ? (value.enabledSkillIds as string[]).filter((entry) => typeof entry === 'string')
+      : [],
+  };
+};
+
+const normalizeWorkbenchActivitySummary = (value: unknown): WorkbenchActivitySummary | null => {
+  if (!isJsonObject(value)) {
+    return null;
+  }
+
+  const sourceId = typeof value.sourceId === 'string' ? value.sourceId : '';
+  const sourceLabel = typeof value.sourceLabel === 'string' ? value.sourceLabel : '';
+
+  if (!sourceId || !sourceLabel) {
+    return null;
+  }
+
+  return {
+    sourceKind: value.sourceKind === 'adapter' ? 'adapter' : 'provider',
+    sourceId,
+    sourceLabel,
+    modelLabel: typeof value.modelLabel === 'string' ? value.modelLabel : '',
+    status: typeof value.status === 'string' ? value.status : '',
+    detail: typeof value.detail === 'string' ? value.detail : '',
+    taskUpdateSummary: typeof value.taskUpdateSummary === 'string' ? value.taskUpdateSummary : '',
+    recordedAt: typeof value.recordedAt === 'string' ? value.recordedAt : new Date().toISOString(),
+  };
+};
+
+const normalizeWorkbenchState = (value: unknown): WorkbenchState => {
+  if (!isJsonObject(value)) {
+    return structuredClone(DEFAULT_WORKBENCH_STATE);
+  }
+
+  return {
+    objective: typeof value.objective === 'string' ? value.objective : '',
+    tasks: Array.isArray(value.tasks)
+      ? (value.tasks as unknown[]).map(normalizeWorkbenchTaskItem).filter((entry): entry is WorkbenchTaskItem => entry !== null)
+      : [],
+    skillBindings: Array.isArray(value.skillBindings)
+      ? (value.skillBindings as unknown[])
+          .map(normalizeWorkbenchSkillBinding)
+          .filter((entry): entry is WorkbenchSkillBinding => entry !== null)
+      : [],
+    promptBuilderCommand: normalizeNullableString(value.promptBuilderCommand),
+    processedRunIds: Array.isArray(value.processedRunIds)
+      ? (value.processedRunIds as string[]).filter((entry) => typeof entry === 'string')
+      : [],
+    latestProviderActivity: normalizeWorkbenchActivitySummary(value.latestProviderActivity),
+    latestAdapterActivity: normalizeWorkbenchActivitySummary(value.latestAdapterActivity),
+    generatedAt: normalizeNullableString(value.generatedAt),
+    updatedAt: normalizeNullableString(value.updatedAt),
   };
 };
 const createRecoveryEvent = (runId: string, message: string): RunEvent => {
@@ -626,6 +718,7 @@ const normalizePersistedAppData = (value: unknown): PersistedAppData | null => {
           status: value.nextClaudeTask.status === 'ready' ? 'ready' : 'idle',
         }
       : { prompt: '', sourceOrchestrationRunId: null, generatedAt: null, status: 'idle' },
+    workbench: normalizeWorkbenchState(value.workbench),
   };
 };
 // ---------------------------------------------------------------------------
@@ -677,6 +770,7 @@ export class LocalPersistenceStore {
       tasks: structuredClone(state.tasks),
       runs: structuredClone(state.runs),
       nextClaudeTask: structuredClone(state.nextClaudeTask),
+      workbench: structuredClone(state.workbench ?? DEFAULT_WORKBENCH_STATE),
       agentProfiles: structuredClone(state.agentProfiles),
       skills: structuredClone(state.skills),
       mcpServers: structuredClone(state.mcpServers),
@@ -720,6 +814,7 @@ export class LocalPersistenceStore {
         tasks: [],
         runs: [],
         nextClaudeTask: { prompt: '', sourceOrchestrationRunId: null, generatedAt: null, status: 'idle' },
+        workbench: structuredClone(DEFAULT_WORKBENCH_STATE),
         agentProfiles: [],
         skills: [],
         mcpServers: [],
