@@ -10,7 +10,8 @@
  * 2. mergePersistedProfiles()  – overlays user-persisted overrides
  */
 
-import { existsSync, readFileSync, writeFileSync, mkdirSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
+import { mkdir, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import type { AgentProfile, AgentRoleType } from '../../shared/domain.js';
 
@@ -109,14 +110,14 @@ export class AgentRegistryService {
     } else {
       this.profiles.push(structuredClone(profile));
     }
-    this.writeConfig();
+    void this.writeConfig();
     return structuredClone(profile);
   }
 
   /** Delete an agent profile by ID. */
   public delete(profileId: string): void {
     this.profiles = this.profiles.filter((p) => p.id !== profileId);
-    this.writeConfig();
+    void this.writeConfig();
   }
 
   /** Get the master agent profile (if any). */
@@ -124,8 +125,8 @@ export class AgentRegistryService {
     return this.resolveForRole('master');
   }
 
-  private writeConfig(): void {
-    mkdirSync(path.dirname(this.configPath), { recursive: true });
-    writeFileSync(this.configPath, JSON.stringify(this.profiles, null, 2) + '\n', 'utf8');
+  private async writeConfig(): Promise<void> {
+    await mkdir(path.dirname(this.configPath), { recursive: true });
+    await writeFile(this.configPath, JSON.stringify(this.profiles, null, 2) + '\n', 'utf8');
   }
 }
