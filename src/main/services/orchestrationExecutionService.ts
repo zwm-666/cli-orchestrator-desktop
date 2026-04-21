@@ -128,7 +128,7 @@ export class OrchestrationExecutionService {
         this.persistContext(context);
 
         const orchestrationId = context.orchestrationRun.id;
-        setTimeout(() => {
+        const retryDispatch = (): void => {
           const activeContext = this.activeOrchestrations.get(orchestrationId);
           if (!activeContext || activeContext.orchestrationRun.status !== 'executing') {
             return;
@@ -136,6 +136,15 @@ export class OrchestrationExecutionService {
 
           this.dispatchReadyNodes(activeContext, agentProfiles);
           this.persistContext(activeContext);
+        };
+
+        if (retryDelayMs <= 0) {
+          retryDispatch();
+          return;
+        }
+
+        setTimeout(() => {
+          retryDispatch();
         }, retryDelayMs);
 
         return;

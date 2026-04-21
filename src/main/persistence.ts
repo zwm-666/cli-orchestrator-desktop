@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync, readFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs';
 import { mkdir, rename, rm, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import type {
@@ -756,7 +756,7 @@ export class LocalPersistenceStore {
   }
   public saveContinuityState(value: RendererContinuityState): RendererContinuityState {
     this.continuityState = normalizeContinuityState(value);
-    this.scheduleWriteEnvelope();
+    this.writeEnvelopeSync();
     return this.getContinuityState();
   }
   public getRoutingSettings(): RoutingSettings {
@@ -764,10 +764,26 @@ export class LocalPersistenceStore {
   }
   public saveRoutingSettings(value: RoutingSettings): RoutingSettings {
     this.routingSettings = normalizeRoutingSettings(value);
-    this.scheduleWriteEnvelope();
+    this.writeEnvelopeSync();
     return this.getRoutingSettings();
   }
   public saveAppState(state: AppState): void {
+    this.appData = {
+      conversations: structuredClone(state.conversations),
+      tasks: structuredClone(state.tasks),
+      runs: structuredClone(state.runs),
+      nextClaudeTask: structuredClone(state.nextClaudeTask),
+      workbench: structuredClone(state.workbench ?? DEFAULT_WORKBENCH_STATE),
+      agentProfiles: structuredClone(state.agentProfiles),
+      skills: structuredClone(state.skills),
+      mcpServers: structuredClone(state.mcpServers),
+      orchestrationRuns: structuredClone(state.orchestrationRuns),
+      projectContext: state.projectContext,
+      orchestrationNodes: structuredClone(state.orchestrationNodes),
+    };
+    this.writeEnvelopeSync();
+  }
+  public queueAppStateSave(state: AppState): void {
     this.appData = {
       conversations: structuredClone(state.conversations),
       tasks: structuredClone(state.tasks),
@@ -819,8 +835,48 @@ export class LocalPersistenceStore {
     }, 500);
   }
 
-  private async writeEnvelopeAsync(): Promise<void> {
+  private writeEnvelopeSync(): void {
     mkdirSync(path.dirname(this.filePath), { recursive: true });
+    const envelope: PersistedEnvelopeV1 = {
+      version: PERSISTENCE_VERSION,
+      projectRoot: this.rootDir,
+      savedAt: new Date().toISOString(),
+      appState: this.appData ?? {
+        conversations: [],
+        tasks: [],
+        runs: [],
+        nextClaudeTask: { prompt: '', sourceOrchestrationRunId: null, generatedAt: null, status: 'idle' },
+        workbench: structuredClone(DEFAULT_WORKBENCH_STATE),
+        agentProfiles: [],
+        skills: [],
+        mcpServers: [],
+        orchestrationRuns: [],
+        orchestrationNodes: [],
+        projectContext: { summary: '', updatedAt: null },
+      },
+      continuity: this.getContinuityState(),
+      routing: this.getRoutingSettings(),
+    };
+    const nextPath = `${this.filePath}.${process.pid}.${crypto.randomUUID()}.tmp`;
+    const backupPath = this.backupFilePath;
+    writeFileSync(nextPath, `${JSON.stringify(envelope, null, 2)}\n`, 'utf8');
+    if (existsSync(this.filePath)) {
+      rmSync(backupPath, { force: true });
+      renameSync(this.filePath, backupPath);
+    }
+    try {
+      renameSync(nextPath, this.filePath);
+      rmSync(backupPath, { force: true });
+    } catch (error) {
+      if (existsSync(backupPath) && !existsSync(this.filePath)) {
+        renameSync(backupPath, this.filePath);
+      }
+      rmSync(nextPath, { force: true });
+      throw error;
+    }
+  }
+
+  private async writeEnvelopeAsync(): Promise<void> {
     const envelope: PersistedEnvelopeV1 = {
       version: PERSISTENCE_VERSION,
       projectRoot: this.rootDir,
