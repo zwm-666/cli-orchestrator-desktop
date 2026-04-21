@@ -140,5 +140,39 @@
     "defaultTimeoutMs": null,
     "defaultModel": "anthropic/claude-sonnet-4-20250514",
     "supportedModels": ["anthropic/claude-sonnet-4-20250514", "anthropic/claude-opus-4-20250514", "openai/gpt-5.4"]
+  },
+  {
+    "id": "cursor",
+    "displayName": "Cursor",
+    "visibility": "user",
+    "requiresDiscovery": false,
+    "launchMode": "manual_handoff",
+    "command": "cursor",
+    "promptTransport": "arg",
+    "args": [],
+    "description": "Prepare a manual handoff for Cursor so you can paste the task into the editor and continue from the same workbench.",
+    "capabilities": ["manual handoff", "editor workflow", "implementation"],
+    "health": "idle",
+    "enabled": true,
+    "defaultTimeoutMs": null,
+    "defaultModel": "",
+    "supportedModels": []
+  },
+  {
+    "id": "vscode",
+    "displayName": "VS Code",
+    "visibility": "user",
+    "requiresDiscovery": false,
+    "launchMode": "manual_handoff",
+    "command": "code",
+    "promptTransport": "arg",
+    "args": [],
+    "description": "Prepare a manual handoff for VS Code tasks so work can move into the editor without leaving the desktop shell.",
+    "capabilities": ["manual handoff", "editor workflow", "review"],
+    "health": "idle",
+    "enabled": true,
+    "defaultTimeoutMs": null,
+    "defaultModel": "",
+    "supportedModels": []
   }
 ]

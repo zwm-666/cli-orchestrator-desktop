@@ -33,6 +33,7 @@ import type {
   SaveMcpServerInput,
   SaveProjectContextInput,
   SaveSkillInput,
+  SaveWorkbenchStateInput,
   SkillDefinition,
   StartOrchestrationInput,
   StartOrchestrationResult,
@@ -41,6 +42,7 @@ import type {
   Task,
   TaskStatus,
 } from '../shared/domain.js';
+import { DEFAULT_WORKBENCH_STATE } from '../shared/domain.js';
 import { stripAnsi } from '../shared/stripAnsi.js';
 import type { LocalPersistenceStore } from './persistence.js';
 import { AgentRegistryService } from './services/agentRegistryService.js';
@@ -160,6 +162,23 @@ const quoteShellArgument = (value: string): string => {
 
 const buildShellCommand = (command: string, args: string[]): string => {
   return [quoteShellArgument(command), ...args.map((arg) => quoteShellArgument(arg))].join(' ');
+};
+
+const formatManualHandoffInstructions = (adapter: Pick<CliAdapter, 'displayName' | 'id'>, model: string | null, prompt: string): string => {
+  const modelLine = model ? `Model: ${model}` : 'Model: use the editor tool default';
+
+  return [
+    `Manual handoff prepared for ${adapter.displayName}.`,
+    '',
+    '1. Open the target editor/tool.',
+    '2. Open this repository root.',
+    `3. Paste the task below into ${adapter.displayName}.`,
+    '',
+    modelLine,
+    '',
+    'Prompt:',
+    prompt,
+  ].join('\n');
 };
 
 const getAdapterDiscoveryReason = (adapterId: string, command: string, available: boolean): string => {
@@ -393,6 +412,77 @@ const canAccessExecutablePath = (candidatePath: string): boolean => {
   }
 };
 
+const normalizeDirectoryEntry = (entry: string): string => {
+  const trimmed = entry.trim();
+  if (trimmed.startsWith('"') && trimmed.endsWith('"')) {
+    return trimmed.slice(1, -1);
+  }
+
+  return trimmed;
+};
+
+const getWindowsFallbackExecutableDirectories = (): string[] => {
+  if (process.platform !== 'win32') {
+    return [];
+  }
+
+  const candidates = [
+    process.env.APPDATA ? path.join(process.env.APPDATA, 'npm') : null,
+    process.env.LOCALAPPDATA ? path.join(process.env.LOCALAPPDATA, 'Microsoft', 'WinGet', 'Links') : null,
+    process.env.USERPROFILE ? path.join(process.env.USERPROFILE, '.bun', 'bin') : null,
+    process.env.USERPROFILE ? path.join(process.env.USERPROFILE, 'scoop', 'shims') : null,
+    process.env.ChocolateyInstall ? path.join(process.env.ChocolateyInstall, 'bin') : null,
+    process.env.LOCALAPPDATA ? path.join(process.env.LOCALAPPDATA, 'Programs', 'Microsoft VS Code', 'bin') : null,
+    process.env.LOCALAPPDATA ? path.join(process.env.LOCALAPPDATA, 'Programs', 'Cursor', 'resources', 'app', 'bin') : null,
+    process.env.LOCALAPPDATA ? path.join(process.env.LOCALAPPDATA, 'Programs', 'Cursor', 'bin') : null,
+    process.env.ProgramFiles ? path.join(process.env.ProgramFiles, 'Microsoft VS Code', 'bin') : null,
+    process.env.ProgramFiles ? path.join(process.env.ProgramFiles, 'Cursor', 'resources', 'app', 'bin') : null,
+    process.env['ProgramFiles(x86)'] ? path.join(process.env['ProgramFiles(x86)']!, 'Microsoft VS Code', 'bin') : null,
+  ];
+
+  return [...new Set(candidates.filter((entry): entry is string => Boolean(entry && entry.trim().length > 0)).map(normalizeDirectoryEntry))];
+};
+
+const canResolveViaWhere = (command: string): boolean => {
+  if (process.platform !== 'win32' || isPathLikeExecutable(command)) {
+    return false;
+  }
+
+  try {
+    const output = execFileSync('where', [command], {
+      windowsHide: true,
+      stdio: ['ignore', 'pipe', 'ignore'],
+      encoding: 'utf8',
+    }).trim();
+    return output.length > 0;
+  } catch {
+    return false;
+  }
+};
+
+const isExecutableAvailableInDirectories = (command: string, directories: string[]): boolean => {
+  const hasKnownExtension = path.extname(command).length > 0;
+  const executableExtensions = getExecutableExtensions();
+  const candidateSuffixes = hasKnownExtension || process.platform !== 'win32' ? [''] : executableExtensions;
+
+  for (const directory of directories) {
+    const normalizedDirectory = normalizeDirectoryEntry(directory);
+    if (!normalizedDirectory) {
+      continue;
+    }
+
+    const basePath = path.join(normalizedDirectory, command);
+    for (const suffix of candidateSuffixes) {
+      const candidatePath = suffix && !basePath.toLowerCase().endsWith(suffix) ? `${basePath}${suffix}` : basePath;
+      if (canAccessExecutablePath(candidatePath)) {
+        return true;
+      }
+    }
+  }
+
+  return false;
+};
+
 const isExecutableAvailable = (command: string): boolean => {
   if (!command) {
     return false;
@@ -411,7 +501,7 @@ const isExecutableAvailable = (command: string): boolean => {
     ? ['']
     : (process.env.PATH ?? '')
         .split(path.delimiter)
-        .map((entry) => entry.trim())
+        .map(normalizeDirectoryEntry)
         .filter((entry) => entry.length > 0);
 
   for (const directory of candidateDirectories) {
@@ -426,7 +516,56 @@ const isExecutableAvailable = (command: string): boolean => {
     }
   }
 
+  if (canResolveViaWhere(resolvedCommand)) {
+    return true;
+  }
+
+  if (isExecutableAvailableInDirectories(resolvedCommand, getWindowsFallbackExecutableDirectories())) {
+    return true;
+  }
+
   return false;
+};
+
+const extractWslDiscoveryProbe = (args: string[]): { distro: string | null; command: string | null } | null => {
+  const separatorIndex = args.indexOf('--');
+  if (separatorIndex < 0 || separatorIndex === args.length - 1) {
+    return null;
+  }
+
+  const command = args[separatorIndex + 1] ?? null;
+  if (!command || command.includes('{{')) {
+    return null;
+  }
+
+  const distroIndex = args.indexOf('-d');
+  const distro = distroIndex >= 0 ? args[distroIndex + 1] ?? null : null;
+  return { distro, command };
+};
+
+const isWslInnerCommandAvailable = (wslCommand: string, args: string[]): boolean => {
+  const probe = extractWslDiscoveryProbe(args);
+  if (!probe?.command) {
+    return isExecutableAvailable(wslCommand);
+  }
+
+  try {
+    const wslArgs = [
+      ...(probe.distro ? ['-d', probe.distro] : []),
+      '--',
+      'sh',
+      '-lc',
+      `command -v ${probe.command} >/dev/null 2>&1`,
+    ];
+    execFileSync(wslCommand, wslArgs, {
+      windowsHide: true,
+      stdio: 'ignore',
+      timeout: 4000,
+    });
+    return true;
+  } catch {
+    return false;
+  }
 };
 
 const parseAdapterConfig = (value: unknown): CliAdapterConfig[] => {
@@ -588,10 +727,11 @@ export class OrchestratorService {
   ) {
     this.rootDir = rootDir;
     this.adapterConfigs = this.loadAdapters();
-    this.discoveredAdapterIds = this.discoverAvailableAdapters(this.adapterConfigs);
     const persisted = this.persistenceStore.load();
     const persistedState = persisted.appData;
-    this.routingSettings = this.sanitizeRoutingSettings(persisted.routing);
+    this.routingSettings = persisted.routing;
+    this.discoveredAdapterIds = this.discoverAvailableAdapters(this.adapterConfigs, this.routingSettings);
+    this.routingSettings = this.sanitizeRoutingSettings(this.routingSettings);
 
     // Initialize new registries
     this.agentRegistry = new AgentRegistryService(rootDir);
@@ -632,6 +772,7 @@ export class OrchestratorService {
       projectContext: persistedState?.projectContext ?? { summary: '', updatedAt: null },
       orchestrationRuns: persistedState?.orchestrationRuns ?? [],
       orchestrationNodes: persistedState?.orchestrationNodes ?? [],
+      workbench: persistedState?.workbench ?? structuredClone(DEFAULT_WORKBENCH_STATE),
     };
     this.state = {
       ...this.state,
@@ -658,7 +799,7 @@ export class OrchestratorService {
   public refreshAdapters(): AppState {
     this.discoveredAdapterIds.clear();
 
-    for (const adapterId of this.discoverAvailableAdapters(this.adapterConfigs)) {
+    for (const adapterId of this.discoverAvailableAdapters(this.adapterConfigs, this.routingSettings)) {
       this.discoveredAdapterIds.add(adapterId);
     }
 
@@ -694,11 +835,29 @@ export class OrchestratorService {
     return this.getProjectContext();
   }
 
+  public saveWorkbenchState(input: SaveWorkbenchStateInput): AppState {
+    this.state = {
+      ...this.state,
+      workbench: {
+        ...input.state,
+        updatedAt: new Date().toISOString(),
+      },
+    };
+    this.emitStateChanged();
+    return this.getAppState();
+  }
+
   public getNextClaudeTask(): AppState['nextClaudeTask'] {
     return structuredClone(this.state.nextClaudeTask);
   }
 
   public updateRoutingSettings(settings: RoutingSettings): RoutingSettings {
+    this.discoveredAdapterIds.clear();
+
+    for (const adapterId of this.discoverAvailableAdapters(this.adapterConfigs, settings)) {
+      this.discoveredAdapterIds.add(adapterId);
+    }
+
     this.routingSettings = this.persistenceStore.saveRoutingSettings(this.sanitizeRoutingSettings(settings));
     this.state = {
       ...this.state,
@@ -939,6 +1098,9 @@ export class OrchestratorService {
     const args = stripEmptyFlagValuePairs(
       adapterConfig.args.map((value) => renderTemplateString(value, templateContext)),
     );
+    const commandPreview = adapterConfig.launchMode === 'manual_handoff'
+      ? formatManualHandoffInstructions(adapter, normalizeOptionalString(templateContext.model), prompt)
+      : formatCommandPreview(adapter.command, args);
     const task: Task = {
       id: taskId,
       title,
@@ -960,7 +1122,7 @@ export class OrchestratorService {
       status: 'pending',
       startedAt: createdAt,
       activeConversationId: conversation.id,
-      commandPreview: formatCommandPreview(adapter.command, args),
+      commandPreview,
       pid: null,
       timeoutMs,
       cancelRequestedAt: null,
@@ -1003,10 +1165,15 @@ export class OrchestratorService {
       status: 'running',
       label: adapter.displayName,
       summary: `Launching ${adapter.displayName}${templateContext.model ? ` with model ${templateContext.model}` : ''}.`,
-      detail: formatCommandPreview(adapter.command, args),
+      detail: commandPreview,
       stepId: getPrimaryStepId(runId),
     });
-    this.spawnRun(runId, taskId, adapterConfig, templateContext, timeoutMs);
+
+    if (adapterConfig.launchMode === 'manual_handoff') {
+      this.completeManualHandoffRun(runId, taskId, adapter, normalizeOptionalString(templateContext.model), prompt);
+    } else {
+      this.spawnRun(runId, taskId, adapterConfig, templateContext, timeoutMs);
+    }
 
     return {
       run: this.getRun(runId),
@@ -1110,11 +1277,12 @@ export class OrchestratorService {
     };
   }
 
-  private discoverAvailableAdapters(configs: CliAdapterConfig[]): Set<string> {
+  private discoverAvailableAdapters(configs: CliAdapterConfig[], routingSettings: RoutingSettings): Set<string> {
     const available = new Set<string>();
 
     for (const config of configs) {
-      const command = this.resolveExecutable(config.command);
+      const routingOverride = getAdapterSetting(routingSettings, config);
+      const command = normalizeOptionalString(routingOverride.customCommand) ?? this.resolveExecutable(config.command);
 
       if (!config.requiresDiscovery || config.launchMode === 'manual_handoff') {
         available.add(config.id);
@@ -1125,6 +1293,19 @@ export class OrchestratorService {
               ? 'Manual handoff adapter is always available for copy/paste workflows.'
               : 'Discovery not required (internal adapter).',
         });
+      } else if (path.basename(command).toLowerCase() === 'wsl.exe' || path.basename(command).toLowerCase() === 'wsl') {
+        if (isExecutableAvailable(command) && isWslInnerCommandAvailable(command, config.args)) {
+          available.add(config.id);
+          this.discoveryReasons.set(config.id, {
+            available: true,
+            reason: getAdapterDiscoveryReason(config.id, command, true),
+          });
+        } else {
+          this.discoveryReasons.set(config.id, {
+            available: false,
+            reason: `"${command}" is available, but the configured command inside WSL could not be verified. Check the distro/tool installation and any custom command override.`,
+          });
+        }
       } else if (isExecutableAvailable(command)) {
         available.add(config.id);
         this.discoveryReasons.set(config.id, {
@@ -1427,6 +1608,65 @@ export class OrchestratorService {
         this.requestTermination(runId, 'timed_out', `Run exceeded timeout of ${timeoutMs} ms.`);
       }, timeoutMs);
     }
+  }
+
+  private completeManualHandoffRun(
+    runId: string,
+    taskId: string,
+    adapter: CliAdapter,
+    model: string | null,
+    prompt: string,
+  ): void {
+    const instructionMessage = formatManualHandoffInstructions(adapter, model, prompt);
+    const completedAt = new Date().toISOString();
+
+    this.appendRunEvent(runId, 'info', 'Manual handoff is ready. Copy the prompt into the selected tool to continue.');
+    this.appendTranscriptEntry(runId, {
+      actor: 'tool',
+      kind: 'step_completed',
+      status: 'completed',
+      label: adapter.displayName,
+      summary: 'Prepared a manual handoff package for the selected editor tool.',
+      detail: instructionMessage,
+      stepId: getPrimaryStepId(runId),
+    });
+    this.appendTranscriptEntry(runId, {
+      actor: 'system',
+      kind: 'run_completed',
+      status: 'completed',
+      label: taskId,
+      summary: 'Manual handoff package is ready for copy/paste execution.',
+      detail: instructionMessage,
+    });
+
+    this.state = {
+      ...this.state,
+      runs: this.state.runs.map((run) => {
+        if (run.id !== runId) {
+          return run;
+        }
+
+        return {
+          ...run,
+          status: 'succeeded',
+          exitCode: 0,
+          endedAt: completedAt,
+        };
+      }),
+      tasks: this.state.tasks.map((task) => {
+        if (task.id !== taskId) {
+          return task;
+        }
+
+        return {
+          ...task,
+          status: 'completed',
+        };
+      }),
+    };
+
+    this.emitStateChanged();
+    this.orchestrationExecution.onRunCompleted(runId, 'succeeded', this.agentRegistry.getAll());
   }
 
   private requestTermination(runId: string, status: RequestedTerminalStatus, message: string): void {

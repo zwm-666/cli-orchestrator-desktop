@@ -85,6 +85,38 @@ const writeAdaptersConfig = (rootDir: string): void => {
           supportedModels: [],
         },
         {
+          id: 'claude',
+          displayName: 'Claude Code',
+          visibility: 'user',
+          requiresDiscovery: true,
+          launchMode: 'cli',
+          command: 'wsl.exe',
+          args: ['-d', 'Ubuntu-24.04', '--', 'claude', '-p', '{{prompt}}'],
+          description: 'WSL Claude fixture.',
+          capabilities: ['planning'],
+          health: 'idle',
+          enabled: true,
+          defaultTimeoutMs: null,
+          defaultModel: 'sonnet',
+          supportedModels: ['sonnet'],
+        },
+        {
+          id: 'codex',
+          displayName: 'Codex CLI',
+          visibility: 'user',
+          requiresDiscovery: true,
+          launchMode: 'cli',
+          command: 'codex',
+          args: ['exec', '--model', '{{model}}', '--json', '--', '{{prompt}}'],
+          description: 'Codex fixture.',
+          capabilities: ['code'],
+          health: 'idle',
+          enabled: true,
+          defaultTimeoutMs: null,
+          defaultModel: 'gpt-5.4',
+          supportedModels: ['gpt-5.4'],
+        },
+        {
           id: 'fake-ai',
           displayName: 'Fake AI',
           visibility: 'user',
@@ -154,6 +186,12 @@ const writeAdaptersConfig = (rootDir: string): void => {
     )}\n`,
     'utf8',
   );
+};
+
+const writeNamedExecutable = (targetPath: string, contents: string): string => {
+  mkdirSync(path.dirname(targetPath), { recursive: true });
+  writeFileSync(targetPath, contents, 'utf8');
+  return targetPath;
 };
 
 const writeFakeExecutable = (rootDir: string): string => {
@@ -431,6 +469,97 @@ void test('OrchestratorService discovers local user adapters and keeps internal 
 
     assert.equal(completedRun?.status, 'succeeded');
     assert.equal(completedTask?.status, 'completed');
+  } finally {
+    process.env.PATH = previousPath;
+    process.env.PATHEXT = previousPathExt;
+    rmSync(rootDir, { recursive: true, force: true });
+  }
+});
+
+void test('OrchestratorService discovery honors customCommand overrides when routing settings change', () => {
+  const rootDir = createRootDir('orchestrator-service-custom-command-discovery');
+
+  try {
+    writeAdaptersConfig(rootDir);
+    const persistenceStore = new LocalPersistenceStore(rootDir);
+    persistenceStore.saveRoutingSettings(createRoutingSettings());
+    const service = new OrchestratorService(rootDir, persistenceStore);
+
+    const before = service.getAppState().adapters.find((adapter) => adapter.id === 'missing-ai');
+    assert.ok(before);
+    assert.equal(before.availability, 'unavailable');
+
+    const customExecutablePath = writeNamedExecutable(path.resolve(rootDir, 'custom-bin', 'missing-ai.cmd'), '@echo off\r\necho custom missing ai\r\n');
+    const nextRouting = service.getRoutingSettings();
+    nextRouting.adapterSettings['missing-ai'] = {
+      enabled: true,
+      defaultModel: 'missing-model',
+      customCommand: customExecutablePath,
+    };
+    nextRouting.taskTypeRules.code = {
+      adapterId: 'missing-ai',
+      model: 'missing-model',
+    };
+
+    service.updateRoutingSettings(nextRouting);
+
+    const after = service.getAppState().adapters.find((adapter) => adapter.id === 'missing-ai');
+    assert.ok(after);
+    assert.equal(after.availability, 'available');
+    assert.equal(after.enabled, true);
+    assert.equal(service.getRoutingSettings().taskTypeRules.code.adapterId, 'missing-ai');
+  } finally {
+    rmSync(rootDir, { recursive: true, force: true });
+  }
+});
+
+void test('OrchestratorService discovers Windows shims from APPDATA npm fallback directories', () => {
+  const rootDir = createRootDir('orchestrator-service-appdata-fallback');
+  const previousPath = process.env.PATH;
+  const previousPathExt = process.env.PATHEXT;
+  const previousAppData = process.env.APPDATA;
+
+  try {
+    writeAdaptersConfig(rootDir);
+    process.env.PATH = '';
+    process.env.PATHEXT = '.COM;.EXE;.BAT;.CMD';
+    process.env.APPDATA = path.resolve(rootDir, 'AppData', 'Roaming');
+    writeNamedExecutable(path.resolve(process.env.APPDATA, 'npm', 'codex.cmd'), '@echo off\r\necho codex shim\r\n');
+
+    const persistenceStore = new LocalPersistenceStore(rootDir);
+    const service = new OrchestratorService(rootDir, persistenceStore);
+    const codexAdapter = service.getAppState().adapters.find((adapter) => adapter.id === 'codex');
+
+    assert.ok(codexAdapter);
+    assert.equal(codexAdapter.availability, 'available');
+  } finally {
+    process.env.PATH = previousPath;
+    process.env.PATHEXT = previousPathExt;
+    process.env.APPDATA = previousAppData;
+    rmSync(rootDir, { recursive: true, force: true });
+  }
+});
+
+void test('OrchestratorService does not treat wsl.exe alone as proof that Claude is available', () => {
+  const rootDir = createRootDir('orchestrator-service-claude-wsl-probe');
+  const previousPath = process.env.PATH;
+  const previousPathExt = process.env.PATHEXT;
+
+  try {
+    writeAdaptersConfig(rootDir);
+    const binDir = path.resolve(rootDir, 'bin');
+    mkdirSync(binDir, { recursive: true });
+    writeNamedExecutable(path.resolve(binDir, 'wsl.exe'), 'not-a-real-exe');
+    process.env.PATH = [binDir, previousPath ?? ''].filter((entry) => entry.length > 0).join(path.delimiter);
+    process.env.PATHEXT = '.COM;.EXE;.BAT;.CMD';
+
+    const persistenceStore = new LocalPersistenceStore(rootDir);
+    const service = new OrchestratorService(rootDir, persistenceStore);
+    const claudeAdapter = service.getAppState().adapters.find((adapter) => adapter.id === 'claude');
+
+    assert.ok(claudeAdapter);
+    assert.equal(claudeAdapter.availability, 'unavailable');
+    assert.match(claudeAdapter.discoveryReason, /inside WSL could not be verified/i);
   } finally {
     process.env.PATH = previousPath;
     process.env.PATHEXT = previousPathExt;
