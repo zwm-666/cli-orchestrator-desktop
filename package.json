@@ -20,8 +20,8 @@
     "lint": "eslint .",
     "format": "prettier --write \"src/**/*.{ts,tsx,js,jsx,json,css,html}\"",
     "start": "npm run build && electron .",
-    "dist": "npm run build && electron-builder --win",
-    "dist:dir": "npm run build && electron-builder --win --dir"
+    "dist": "npm run build && electron-builder --win --mac --linux",
+    "dist:dir": "npm run build && electron-builder --win --mac --linux --dir"
   },
   "build": {
     "appId": "com.cli-orchestrator.desktop",
@@ -40,6 +40,18 @@
         "portable"
       ],
       "icon": null
+    },
+    "mac": {
+      "target": [
+        "dmg",
+        "zip"
+      ]
+    },
+    "linux": {
+      "target": [
+        "AppImage",
+        "tar.gz"
+      ]
     },
     "nsis": {
       "oneClick": false,

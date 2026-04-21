@@ -13,7 +13,7 @@ const PROVIDER_DESCRIPTIONS_ZH: Record<string, string> = {
 };
 
 const ADAPTER_DESCRIPTIONS_ZH: Record<string, string> = {
-  claude: '通过 WSL 中的 Ubuntu-24.04 调用 Claude Code CLI。',
+  claude: '使用本机已安装的 Claude Code CLI。',
   codex: '使用本机已安装的 Codex CLI 执行本地代码任务。',
   openai: '当本机存在可用安装时，使用 OpenAI CLI。',
   opencode: '使用本机已安装的 OpenCode CLI 执行本地代码工作流。',

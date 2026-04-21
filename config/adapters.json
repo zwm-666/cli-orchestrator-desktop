@@ -68,13 +68,9 @@
     "visibility": "user",
     "requiresDiscovery": true,
     "launchMode": "cli",
-    "command": "wsl.exe",
+    "command": "claude",
     "promptTransport": "arg",
     "args": [
-      "-d",
-      "Ubuntu-24.04",
-      "--",
-      "claude",
       "-p",
       "--output-format",
       "text",
@@ -82,7 +78,7 @@
       "{{model}}",
       "{{prompt}}"
     ],
-    "description": "Use Claude through WSL Ubuntu-24.04 with non-interactive print mode.",
+    "description": "Use a locally installed Claude Code CLI with non-interactive print mode.",
     "capabilities": ["planning", "implementation", "verification"],
     "health": "idle",
     "enabled": true,
