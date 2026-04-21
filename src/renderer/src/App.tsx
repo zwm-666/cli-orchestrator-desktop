@@ -82,8 +82,11 @@ export function App(): React.JSX.Element {
 
     void loadState();
 
-    const unsubscribeState = window.desktopApi.onAppStateChanged((nextState) => {
-      setAppState({ ...nextState, workbench: nextState.workbench ?? DEFAULT_WORKBENCH_STATE });
+    const unsubscribeState = window.desktopApi.onAppStateChanged((statePatch) => {
+      setAppState((currentState) => {
+        const nextState = { ...currentState, ...statePatch };
+        return { ...nextState, workbench: nextState.workbench ?? DEFAULT_WORKBENCH_STATE };
+      });
     });
 
     return () => {
@@ -123,7 +126,7 @@ export function App(): React.JSX.Element {
   };
 
   if (isBootstrapping) {
-    return <main className="app-loading-state">{copy.loadError}</main>;
+    return <main className="app-loading-state">{locale === 'zh' ? '正在加载渲染层状态...' : 'Loading renderer state...'}</main>;
   }
 
   return (

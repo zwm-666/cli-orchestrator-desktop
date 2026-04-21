@@ -64,8 +64,8 @@ const desktopApi: DesktopApi = {
   cancelRun: (input: CancelRunInput) => ipcRenderer.invoke(IPC_CHANNELS.cancelRun, input),
   getRecentRunsByCategory: (input: { taskType: TaskType; limit?: number }): Promise<CategoryRunSummary> =>
     ipcRenderer.invoke(IPC_CHANNELS.getRecentRunsByCategory, input),
-  onAppStateChanged: (listener: (state: AppState) => void) => {
-    const wrapped = (_event: Electron.IpcRendererEvent, state: AppState): void => { listener(state); };
+  onAppStateChanged: (listener: (statePatch: Partial<AppState>) => void) => {
+    const wrapped = (_event: Electron.IpcRendererEvent, statePatch: Partial<AppState>): void => { listener(statePatch); };
     ipcRenderer.on(IPC_CHANNELS.appStateUpdated, wrapped);
     return (): void => { ipcRenderer.removeListener(IPC_CHANNELS.appStateUpdated, wrapped); };
   },

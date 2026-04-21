@@ -104,7 +104,7 @@ export interface DesktopApi {
   startRun: (input: StartRunInput) => Promise<StartRunResult>;
   cancelRun: (input: CancelRunInput) => Promise<CancelRunResult>;
   getRecentRunsByCategory: (input: { taskType: TaskType; limit?: number }) => Promise<CategoryRunSummary>;
-  onAppStateChanged: (listener: (state: AppState) => void) => () => void;
+  onAppStateChanged: (listener: (statePatch: Partial<AppState>) => void) => () => void;
   onRunEvent: (listener: (event: RunEvent) => void) => () => void;
 
   // Orchestration methods
