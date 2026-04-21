@@ -31,7 +31,7 @@ import type {
 // ---------------------------------------------------------------------------
 
 const PLANNER_VERSION = 'local-router-v2';
-const ADAPTER_MENTION_PATTERN = /(^|\s)@([a-zA-Z0-9_-]+)/g;
+const ADAPTER_MENTION_PATTERN_SOURCE = /(^|\s)@([a-zA-Z0-9_-]+)/;
 const BULLET_LINE_PATTERN = /^\s*(?:[-*]|\d+[.)])\s+(.+)$/;
 const SENTENCE_SPLIT_PATTERN = /(?<=[.!?])\s+/;
 const MAX_PLANNED_TASKS = 3;
@@ -66,7 +66,12 @@ const TASK_TYPE_KEYWORDS = {
 
 const createId = (prefix: string): string => `${prefix}-${crypto.randomUUID()}`;
 
-const normalizePlannerWhitespace = (value: string): string => value.replace(/\s+/g, ' ').trim();
+const normalizePlannerWhitespace = (value: string): string =>
+  value
+    .replace(/\r\n/g, '\n')
+    .replace(/[^\S\n]+/g, ' ')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim();
 
 const normalizeOptionalString = (value: unknown): string | null => {
   if (typeof value !== 'string') return null;
@@ -170,9 +175,10 @@ const classifyTaskType = (prompt: string): TaskType => {
 
 const extractAdapterMentions = (rawInput: string): PlanDraftMention[] => {
   const mentions: PlanDraftMention[] = [];
+  const mentionPattern = new RegExp(ADAPTER_MENTION_PATTERN_SOURCE.source, 'g');
   let match: RegExpExecArray | null;
 
-  while ((match = ADAPTER_MENTION_PATTERN.exec(rawInput)) !== null) {
+  while ((match = mentionPattern.exec(rawInput)) !== null) {
     const token = match[2] ?? '';
     mentions.push({
       token,

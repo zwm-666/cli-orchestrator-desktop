@@ -331,6 +331,24 @@ const validateExecutable = (command: string, index: number): string => {
   return command;
 };
 
+const validateCustomExecutableOverride = (command: string): string => {
+  if (!isNonEmptyString(command)) {
+    throw new Error('Adapter customCommand must be a non-empty string.');
+  }
+
+  const trimmedCommand = command.trim();
+
+  if (trimmedCommand !== command) {
+    throw new Error('Adapter customCommand must not have surrounding whitespace.');
+  }
+
+  if (hasControlCharacters(trimmedCommand) || trimmedCommand.includes('{{') || !EXECUTABLE_PATTERN.test(trimmedCommand)) {
+    throw new Error('Adapter customCommand is not a valid executable string.');
+  }
+
+  return trimmedCommand;
+};
+
 const validateTemplateString = (value: string, index: number, field: string): string => {
   PLACEHOLDER_PATTERN.lastIndex = 0;
 
@@ -549,13 +567,17 @@ const isWslInnerCommandAvailable = (wslCommand: string, args: string[]): boolean
     return isExecutableAvailable(wslCommand);
   }
 
+  const validatedProbeCommand = validateCustomExecutableOverride(probe.command);
+
   try {
     const wslArgs = [
       ...(probe.distro ? ['-d', probe.distro] : []),
       '--',
       'sh',
       '-lc',
-      `command -v ${probe.command} >/dev/null 2>&1`,
+      'command -v -- "$1" >/dev/null 2>&1',
+      'sh',
+      validatedProbeCommand,
     ];
     execFileSync(wslCommand, wslArgs, {
       windowsHide: true,
@@ -680,11 +702,12 @@ const getAdapterSetting = (
   adapterConfig: Pick<CliAdapterConfig, 'id' | 'enabled' | 'defaultModel'>,
 ): AdapterRoutingSettings => {
   const override = routingSettings.adapterSettings[adapterConfig.id];
+  const customCommand = normalizeOptionalString(override?.customCommand);
 
   return {
     enabled: override?.enabled ?? adapterConfig.enabled,
     defaultModel: override?.defaultModel ?? adapterConfig.defaultModel ?? '',
-    customCommand: override?.customCommand ?? '',
+    customCommand: customCommand ? validateCustomExecutableOverride(customCommand) : '',
   };
 };
 
@@ -1062,7 +1085,7 @@ export class OrchestratorService {
 
     const adapter = this.toAdapter(adapterConfig);
 
-    if (!this.canLaunchAdapter(adapter)) {
+    if (!this.canLaunchAdapter(adapter, adapterConfig)) {
       const reason = !isAvailableAdapter(adapter)
         ? 'is not available on this machine.'
         : adapter.visibility === 'internal'
@@ -1412,12 +1435,12 @@ export class OrchestratorService {
     };
   }
 
-  private canLaunchAdapter(adapter: CliAdapter): boolean {
+  private canLaunchAdapter(adapter: CliAdapter, adapterConfig: CliAdapterConfig): boolean {
     if (!isAvailableAdapter(adapter)) {
       return false;
     }
 
-    return adapter.visibility === 'internal' || adapter.enabled;
+    return adapter.visibility === 'internal' ? adapterConfig.enabled : adapter.enabled;
   }
 
   private resolveConversation(input: StartRunInput, title: string, prompt: string): Conversation {
@@ -1544,8 +1567,22 @@ export class OrchestratorService {
     this.executions.set(runId, execution);
 
     if (adapterConfig.promptTransport === 'stdin' && child.stdin) {
-      child.stdin.write(`${templateContext.prompt}\n`);
-      child.stdin.end();
+      child.stdin.once('error', (error) => {
+        if ((error as NodeJS.ErrnoException).code === 'EPIPE') {
+          this.appendRunEvent(runId, 'warning', 'Process stdin closed before the prompt payload was fully written.');
+          return;
+        }
+
+        this.appendRunEvent(runId, 'error', error.message);
+      });
+
+      try {
+        child.stdin.write(`${templateContext.prompt}\n`);
+        child.stdin.end();
+      } catch (error: unknown) {
+        const message = error instanceof Error ? error.message : 'Failed to write prompt payload to stdin.';
+        this.appendRunEvent(runId, 'error', message);
+      }
     }
 
     if (child.stdout) {

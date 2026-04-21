@@ -105,6 +105,7 @@ export class OrchestrationExecutionService {
       if (!node) continue;
       const isSuccess = runStatus === 'succeeded';
       const nodeStatus: OrchestrationNodeStatus = isSuccess ? 'completed' : 'failed';
+      const profile = node.agentProfileId ? (agentProfiles.find((p) => p.id === node.agentProfileId) ?? null) : null;
 
       // Update node status
       context.nodes[nodeIndex] = {
@@ -115,6 +116,7 @@ export class OrchestrationExecutionService {
 
       // Check if we should retry on failure
       if (!isSuccess && this.shouldRetry(node, agentProfiles)) {
+        const retryDelayMs = profile?.retryPolicy.delayMs ?? 0;
         context.nodes[nodeIndex] = {
           ...node,
           status: 'ready',
@@ -122,6 +124,21 @@ export class OrchestrationExecutionService {
           runId: null,
           resultSummary: null,
         };
+
+        this.persistContext(context);
+
+        const orchestrationId = context.orchestrationRun.id;
+        setTimeout(() => {
+          const activeContext = this.activeOrchestrations.get(orchestrationId);
+          if (!activeContext || activeContext.orchestrationRun.status !== 'executing') {
+            return;
+          }
+
+          this.dispatchReadyNodes(activeContext, agentProfiles);
+          this.persistContext(activeContext);
+        }, retryDelayMs);
+
+        return;
       }
 
       // Update orchestration state
