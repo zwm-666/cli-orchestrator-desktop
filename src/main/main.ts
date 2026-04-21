@@ -28,6 +28,28 @@ import type {
 } from '../shared/domain.js';
 import { IPC_CHANNELS } from '../shared/ipc.js';
 import type { SavePromptBuilderConfigInput } from '../shared/promptBuilder.js';
+import {
+  formatIpcErrorMessage,
+  validateBrowseWorkspaceInput,
+  validateCancelOrchestrationInput,
+  validateCancelRunInput,
+  validateDeleteAgentProfileInput,
+  validateDeleteMcpServerInput,
+  validateDeleteSkillInput,
+  validateDraftConversationInput,
+  validateGetOrchestrationRunInput,
+  validateObjectInput,
+  validatePlanDraftInput,
+  validateProjectContextInput,
+  validatePromptBuilderSaveInput,
+  validateReadWorkspaceFileInput,
+  validateRecentRunsInput,
+  validateRoutingSettingsInput,
+  validateSaveContinuityStateInput,
+  validateStartOrchestrationInput,
+  validateStartRunInput,
+  validateWorkbenchStateInput,
+} from './ipcValidation.js';
 import { LocalPersistenceStore } from './persistence.js';
 import { OrchestratorService } from './orchestratorService.js';
 import { PromptBuilderConfigService } from './services/promptBuilderConfigService.js';
@@ -46,13 +68,74 @@ app.setPath('sessionData', path.resolve(electronDataDir, 'session'));
 const persistenceStore = new LocalPersistenceStore(rootDir);
 const orchestratorService = new OrchestratorService(rootDir, persistenceStore);
 const promptBuilderConfigService = new PromptBuilderConfigService(rootDir);
+let lastBroadcastState = orchestratorService.getAppState();
+
+const hasMeaningfulChange = (left: unknown, right: unknown): boolean => {
+  return JSON.stringify(left) !== JSON.stringify(right);
+};
+
+const createAppStatePatch = (previousState: import('../shared/domain.js').AppState, nextState: import('../shared/domain.js').AppState): Partial<import('../shared/domain.js').AppState> => {
+  const patch: Partial<import('../shared/domain.js').AppState> = {};
+  const mutablePatch = patch as Record<string, unknown>;
+  const entries: Array<keyof import('../shared/domain.js').AppState> = [
+    'adapters',
+    'conversations',
+    'tasks',
+    'runs',
+    'projectContext',
+    'nextClaudeTask',
+    'agentProfiles',
+    'skills',
+    'mcpServers',
+    'orchestrationRuns',
+    'orchestrationNodes',
+    'workbench',
+  ];
+
+  for (const key of entries) {
+    if (hasMeaningfulChange(previousState[key], nextState[key])) {
+      mutablePatch[key] = nextState[key];
+    }
+  }
+
+  return patch;
+};
 
 const broadcastState = (): void => {
   const snapshot = orchestratorService.getAppState();
+  const patch = createAppStatePatch(lastBroadcastState, snapshot);
+  lastBroadcastState = snapshot;
+
+  if (Object.keys(patch).length === 0) {
+    return;
+  }
 
   BrowserWindow.getAllWindows().forEach((window) => {
-    window.webContents.send(IPC_CHANNELS.appStateUpdated, snapshot);
+    window.webContents.send(IPC_CHANNELS.appStateUpdated, patch);
   });
+};
+
+const safeHandle = <TInput, TResult>(
+  validator: (value: unknown) => TInput,
+  handler: (input: TInput) => TResult | Promise<TResult>,
+): ((event: Electron.IpcMainInvokeEvent, input: unknown) => Promise<TResult>) => {
+  return async (_event, input) => {
+    try {
+      return await handler(validator(input));
+    } catch (error: unknown) {
+      throw new Error(formatIpcErrorMessage(error));
+    }
+  };
+};
+
+const safeNoInputHandle = <TResult>(handler: () => TResult | Promise<TResult>): (() => Promise<TResult>) => {
+  return async () => {
+    try {
+      return await handler();
+    } catch (error: unknown) {
+      throw new Error(formatIpcErrorMessage(error));
+    }
+  };
 };
 
 const broadcastRunEvent = (runEvent: import('../shared/domain.js').RunEvent): void => {
@@ -191,7 +274,7 @@ const createMainWindow = async (): Promise<BrowserWindow> => {
       preload: preloadPath,
       contextIsolation: true,
       nodeIntegration: false,
-      sandbox: false,
+      sandbox: true,
     },
   });
 
@@ -217,137 +300,137 @@ const registerIpc = (): void => {
 
   // --- Existing channels ---
 
-  ipcMain.handle(IPC_CHANNELS.getAppState, () => {
+  ipcMain.handle(IPC_CHANNELS.getAppState, safeNoInputHandle(() => {
     return orchestratorService.getAppState();
-  });
+  }));
 
-  ipcMain.handle(IPC_CHANNELS.refreshAdapters, () => {
+  ipcMain.handle(IPC_CHANNELS.refreshAdapters, safeNoInputHandle(() => {
     return orchestratorService.refreshAdapters();
-  });
+  }));
 
-  ipcMain.handle(IPC_CHANNELS.getContinuityState, () => {
+  ipcMain.handle(IPC_CHANNELS.getContinuityState, safeNoInputHandle(() => {
     return persistenceStore.getContinuityState();
-  });
+  }));
 
-  ipcMain.handle(IPC_CHANNELS.saveContinuityState, (_event, state: RendererContinuityState) => {
+  ipcMain.handle(IPC_CHANNELS.saveContinuityState, safeHandle(validateSaveContinuityStateInput, (state) => {
     return persistenceStore.saveContinuityState(state);
-  });
+  }));
 
-  ipcMain.handle(IPC_CHANNELS.getRoutingSettings, () => {
+  ipcMain.handle(IPC_CHANNELS.getRoutingSettings, safeNoInputHandle(() => {
     return orchestratorService.getRoutingSettings();
-  });
+  }));
 
-  ipcMain.handle(IPC_CHANNELS.saveRoutingSettings, (_event, input: UpdateRoutingSettingsInput) => {
+  ipcMain.handle(IPC_CHANNELS.saveRoutingSettings, safeHandle(validateRoutingSettingsInput, (input) => {
     return orchestratorService.updateRoutingSettings(input.settings);
-  });
+  }));
 
-  ipcMain.handle(IPC_CHANNELS.getProjectContext, () => {
+  ipcMain.handle(IPC_CHANNELS.getProjectContext, safeNoInputHandle(() => {
     return orchestratorService.getProjectContext();
-  });
+  }));
 
-  ipcMain.handle(IPC_CHANNELS.saveProjectContext, (_event, input: SaveProjectContextInput) => {
+  ipcMain.handle(IPC_CHANNELS.saveProjectContext, safeHandle(validateProjectContextInput, (input) => {
     return orchestratorService.saveProjectContext(input);
-  });
+  }));
 
-  ipcMain.handle(IPC_CHANNELS.saveWorkbenchState, (_event, input: SaveWorkbenchStateInput) => {
+  ipcMain.handle(IPC_CHANNELS.saveWorkbenchState, safeHandle(validateWorkbenchStateInput, (input) => {
     return orchestratorService.saveWorkbenchState(input);
-  });
+  }));
 
-  ipcMain.handle(IPC_CHANNELS.getPromptBuilderConfig, () => {
+  ipcMain.handle(IPC_CHANNELS.getPromptBuilderConfig, safeNoInputHandle(() => {
     return promptBuilderConfigService.loadConfig();
-  });
+  }));
 
-  ipcMain.handle(IPC_CHANNELS.savePromptBuilderConfig, (_event, input: SavePromptBuilderConfigInput) => {
+  ipcMain.handle(IPC_CHANNELS.savePromptBuilderConfig, safeHandle(validatePromptBuilderSaveInput, (input) => {
     return promptBuilderConfigService.saveConfig(input.config);
-  });
+  }));
 
-  ipcMain.handle(IPC_CHANNELS.getNextClaudeTask, (): GetNextClaudeTaskResult => {
+  ipcMain.handle(IPC_CHANNELS.getNextClaudeTask, safeNoInputHandle((): GetNextClaudeTaskResult => {
     return { nextTask: orchestratorService.getNextClaudeTask() };
-  });
+  }));
 
-  ipcMain.handle(IPC_CHANNELS.createDraftConversation, (_event, input: CreateDraftConversationInput) => {
+  ipcMain.handle(IPC_CHANNELS.createDraftConversation, safeHandle(validateDraftConversationInput, (input) => {
     return orchestratorService.createDraftConversation(input);
-  });
+  }));
 
-  ipcMain.handle(IPC_CHANNELS.createPlanDraft, (_event, input: PlanDraftInput) => {
+  ipcMain.handle(IPC_CHANNELS.createPlanDraft, safeHandle(validatePlanDraftInput, (input) => {
     return orchestratorService.createPlanDraft(input);
-  });
+  }));
 
-  ipcMain.handle(IPC_CHANNELS.startRun, (_event, input: StartRunInput) => {
+  ipcMain.handle(IPC_CHANNELS.startRun, safeHandle(validateStartRunInput, (input) => {
     return orchestratorService.startRun(input);
-  });
+  }));
 
-  ipcMain.handle(IPC_CHANNELS.cancelRun, (_event, input: CancelRunInput) => {
+  ipcMain.handle(IPC_CHANNELS.cancelRun, safeHandle(validateCancelRunInput, (input) => {
     return orchestratorService.cancelRun(input);
-  });
+  }));
 
-  ipcMain.handle(IPC_CHANNELS.getRecentRunsByCategory, (_event, input: { taskType: string; limit?: number }) => {
+  ipcMain.handle(IPC_CHANNELS.getRecentRunsByCategory, safeHandle(validateRecentRunsInput, (input) => {
     return orchestratorService.getRecentRunsByCategory(input.taskType, input.limit);
-  });
+  }));
 
   // --- Orchestration channels ---
 
-  ipcMain.handle(IPC_CHANNELS.startOrchestration, (_event, input: StartOrchestrationInput) => {
+  ipcMain.handle(IPC_CHANNELS.startOrchestration, safeHandle(validateStartOrchestrationInput, (input) => {
     return orchestratorService.startOrchestration(input);
-  });
+  }));
 
-  ipcMain.handle(IPC_CHANNELS.cancelOrchestration, (_event, input: CancelOrchestrationInput) => {
+  ipcMain.handle(IPC_CHANNELS.cancelOrchestration, safeHandle(validateCancelOrchestrationInput, (input) => {
     return orchestratorService.cancelOrchestration(input);
-  });
+  }));
 
-  ipcMain.handle(IPC_CHANNELS.getOrchestrationRun, (_event, input: GetOrchestrationRunInput) => {
+  ipcMain.handle(IPC_CHANNELS.getOrchestrationRun, safeHandle(validateGetOrchestrationRunInput, (input) => {
     return orchestratorService.getOrchestrationRun(input);
-  });
+  }));
 
   // --- Agent profile channels ---
 
-  ipcMain.handle(IPC_CHANNELS.getAgentProfiles, () => {
+  ipcMain.handle(IPC_CHANNELS.getAgentProfiles, safeNoInputHandle(() => {
     return orchestratorService.getAgentProfiles();
-  });
+  }));
 
-  ipcMain.handle(IPC_CHANNELS.saveAgentProfile, (_event, input: SaveAgentProfileInput) => {
+  ipcMain.handle(IPC_CHANNELS.saveAgentProfile, safeHandle((value) => validateObjectInput<SaveAgentProfileInput>(value, 'save agent profile input'), (input) => {
     return orchestratorService.saveAgentProfile(input);
-  });
+  }));
 
-  ipcMain.handle(IPC_CHANNELS.deleteAgentProfile, (_event, input: DeleteAgentProfileInput) => {
+  ipcMain.handle(IPC_CHANNELS.deleteAgentProfile, safeHandle(validateDeleteAgentProfileInput, (input) => {
     orchestratorService.deleteAgentProfile(input);
-  });
+  }));
 
   // --- Skill channels ---
 
-  ipcMain.handle(IPC_CHANNELS.getSkills, () => {
+  ipcMain.handle(IPC_CHANNELS.getSkills, safeNoInputHandle(() => {
     return orchestratorService.getSkills();
-  });
+  }));
 
-  ipcMain.handle(IPC_CHANNELS.saveSkill, (_event, input: SaveSkillInput) => {
+  ipcMain.handle(IPC_CHANNELS.saveSkill, safeHandle((value) => validateObjectInput<SaveSkillInput>(value, 'save skill input'), (input) => {
     return orchestratorService.saveSkill(input);
-  });
+  }));
 
-  ipcMain.handle(IPC_CHANNELS.deleteSkill, (_event, input: DeleteSkillInput) => {
+  ipcMain.handle(IPC_CHANNELS.deleteSkill, safeHandle(validateDeleteSkillInput, (input) => {
     orchestratorService.deleteSkill(input);
-  });
+  }));
 
   // --- MCP server channels ---
 
-  ipcMain.handle(IPC_CHANNELS.getMcpServers, () => {
+  ipcMain.handle(IPC_CHANNELS.getMcpServers, safeNoInputHandle(() => {
     return orchestratorService.getMcpServers();
-  });
+  }));
 
-  ipcMain.handle(IPC_CHANNELS.saveMcpServer, (_event, input: SaveMcpServerInput) => {
+  ipcMain.handle(IPC_CHANNELS.saveMcpServer, safeHandle((value) => validateObjectInput<SaveMcpServerInput>(value, 'save mcp server input'), (input) => {
     return orchestratorService.saveMcpServer(input);
-  });
+  }));
 
-  ipcMain.handle(IPC_CHANNELS.deleteMcpServer, (_event, input: DeleteMcpServerInput) => {
+  ipcMain.handle(IPC_CHANNELS.deleteMcpServer, safeHandle(validateDeleteMcpServerInput, (input) => {
     orchestratorService.deleteMcpServer(input);
-  });
+  }));
 
-  ipcMain.handle(IPC_CHANNELS.browseWorkspace, (_event, input: BrowseWorkspaceInput) => {
+  ipcMain.handle(IPC_CHANNELS.browseWorkspace, safeHandle(validateBrowseWorkspaceInput, (input) => {
     return browseWorkspace(input);
-  });
+  }));
 
-  ipcMain.handle(IPC_CHANNELS.readWorkspaceFile, (_event, input: ReadWorkspaceFileInput) => {
+  ipcMain.handle(IPC_CHANNELS.readWorkspaceFile, safeHandle(validateReadWorkspaceFileInput, (input) => {
     return readWorkspaceFile(input);
-  });
+  }));
 };
 
 void app.whenReady().then(async () => {
