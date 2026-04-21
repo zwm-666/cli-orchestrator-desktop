@@ -6,7 +6,8 @@
  * independent of adapters which answer "which model or CLI executes this."
  */
 
-import { existsSync, readFileSync, writeFileSync, mkdirSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
+import { mkdir, writeFile } from 'node:fs/promises';
 import { spawn } from 'node:child_process';
 import path from 'node:path';
 import type { McpHealthStatus, McpServerDefinition } from '../../shared/domain.js';
@@ -90,14 +91,14 @@ export class McpRegistryService {
     } else {
       this.servers.push(structuredClone(server));
     }
-    this.writeConfig();
+    void this.writeConfig();
     return structuredClone(server);
   }
 
   /** Delete an MCP server definition by ID. */
   public delete(serverId: string): void {
     this.servers = this.servers.filter((s) => s.id !== serverId);
-    this.writeConfig();
+    void this.writeConfig();
   }
 
   /**
@@ -192,8 +193,8 @@ export class McpRegistryService {
     });
   }
 
-  private writeConfig(): void {
-    mkdirSync(path.dirname(this.configPath), { recursive: true });
-    writeFileSync(this.configPath, JSON.stringify(this.servers, null, 2) + '\n', 'utf8');
+  private async writeConfig(): Promise<void> {
+    await mkdir(path.dirname(this.configPath), { recursive: true });
+    await writeFile(this.configPath, JSON.stringify(this.servers, null, 2) + '\n', 'utf8');
   }
 }

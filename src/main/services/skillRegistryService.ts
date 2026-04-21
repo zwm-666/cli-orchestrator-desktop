@@ -8,7 +8,8 @@
  * 3. What MCP capabilities they require
  */
 
-import { existsSync, readFileSync, writeFileSync, mkdirSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
+import { mkdir, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import type { SkillDefinition, TaskType } from '../../shared/domain.js';
 
@@ -98,14 +99,14 @@ export class SkillRegistryService {
     } else {
       this.skills.push(structuredClone(skill));
     }
-    this.writeConfig();
+    void this.writeConfig();
     return structuredClone(skill);
   }
 
   /** Delete a skill by id. */
   public delete(skillId: string): void {
     this.skills = this.skills.filter((s) => s.id !== skillId);
-    this.writeConfig();
+    void this.writeConfig();
   }
 
   /**
@@ -131,8 +132,8 @@ export class SkillRegistryService {
     return parts.join('\n\n');
   }
 
-  private writeConfig(): void {
-    mkdirSync(path.dirname(this.configPath), { recursive: true });
-    writeFileSync(this.configPath, JSON.stringify(this.skills, null, 2) + '\n', 'utf8');
+  private async writeConfig(): Promise<void> {
+    await mkdir(path.dirname(this.configPath), { recursive: true });
+    await writeFile(this.configPath, JSON.stringify(this.skills, null, 2) + '\n', 'utf8');
   }
 }
