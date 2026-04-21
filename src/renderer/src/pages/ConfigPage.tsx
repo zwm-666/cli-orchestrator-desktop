@@ -1,0 +1,105 @@
+import type { AppState, Locale, RoutingSettings, SkillDefinition, WorkbenchState } from '../../../shared/domain.js';
+import type { AiConfig } from '../aiConfig.js';
+import { ConfigPageHero } from '../components/ConfigPageHero.js';
+import { ConfigIndexRail } from '../components/ConfigIndexRail.js';
+import { ConfigSaveActionsSection } from '../components/ConfigSaveActionsSection.js';
+import { LocalToolsSection } from '../components/LocalToolsSection.js';
+import { PromptBuilderConfigSection } from '../components/PromptBuilderConfigSection.js';
+import { ProviderConfigSection } from '../components/ProviderConfigSection.js';
+import { SkillBindingsSection } from '../components/SkillBindingsSection.js';
+import { useConfigPageController } from '../hooks/useConfigPageController.js';
+import { usePromptBuilderConfigController } from '../hooks/usePromptBuilderConfigController.js';
+
+interface ConfigPageProps {
+  locale: Locale;
+  aiConfig: AiConfig;
+  appState: AppState;
+  routingSettings: RoutingSettings;
+  onSaveAiConfig: (config: AiConfig) => void;
+  onSaveRoutingSettings: (settings: RoutingSettings) => void | Promise<void>;
+  onSaveWorkbenchState: (state: WorkbenchState) => void | Promise<void>;
+  onSaveSkill: (skill: SkillDefinition) => void | Promise<void>;
+}
+
+export function ConfigPage(props: ConfigPageProps): React.JSX.Element {
+  const { locale, aiConfig, appState, routingSettings, onSaveAiConfig, onSaveRoutingSettings, onSaveWorkbenchState, onSaveSkill } = props;
+  const controller = useConfigPageController({
+    locale,
+    aiConfig,
+    appState,
+    routingSettings,
+    onSaveAiConfig,
+    onSaveRoutingSettings,
+    onSaveWorkbenchState,
+    onSaveSkill,
+  });
+  const promptBuilderController = usePromptBuilderConfigController(locale);
+
+  return (
+    <section className="page-stack config-page">
+      <ConfigPageHero locale={locale} />
+
+      <div className="config-layout">
+        <ConfigIndexRail
+          locale={locale}
+          providerItems={controller.providerOptions}
+          adapterItems={controller.adapterOptions}
+        />
+
+        <div className="config-main-stack">
+          <ProviderConfigSection
+            locale={locale}
+            draftConfig={controller.draftConfig}
+            providerStatuses={controller.providerStatuses}
+            showSecrets={controller.showSecrets}
+            activeProviderDefinition={controller.activeProviderDefinition}
+            updateProvider={controller.updateProvider}
+            toggleProviderSecretVisibility={controller.toggleProviderSecretVisibility}
+            setActiveProvider={controller.setActiveProvider}
+            setActiveModel={controller.setActiveModel}
+            handleTestProvider={controller.handleTestProvider}
+          />
+
+          <LocalToolsSection
+            locale={locale}
+            userFacingAdapters={controller.userFacingAdapters}
+            draftRoutingSettings={controller.draftRoutingSettings}
+            updateAdapterSetting={controller.updateAdapterSetting}
+          />
+
+          <SkillBindingsSection
+            locale={locale}
+            skills={appState.skills}
+            bindings={controller.draftWorkbench.skillBindings}
+            onSaveSkill={controller.handleSaveSkill}
+            addBinding={controller.addBinding}
+            updateBinding={controller.updateBinding}
+            removeBinding={controller.removeBinding}
+            toggleBindingSkill={controller.toggleBindingSkill}
+            getTargetOptions={controller.getTargetOptions}
+          />
+
+          <PromptBuilderConfigSection
+            locale={locale}
+            draftConfig={promptBuilderController.draftConfig}
+            isLoading={promptBuilderController.isLoading}
+            loadError={promptBuilderController.loadError}
+            saveStatus={promptBuilderController.saveStatus}
+            updateTemplate={promptBuilderController.updateTemplate}
+            onSave={promptBuilderController.handleSave}
+          />
+
+          <ConfigSaveActionsSection
+            locale={locale}
+            saveStatus={controller.saveStatus}
+            testStatus={controller.testStatus}
+            adapterStatus={controller.adapterStatus}
+            onSave={controller.handleSave}
+            onTestActiveProvider={controller.handleTestActiveProvider}
+            onRefreshAdapters={controller.handleRefreshAdapters}
+          />
+        </div>
+      </div>
+    </section>
+  );
+}
