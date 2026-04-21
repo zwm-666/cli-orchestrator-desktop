@@ -1,4 +1,5 @@
-import { existsSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync } from 'node:fs';
+import { mkdir, rename, rm, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import type {
   AdapterRoutingSettings,
@@ -725,6 +726,8 @@ const normalizePersistedAppData = (value: unknown): PersistedAppData | null => {
 // Persistence Store
 // ---------------------------------------------------------------------------
 export class LocalPersistenceStore {
+  private saveTimer: NodeJS.Timeout | null = null;
+  private pendingSave: Promise<void> = Promise.resolve();
   private readonly filePath: string;
   private readonly backupFilePath: string;
   private appData: PersistedAppData | null = null;
@@ -753,7 +756,7 @@ export class LocalPersistenceStore {
   }
   public saveContinuityState(value: RendererContinuityState): RendererContinuityState {
     this.continuityState = normalizeContinuityState(value);
-    this.writeEnvelope();
+    this.scheduleWriteEnvelope();
     return this.getContinuityState();
   }
   public getRoutingSettings(): RoutingSettings {
@@ -761,7 +764,7 @@ export class LocalPersistenceStore {
   }
   public saveRoutingSettings(value: RoutingSettings): RoutingSettings {
     this.routingSettings = normalizeRoutingSettings(value);
-    this.writeEnvelope();
+    this.scheduleWriteEnvelope();
     return this.getRoutingSettings();
   }
   public saveAppState(state: AppState): void {
@@ -778,7 +781,7 @@ export class LocalPersistenceStore {
       projectContext: state.projectContext,
       orchestrationNodes: structuredClone(state.orchestrationNodes),
     };
-    this.writeEnvelope();
+    this.scheduleWriteEnvelope();
   }
   private snapshot(): LoadedEnvelope {
     return {
@@ -803,7 +806,20 @@ export class LocalPersistenceStore {
       return null;
     }
   }
-  private writeEnvelope(): void {
+  private scheduleWriteEnvelope(): void {
+    if (this.saveTimer) {
+      clearTimeout(this.saveTimer);
+    }
+
+    this.saveTimer = setTimeout(() => {
+      this.saveTimer = null;
+      this.pendingSave = this.pendingSave
+        .then(() => this.writeEnvelopeAsync())
+        .catch(() => this.writeEnvelopeAsync());
+    }, 500);
+  }
+
+  private async writeEnvelopeAsync(): Promise<void> {
     mkdirSync(path.dirname(this.filePath), { recursive: true });
     const envelope: PersistedEnvelopeV1 = {
       version: PERSISTENCE_VERSION,
@@ -827,19 +843,20 @@ export class LocalPersistenceStore {
     };
     const nextPath = `${this.filePath}.${process.pid}.${crypto.randomUUID()}.tmp`;
     const backupPath = this.backupFilePath;
-    writeFileSync(nextPath, `${JSON.stringify(envelope, null, 2)}\n`, 'utf8');
+    await mkdir(path.dirname(this.filePath), { recursive: true });
+    await writeFile(nextPath, `${JSON.stringify(envelope, null, 2)}\n`, 'utf8');
     if (existsSync(this.filePath)) {
-      rmSync(backupPath, { force: true });
-      renameSync(this.filePath, backupPath);
+      await rm(backupPath, { force: true });
+      await rename(this.filePath, backupPath);
     }
     try {
-      renameSync(nextPath, this.filePath);
-      rmSync(backupPath, { force: true });
+      await rename(nextPath, this.filePath);
+      await rm(backupPath, { force: true });
     } catch (error) {
       if (existsSync(backupPath) && !existsSync(this.filePath)) {
-        renameSync(backupPath, this.filePath);
+        await rename(backupPath, this.filePath);
       }
-      rmSync(nextPath, { force: true });
+      await rm(nextPath, { force: true });
       throw error;
     }
   }
