@@ -262,7 +262,22 @@ export function saveAiConfig(config: AiConfig): void {
     return;
   }
 
-  window.localStorage.setItem(AI_CONFIG_STORAGE_KEY, JSON.stringify(config));
+  const persistedConfig: AiConfig = {
+    ...config,
+    providers: {
+      anthropic: { ...config.providers.anthropic, api_key: '' },
+      openai: { ...config.providers.openai, api_key: '' },
+      groq: { ...config.providers.groq, api_key: '' },
+      gemini: { ...config.providers.gemini, api_key: '' },
+      deepseek: { ...config.providers.deepseek, api_key: '' },
+      sambanova: { ...config.providers.sambanova, api_key: '' },
+      cerebras: { ...config.providers.cerebras, api_key: '' },
+      huggingface: { ...config.providers.huggingface, api_key: '' },
+      custom: { ...config.providers.custom, api_key: '' },
+    },
+  };
+
+  window.localStorage.setItem(AI_CONFIG_STORAGE_KEY, JSON.stringify(persistedConfig));
 }
 
 export function getActiveProviderDetails(

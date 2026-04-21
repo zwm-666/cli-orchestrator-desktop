@@ -12,8 +12,20 @@ const isRecord = (value: unknown): value is Record<string, unknown> => {
   return typeof value === 'object' && value !== null;
 };
 
-const trimTrailingSlash = (value: string): string => {
-  return value.replace(/\/+$/, '');
+const resolveProviderUrl = (baseUrl: string, relativePath: string): URL => {
+  const normalizedBaseUrl = requireConfiguredValue(baseUrl, 'Base URL');
+  const parsedUrl = new URL(normalizedBaseUrl);
+
+  if (!['http:', 'https:'].includes(parsedUrl.protocol)) {
+    throw new Error('Base URL must use http or https.');
+  }
+
+  if (parsedUrl.username || parsedUrl.password || parsedUrl.search || parsedUrl.hash) {
+    throw new Error('Base URL must not include credentials, query parameters, or fragments.');
+  }
+
+  const baseHref = parsedUrl.href.endsWith('/') ? parsedUrl.href : `${parsedUrl.href}/`;
+  return new URL(relativePath.replace(/^\/+/, ''), baseHref);
 };
 
 const readString = (value: unknown): string | null => {
@@ -214,8 +226,11 @@ export async function testProviderConnection(providerId: AiProviderId, config: A
   let payload: unknown;
 
   if (provider.apiStyle === 'gemini') {
-    payload = await performJsonRequest(`${trimTrailingSlash(baseUrl)}/models?key=${encodeURIComponent(apiKey)}`, {
+    payload = await performJsonRequest(resolveProviderUrl(baseUrl, 'models'), {
       method: 'GET',
+      headers: {
+        'x-goog-api-key': apiKey,
+      },
     });
     const modelCount = readArray(isRecord(payload) ? payload.models : null).length;
     return `Connected. ${modelCount} model entries returned.`;
@@ -226,13 +241,13 @@ export async function testProviderConnection(providerId: AiProviderId, config: A
   if (provider.apiStyle === 'anthropic') {
     headers['x-api-key'] = apiKey;
     headers['anthropic-version'] = '2023-06-01';
-    payload = await performJsonRequest(`${trimTrailingSlash(baseUrl)}/models`, {
+    payload = await performJsonRequest(resolveProviderUrl(baseUrl, 'models'), {
       method: 'GET',
       headers,
     });
   } else {
     headers.Authorization = `Bearer ${apiKey}`;
-    payload = await performJsonRequest(`${trimTrailingSlash(baseUrl)}/models`, {
+    payload = await performJsonRequest(resolveProviderUrl(baseUrl, 'models'), {
       method: 'GET',
       headers,
     });
@@ -259,7 +274,7 @@ export async function sendProviderChat(
       .map((message) => message.content)
       .join('\n\n');
 
-    const payload = await performJsonRequest(`${trimTrailingSlash(baseUrl)}/messages`, {
+    const payload = await performJsonRequest(resolveProviderUrl(baseUrl, 'messages'), {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -281,10 +296,13 @@ export async function sendProviderChat(
 
   if (provider.apiStyle === 'gemini') {
     const payload = await performJsonRequest(
-      `${trimTrailingSlash(baseUrl)}/models/${encodeURIComponent(resolvedModel)}:generateContent?key=${encodeURIComponent(apiKey)}`,
+      resolveProviderUrl(baseUrl, `models/${encodeURIComponent(resolvedModel)}:generateContent`),
       {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: {
+          'Content-Type': 'application/json',
+          'x-goog-api-key': apiKey,
+        },
         body: JSON.stringify({
           contents: buildGoogleMessages(messages),
           generationConfig: {
@@ -297,7 +315,7 @@ export async function sendProviderChat(
     return parseGoogleMessage(payload);
   }
 
-  const payload = await performJsonRequest(`${trimTrailingSlash(baseUrl)}/chat/completions`, {
+  const payload = await performJsonRequest(resolveProviderUrl(baseUrl, 'chat/completions'), {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
