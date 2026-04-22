@@ -130,7 +130,7 @@ export class OrchestrationExecutionService {
         const orchestrationId = context.orchestrationRun.id;
         const retryDispatch = (): void => {
           const activeContext = this.activeOrchestrations.get(orchestrationId);
-          if (!activeContext || activeContext.orchestrationRun.status !== 'executing') {
+          if (activeContext?.orchestrationRun.status !== 'executing') {
             return;
           }
 

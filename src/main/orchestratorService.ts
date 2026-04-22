@@ -159,7 +159,9 @@ export class OrchestratorService {
 
     this.orchestrationExecution.initialize(
       (input) => this.runManager.startRun(input),
-      (updater) => this.stateManager.updateState(updater),
+      (updater) => {
+        this.stateManager.updateState(updater);
+      },
       this.skillRegistry,
     );
 
