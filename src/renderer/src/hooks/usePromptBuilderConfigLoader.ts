@@ -10,7 +10,7 @@ interface UsePromptBuilderConfigLoaderResult {
 }
 
 export function usePromptBuilderConfigLoader(): UsePromptBuilderConfigLoaderResult {
-  const [config, setConfig] = useState<PromptBuilderConfig>(DEFAULT_PROMPT_BUILDER_CONFIG);
+  const [config, setConfig] = useState(DEFAULT_PROMPT_BUILDER_CONFIG);
   const [isLoading, setIsLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
 

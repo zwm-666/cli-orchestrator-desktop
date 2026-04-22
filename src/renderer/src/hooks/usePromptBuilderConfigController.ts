@@ -17,7 +17,7 @@ interface UsePromptBuilderConfigControllerResult {
 export function usePromptBuilderConfigController(locale: Locale): UsePromptBuilderConfigControllerResult {
   const copy = PROMPT_BUILDER_COPY[locale];
   const { config, isLoading, loadError, setConfig } = usePromptBuilderConfigLoader();
-  const [draftConfig, setDraftConfig] = useState<PromptBuilderConfig>(config);
+  const [draftConfig, setDraftConfig] = useState(config);
   const [saveStatus, setSaveStatus] = useState<InlineStatus | null>(null);
 
   useEffect(() => {
