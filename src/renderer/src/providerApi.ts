@@ -175,7 +175,7 @@ const parseGoogleMessage = (payload: unknown): string => {
   return parts.join('\n');
 };
 
-const buildGoogleMessages = (messages: ProviderChatMessage[]): Array<{ role: 'user' | 'model'; parts: Array<{ text: string }> }> => {
+const buildGoogleMessages = (messages: ProviderChatMessage[]): { role: 'user' | 'model'; parts: { text: string }[] }[] => {
   const systemMessage = messages
     .filter((message) => message.role === 'system')
     .map((message) => message.content.trim())

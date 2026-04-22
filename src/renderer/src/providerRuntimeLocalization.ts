@@ -5,12 +5,12 @@ export const localizeProviderRuntimeMessage = (message: string, locale: Locale):
     return message;
   }
 
-  const connectedMatch = message.match(/^Connected\.\s+(\d+) model entries returned\.$/i);
+  const connectedMatch = /^Connected\.\s+(\d+) model entries returned\.$/i.exec(message);
   if (connectedMatch) {
     return `连接成功。返回了 ${connectedMatch[1]} 个模型条目。`;
   }
 
-  const mappings: Array<[RegExp, string]> = [
+  const mappings: [RegExp, string][] = [
     [/^API key is required\.$/i, '需要填写 API 密钥。'],
     [/^Base URL is required\.$/i, '需要填写服务地址。'],
     [/^Model is required\.$/i, '需要填写模型。'],

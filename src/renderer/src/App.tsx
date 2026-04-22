@@ -3,7 +3,6 @@ import { HashRouter, Navigate, Route, Routes } from 'react-router-dom';
 import type { AppState, Locale, RendererContinuityState, RoutingSettings, SaveSkillInput, SkillDefinition, WorkbenchState } from '../../shared/domain.js';
 import { DEFAULT_WORKBENCH_STATE } from '../../shared/domain.js';
 import { loadAiConfig, saveAiConfig, type AiConfig } from './aiConfig.js';
-import { COPY } from './copy.js';
 import { TopNav } from './components/TopNav.js';
 import { ConfigPage } from './pages/ConfigPage.js';
 import { WorkPage } from './pages/WorkPage.js';
@@ -48,12 +47,11 @@ const DEFAULT_ROUTING_SETTINGS: RoutingSettings = {
 
 export function App(): React.JSX.Element {
   const [aiConfig, setAiConfig] = useState<AiConfig>(() => loadAiConfig());
-  const [appState, setAppState] = useState<AppState>(DEFAULT_APP_STATE);
-  const [routingSettings, setRoutingSettings] = useState<RoutingSettings>(DEFAULT_ROUTING_SETTINGS);
-  const [continuityState, setContinuityState] = useState<RendererContinuityState>(DEFAULT_CONTINUITY);
+  const [appState, setAppState] = useState(DEFAULT_APP_STATE);
+  const [routingSettings, setRoutingSettings] = useState(DEFAULT_ROUTING_SETTINGS);
+  const [continuityState, setContinuityState] = useState(DEFAULT_CONTINUITY);
   const [isBootstrapping, setIsBootstrapping] = useState(true);
   const locale: Locale = continuityState.locale;
-  const copy = COPY[locale];
 
   useEffect(() => {
     let isActive = true;

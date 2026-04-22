@@ -10,7 +10,7 @@ const OPEN_CODE_SESSION_NOT_FOUND_MESSAGE = 'Process exited with code 1. Error: 
 
 const OPEN_CODE_SESSION_NOT_FOUND_MESSAGE_ZH = '进程已退出，退出码 1。错误：会话未找到。';
 
-const ADAPTER_REASON_PATTERNS: Array<[RegExp, string]> = [
+const ADAPTER_REASON_PATTERNS: [RegExp, string][] = [
   [/^"(.+)" was not found in PATH\. Ensure it is installed globally \(e\.g\. npm install -g (.+)\)\.$/i, '未在 PATH 中找到“$1”。请确认它已正确安装，并且当前终端环境可以直接调用。'],
   [/^Found "(.+)" in PATH\.$/i, '已在 PATH 中找到“$1”。'],
   [/^Found "(.+)" in PATH\. Current Windows non-interactive runs may still depend on terminal\/TTY behavior even when auth is valid\.$/i, '已在 PATH 中找到“$1”。即使认证有效，当前 Windows 环境下的非交互运行仍可能依赖终端或 TTY 行为。'],
