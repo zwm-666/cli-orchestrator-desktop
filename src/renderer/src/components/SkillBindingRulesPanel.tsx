@@ -9,7 +9,7 @@ interface SkillBindingRulesPanelProps {
   updateBinding: (bindingId: string, updates: Partial<WorkbenchSkillBinding>) => void;
   removeBinding: (bindingId: string) => void;
   toggleBindingSkill: (bindingId: string, skillId: string, enabled: boolean) => void;
-  getTargetOptions: (targetKind: WorkbenchTargetKind) => Array<{ id: string; label: string }>;
+  getTargetOptions: (targetKind: WorkbenchTargetKind) => { id: string; label: string }[];
 }
 
 export function SkillBindingRulesPanel(props: SkillBindingRulesPanelProps): React.JSX.Element {

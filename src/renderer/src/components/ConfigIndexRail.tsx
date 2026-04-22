@@ -5,8 +5,8 @@ import { PROMPT_BUILDER_COPY } from '../promptBuilderCopy.js';
 
 interface ConfigIndexRailProps {
   locale: Locale;
-  providerItems: Array<{ id: string; label: string }>;
-  adapterItems: Array<{ id: string; label: string }>;
+  providerItems: { id: string; label: string }[];
+  adapterItems: { id: string; label: string }[];
 }
 
 const scrollToSection = (elementId: string): void => {

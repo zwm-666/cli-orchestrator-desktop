@@ -52,9 +52,9 @@ export interface UseConfigPageControllerResult {
   showSecrets: VisibilityMap;
   activeProviderDefinition: ReturnType<typeof getProviderDefinition> | null;
   userFacingAdapters: AppState['adapters'];
-  providerOptions: Array<{ id: string; label: string }>;
-  adapterOptions: Array<{ id: string; label: string }>;
-  getTargetOptions: (targetKind: WorkbenchTargetKind) => Array<{ id: string; label: string }>;
+  providerOptions: { id: string; label: string }[];
+  adapterOptions: { id: string; label: string }[];
+  getTargetOptions: (targetKind: WorkbenchTargetKind) => { id: string; label: string }[];
   updateProvider: (providerId: AiProviderId, updates: Partial<AiConfig['providers'][AiProviderId]>) => void;
   toggleProviderSecretVisibility: (providerId: AiProviderId) => void;
   setActiveProvider: (providerId: AiProviderId | null) => void;
@@ -115,7 +115,7 @@ export function useConfigPageController(input: UseConfigPageControllerInput): Us
     [userFacingAdapters],
   );
 
-  const getTargetOptions = (targetKind: WorkbenchTargetKind): Array<{ id: string; label: string }> => {
+  const getTargetOptions = (targetKind: WorkbenchTargetKind): { id: string; label: string }[] => {
     if (targetKind === 'provider') {
       return providerOptions;
     }
