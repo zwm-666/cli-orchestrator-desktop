@@ -7,7 +7,7 @@ import prettierConfig from 'eslint-config-prettier'
 export default tseslint.config(
   // Global ignores
   {
-    ignores: ['dist/**', 'node_modules/**', 'tmp/**'],
+    ignores: ['dist/**', 'node_modules/**', 'tmp/**', 'tmp_librarian/**'],
   },
 
   // Base JS recommended rules
