@@ -42,7 +42,7 @@ import { PromptBuilderConfigService } from './services/promptBuilderConfigServic
 const currentDir = path.dirname(fileURLToPath(import.meta.url));
 const rootDir = path.resolve(currentDir, '..', '..');
 const electronDataDir = path.resolve(rootDir, '.cli-orchestrator', 'electron-data');
-const preloadPath = path.resolve(rootDir, 'dist/preload/preload.js');
+const preloadPath = path.resolve(rootDir, 'dist/preload/preload.cjs');
 const rendererHtmlPath = path.resolve(rootDir, 'dist/renderer/index.html');
 const WORKSPACE_IGNORED_NAMES = new Set(['.cli-orchestrator', '.git', 'dist', 'node_modules', 'release']);
 const WORKSPACE_PREVIEW_BYTE_LIMIT = 256 * 1024;
