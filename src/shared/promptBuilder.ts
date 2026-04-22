@@ -12,6 +12,10 @@ export interface PromptBuilderConfig {
   projectContext: string;
   engineeringRules: string;
   outputFormat: string;
+  continuityTemplates?: {
+    en: string;
+    zh: string;
+  };
 }
 
 export interface SavePromptBuilderConfigInput {
@@ -22,4 +26,8 @@ export const DEFAULT_PROMPT_BUILDER_CONFIG: PromptBuilderConfig = {
   projectContext: '',
   engineeringRules: '',
   outputFormat: '',
+  continuityTemplates: {
+    en: '',
+    zh: '',
+  },
 };

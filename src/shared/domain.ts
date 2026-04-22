@@ -114,6 +114,7 @@ export interface RunSession {
   taskId: string;
   adapterId: string;
   model: string | null;
+  workbenchThreadId?: string | null;
   status: RunStatus;
   startedAt: string;
   activeConversationId: string;
@@ -186,13 +187,35 @@ export interface WorkbenchActivitySummary {
   recordedAt: string;
 }
 
+export interface TaskThreadMessage {
+  id: string;
+  role: 'user' | 'assistant' | 'system';
+  content: string;
+  providerId: string | null;
+  adapterId: string | null;
+  createdAt: string;
+}
+
+export interface TaskThread {
+  id: string;
+  title: string;
+  messages: TaskThreadMessage[];
+  activityLog: WorkbenchActivitySummary[];
+  createdAt: string;
+  updatedAt: string;
+}
+
 export interface WorkbenchState {
   objective: string;
   tasks: WorkbenchTaskItem[];
   skillBindings: WorkbenchSkillBinding[];
   promptBuilderCommand: string | null;
   processedRunIds: string[];
+  activeThreadId: string | null;
+  threads: TaskThread[];
+  /** @deprecated Prefer per-thread activityLog. */
   latestProviderActivity: WorkbenchActivitySummary | null;
+  /** @deprecated Prefer per-thread activityLog. */
   latestAdapterActivity: WorkbenchActivitySummary | null;
   generatedAt: string | null;
   updatedAt: string | null;
@@ -204,6 +227,8 @@ export const DEFAULT_WORKBENCH_STATE: WorkbenchState = {
   skillBindings: [],
   promptBuilderCommand: null,
   processedRunIds: [],
+  activeThreadId: null,
+  threads: [],
   latestProviderActivity: null,
   latestAdapterActivity: null,
   generatedAt: null,
@@ -230,6 +255,8 @@ export const DEFAULT_LAUNCH_FORM_DRAFT: LaunchFormDraft = {
 
 export type Locale = AppLocale;
 
+export type PersistedRoute = '/work' | '/config';
+
 export interface RendererContinuityState {
   planDraft: PlanDraft | null;
   selectedPlannedTaskIndex: number;
@@ -237,6 +264,7 @@ export interface RendererContinuityState {
   selectedRunId: string | null;
   selectedConversationId: string | null;
   locale: Locale;
+  lastRoute: PersistedRoute | null;
 }
 
 export interface CreateDraftConversationInput {
@@ -310,6 +338,7 @@ export const DEFAULT_UI_CONTINUITY_STATE: UiContinuityState = {
   selectedPlannedTaskIndex: 0,
   launchForm: DEFAULT_LAUNCH_FORM_DRAFT,
   planDraft: null,
+  lastRoute: null,
 };
 
 export interface UpdateUiContinuityInput {
@@ -319,6 +348,7 @@ export interface UpdateUiContinuityInput {
   selectedPlannedTaskIndex?: number;
   launchForm?: LaunchFormDraft;
   planDraft?: PlanDraft | null;
+  lastRoute?: PersistedRoute | null;
 }
 
 export interface AdapterRoutingSettings {
@@ -382,6 +412,7 @@ export interface StartRunInput {
   prompt: string;
   adapterId: string;
   model?: string | null;
+  workbenchThreadId?: string | null;
   conversationId?: string;
   timeoutMs?: number | null;
   taskType?: TaskType;
