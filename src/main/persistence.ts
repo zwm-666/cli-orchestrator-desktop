@@ -24,6 +24,8 @@ import type {
   RunSession,
   RunStatus,
   SkillDefinition,
+  TaskThread,
+  TaskThreadMessage,
   Task,
   TaskRoutingProfile,
   TaskRoutingRule,
@@ -86,6 +88,7 @@ const DEFAULT_CONTINUITY_STATE: RendererContinuityState = {
   selectedRunId: null,
   selectedConversationId: null,
   locale: 'en',
+  lastRoute: null,
 };
 const isJsonObject = (value: unknown): value is JsonObject => {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
@@ -258,6 +261,7 @@ const normalizeContinuityState = (value: unknown): RendererContinuityState => {
     selectedRunId: normalizeNullableString(value.selectedRunId),
     selectedConversationId,
     locale: value.locale === 'zh' ? 'zh' : 'en',
+    lastRoute: value.lastRoute === '/work' || value.lastRoute === '/config' ? value.lastRoute : null,
   };
 };
 
@@ -321,6 +325,42 @@ const normalizeWorkbenchActivitySummary = (value: unknown): WorkbenchActivitySum
   };
 };
 
+const normalizeTaskThreadMessage = (value: unknown): TaskThreadMessage | null => {
+  if (!isJsonObject(value) || typeof value.id !== 'string' || value.id.trim().length === 0) {
+    return null;
+  }
+
+  return {
+    id: value.id.trim(),
+    role: value.role === 'assistant' || value.role === 'system' ? value.role : 'user',
+    content: typeof value.content === 'string' ? value.content : '',
+    providerId: normalizeNullableString(value.providerId),
+    adapterId: normalizeNullableString(value.adapterId),
+    createdAt: typeof value.createdAt === 'string' ? value.createdAt : new Date().toISOString(),
+  };
+};
+
+const normalizeTaskThread = (value: unknown): TaskThread | null => {
+  if (!isJsonObject(value) || typeof value.id !== 'string' || value.id.trim().length === 0) {
+    return null;
+  }
+
+  return {
+    id: value.id.trim(),
+    title: typeof value.title === 'string' && value.title.trim().length > 0 ? value.title.trim() : 'Thread',
+    messages: Array.isArray(value.messages)
+      ? (value.messages as unknown[]).map(normalizeTaskThreadMessage).filter((entry): entry is TaskThreadMessage => entry !== null)
+      : [],
+    activityLog: Array.isArray(value.activityLog)
+      ? (value.activityLog as unknown[])
+          .map(normalizeWorkbenchActivitySummary)
+          .filter((entry): entry is WorkbenchActivitySummary => entry !== null)
+      : [],
+    createdAt: typeof value.createdAt === 'string' ? value.createdAt : new Date().toISOString(),
+    updatedAt: typeof value.updatedAt === 'string' ? value.updatedAt : new Date().toISOString(),
+  };
+};
+
 const normalizeWorkbenchState = (value: unknown): WorkbenchState => {
   if (!isJsonObject(value)) {
     return structuredClone(DEFAULT_WORKBENCH_STATE);
@@ -339,6 +379,10 @@ const normalizeWorkbenchState = (value: unknown): WorkbenchState => {
     promptBuilderCommand: normalizeNullableString(value.promptBuilderCommand),
     processedRunIds: Array.isArray(value.processedRunIds)
       ? (value.processedRunIds as string[]).filter((entry) => typeof entry === 'string')
+      : [],
+    activeThreadId: normalizeNullableString(value.activeThreadId),
+    threads: Array.isArray(value.threads)
+      ? (value.threads as unknown[]).map(normalizeTaskThread).filter((entry): entry is TaskThread => entry !== null)
       : [],
     latestProviderActivity: normalizeWorkbenchActivitySummary(value.latestProviderActivity),
     latestAdapterActivity: normalizeWorkbenchActivitySummary(value.latestAdapterActivity),

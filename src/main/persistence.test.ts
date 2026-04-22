@@ -3,6 +3,7 @@ import { mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import test from 'node:test';
 import type { AppState, RendererContinuityState, RoutingSettings } from '../shared/domain.js';
+import { DEFAULT_WORKBENCH_STATE } from '../shared/domain.js';
 import { LocalPersistenceStore } from './persistence.js';
 
 const createRootDir = (name: string): string => {
@@ -121,6 +122,7 @@ const createContinuity = (): RendererContinuityState => {
     selectedRunId: 'run-running',
     selectedConversationId: 'conv-1',
     locale: 'zh',
+    lastRoute: '/config',
   };
 };
 
@@ -367,6 +369,7 @@ void test('LocalPersistenceStore normalizes malformed resultPayload to null', ()
         selectedRunId: null,
         selectedConversationId: null,
         locale: 'en',
+        lastRoute: null,
       },
       routing: {
         adapterSettings: {},
@@ -389,6 +392,40 @@ void test('LocalPersistenceStore normalizes malformed resultPayload to null', ()
 
     assert.ok(recoveredNode, 'Node should be recovered');
     assert.equal(recoveredNode.resultPayload, null, 'Malformed resultPayload should normalize to null');
+  } finally {
+    rmSync(rootDir, { recursive: true, force: true });
+  }
+});
+
+void test('LocalPersistenceStore defaults thread fields for legacy workbench state', () => {
+  const rootDir = createRootDir('persistence-test-workbench-threads');
+  const persistenceDir = path.resolve(rootDir, '.cli-orchestrator');
+  const primaryPath = path.resolve(persistenceDir, 'desktop-state.v1.json');
+
+  try {
+    mkdirSync(persistenceDir, { recursive: true });
+    const envelope = {
+      version: 1,
+      projectRoot: rootDir,
+      savedAt: new Date().toISOString(),
+      appState: {
+        ...createState(),
+        workbench: {
+          ...DEFAULT_WORKBENCH_STATE,
+          objective: 'Legacy workbench state',
+        },
+      },
+      continuity: createContinuity(),
+      routing: createRoutingSettings(),
+    };
+
+    writeFileSync(primaryPath, JSON.stringify(envelope, null, 2), 'utf8');
+
+    const recovered = new LocalPersistenceStore(rootDir).load();
+
+    assert.equal(recovered.appData?.workbench?.objective, 'Legacy workbench state');
+    assert.equal(recovered.appData?.workbench?.activeThreadId, null);
+    assert.deepEqual(recovered.appData?.workbench?.threads, []);
   } finally {
     rmSync(rootDir, { recursive: true, force: true });
   }
