@@ -6,6 +6,7 @@ interface WorkbenchActivityPanelProps {
   locale: Locale;
   latestProviderActivity: WorkbenchActivitySummary | null;
   latestAdapterActivity: WorkbenchActivitySummary | null;
+  activityLog: WorkbenchActivitySummary[];
 }
 
 interface ActivityCardProps {
@@ -49,8 +50,9 @@ function ActivityCard({ locale, title, emptyLabel, activity }: ActivityCardProps
 }
 
 export function WorkbenchActivityPanel(props: WorkbenchActivityPanelProps): React.JSX.Element {
-  const { locale, latestProviderActivity, latestAdapterActivity } = props;
+  const { locale, latestProviderActivity, latestAdapterActivity, activityLog } = props;
   const activityCount = Number(Boolean(latestProviderActivity)) + Number(Boolean(latestAdapterActivity));
+  const recentEntries = activityLog.slice(-5).reverse();
 
   return (
     <details className="section-panel inlay-card workbench-activity-panel">
@@ -88,6 +90,31 @@ export function WorkbenchActivityPanel(props: WorkbenchActivityPanelProps): Reac
           activity={latestAdapterActivity}
         />
       </div>
+
+      {recentEntries.length > 0 ? (
+        <div className="activity-summary-grid">
+          <article className="activity-summary-card inlay-card">
+            <div className="section-heading workspace-pane-heading">
+              <div>
+                <p className="section-label">{locale === 'zh' ? '线程摘要' : 'Thread summaries'}</p>
+                <h3>{locale === 'zh' ? '当前线程最近记录' : 'Recent entries for this thread'}</h3>
+              </div>
+            </div>
+
+            <div className="workbench-task-list">
+              {recentEntries.map((activity) => (
+                <div key={`${activity.sourceId}-${activity.recordedAt}`} className="workbench-task-row">
+                  <span className="workbench-task-copy">
+                    <strong>{activity.sourceLabel}</strong>
+                    <span className="mini-meta">{activity.taskUpdateSummary}</span>
+                  </span>
+                  <span className="status-pill">{getActivityStatusLabel(locale, activity.status)}</span>
+                </div>
+              ))}
+            </div>
+          </article>
+        </div>
+      ) : null}
     </details>
   );
 }

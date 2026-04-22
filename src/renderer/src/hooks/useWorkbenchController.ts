@@ -1,11 +1,18 @@
-import { useEffect, useMemo, useState } from 'react';
-import type { AppState, Locale, WorkbenchState, WorkbenchTargetKind, WorkspaceEntry } from '../../../shared/domain.js';
+import { useEffect, useMemo, useRef, useState } from 'react';
+import type { AppState, Locale, TaskThread, WorkbenchState, WorkbenchTargetKind, WorkspaceEntry } from '../../../shared/domain.js';
 import { DEFAULT_WORKBENCH_STATE } from '../../../shared/domain.js';
+import type { PromptBuilderConfig } from '../../../shared/promptBuilder.js';
 import type { AiConfig, AiProviderDefinition } from '../aiConfig.js';
 import { getProviderDefinition } from '../aiConfig.js';
-import { buildContinuityPrompt, formatWorkbenchActivitySummary, resolveBoundSkills } from '../workbench.js';
+import {
+  buildContinuityPrompt,
+  createTaskThread,
+  formatWorkbenchActivitySummary,
+  getActiveTaskThread,
+  resolveBoundSkills,
+} from '../workbench.js';
 import { useWorkbenchAdapterFlow } from './useWorkbenchAdapterFlow.js';
-import { type ChatMessage, type WorkbenchOption } from './workbenchControllerShared.js';
+import { type WorkbenchOption } from './workbenchControllerShared.js';
 import { FILE_CONTEXT_LIMIT } from './workbenchControllerShared.js';
 import { useWorkbenchProviderFlow } from './useWorkbenchProviderFlow.js';
 import { useWorkbenchTaskBoard } from './useWorkbenchTaskBoard.js';
@@ -15,18 +22,21 @@ interface UseWorkbenchControllerInput {
   locale: Locale;
   aiConfig: AiConfig;
   appState: AppState;
+  promptBuilderConfig: PromptBuilderConfig;
   onSaveWorkbenchState: (state: WorkbenchState) => void | Promise<void>;
 }
 
 export interface UseWorkbenchControllerResult {
   workbench: WorkbenchState;
+  activeThread: TaskThread | null;
+  chatMessages: TaskThread['messages'];
+  threadOptions: WorkbenchOption[];
   browseResult: ReturnType<typeof useWorkbenchWorkspace>['browseResult'];
   browseError: string | null;
   isBrowsing: boolean;
   selectedFile: ReturnType<typeof useWorkbenchWorkspace>['selectedFile'];
   previewError: string | null;
   isPreviewLoading: boolean;
-  chatMessages: ChatMessage[];
   chatError: string | null;
   isSending: boolean;
   selectedTargetKind: WorkbenchTargetKind;
@@ -54,6 +64,8 @@ export interface UseWorkbenchControllerResult {
   handleTargetKindChange: (nextKind: WorkbenchTargetKind) => void;
   handleProviderChange: (nextProviderId: string) => void;
   handleAdapterChange: (nextAdapterId: string) => void;
+  handleThreadChange: (nextThreadId: string) => void;
+  handleCreateThread: () => void;
   handleToggleTask: (taskId: string) => void;
   handleAddTask: () => void;
   handleProviderSend: () => Promise<void>;
@@ -69,23 +81,66 @@ export interface UseWorkbenchControllerResult {
   loadFilePreview: (entry: WorkspaceEntry) => Promise<void>;
 }
 
+const normalizeThreadedWorkbench = (workbench: WorkbenchState, locale: Locale, bootstrapThread: TaskThread): WorkbenchState => {
+  if (workbench.threads.length === 0) {
+    return {
+      ...workbench,
+      activeThreadId: bootstrapThread.id,
+      threads: [bootstrapThread],
+    };
+  }
+
+  if (workbench.activeThreadId && workbench.threads.some((thread) => thread.id === workbench.activeThreadId)) {
+    return workbench;
+  }
+
+  return {
+    ...workbench,
+    activeThreadId: workbench.threads[0]?.id ?? null,
+  };
+};
+
 export function useWorkbenchController(input: UseWorkbenchControllerInput): UseWorkbenchControllerResult {
-  const { locale, aiConfig, appState, onSaveWorkbenchState } = input;
-  const workbench = appState.workbench ?? DEFAULT_WORKBENCH_STATE;
+  const { locale, aiConfig, appState, promptBuilderConfig, onSaveWorkbenchState } = input;
+  const persistedWorkbench = appState.workbench ?? DEFAULT_WORKBENCH_STATE;
+  const bootstrapThreadRef = useRef<TaskThread | null>(null);
+  const activeThreadIdRef = useRef<string | null>(null);
   const [selectedTargetKind, setSelectedTargetKind] = useState<WorkbenchTargetKind>('provider');
   const [selectedProviderId, setSelectedProviderId] = useState(aiConfig.active_provider ?? '');
   const [selectedAdapterId, setSelectedAdapterId] = useState('');
   const [targetModel, setTargetModel] = useState(aiConfig.active_model);
   const [targetPrompt, setTargetPrompt] = useState('');
 
+  if (!bootstrapThreadRef.current) {
+    bootstrapThreadRef.current = createTaskThread({ locale, objective: persistedWorkbench.objective });
+  }
+
+  const workbench = useMemo(
+    () => normalizeThreadedWorkbench(persistedWorkbench, locale, bootstrapThreadRef.current ?? createTaskThread({ locale, objective: persistedWorkbench.objective })),
+    [locale, persistedWorkbench],
+  );
+  const activeThread = useMemo(() => getActiveTaskThread(workbench), [workbench]);
+  const threadOptions = useMemo<WorkbenchOption[]>(() => workbench.threads.map((thread) => ({ id: thread.id, label: thread.title })), [workbench.threads]);
+
   const workspace = useWorkbenchWorkspace({ locale });
 
   const persistWorkbench = async (nextWorkbench: WorkbenchState): Promise<void> => {
+    const normalized = normalizeThreadedWorkbench(nextWorkbench, locale, bootstrapThreadRef.current ?? createTaskThread({ locale, objective: nextWorkbench.objective }));
     await onSaveWorkbenchState({
-      ...nextWorkbench,
+      ...normalized,
       updatedAt: new Date().toISOString(),
     });
   };
+
+  useEffect(() => {
+    const persistedActiveThreadId = persistedWorkbench.activeThreadId;
+    const persistedThreadCount = persistedWorkbench.threads.length;
+    const activeThreadValid = persistedActiveThreadId ? persistedWorkbench.threads.some((thread) => thread.id === persistedActiveThreadId) : false;
+
+    if (persistedThreadCount === 0 || !activeThreadValid) {
+      void persistWorkbench(workbench);
+    }
+  }, [persistedWorkbench.activeThreadId, persistedWorkbench.threads, workbench]);
 
   const availableAdapters = useMemo(
     () => appState.adapters.filter((adapter) => adapter.visibility === 'user' && adapter.enabled && adapter.availability === 'available'),
@@ -136,20 +191,30 @@ export function useWorkbenchController(input: UseWorkbenchControllerInput): UseW
     persistWorkbench,
   });
 
+  const latestProviderActivity = useMemo(
+    () => [...(activeThread?.activityLog ?? [])].reverse().find((activity) => activity.sourceKind === 'provider') ?? workbench.latestProviderActivity,
+    [activeThread?.activityLog, workbench.latestProviderActivity],
+  );
+  const latestAdapterActivity = useMemo(
+    () => [...(activeThread?.activityLog ?? [])].reverse().find((activity) => activity.sourceKind === 'adapter') ?? workbench.latestAdapterActivity,
+    [activeThread?.activityLog, workbench.latestAdapterActivity],
+  );
   const recentProviderSummary = useMemo(
-    () => (workbench.latestProviderActivity ? formatWorkbenchActivitySummary(locale, workbench.latestProviderActivity) : null),
-    [locale, workbench.latestProviderActivity],
+    () => (latestProviderActivity ? formatWorkbenchActivitySummary(locale, latestProviderActivity) : null),
+    [latestProviderActivity, locale],
   );
   const recentLocalRunSummary = useMemo(
-    () => (workbench.latestAdapterActivity ? formatWorkbenchActivitySummary(locale, workbench.latestAdapterActivity) : null),
-    [locale, workbench.latestAdapterActivity],
+    () => (latestAdapterActivity ? formatWorkbenchActivitySummary(locale, latestAdapterActivity) : null),
+    [latestAdapterActivity, locale],
   );
 
+  const continuityTemplate = locale === 'zh' ? promptBuilderConfig.continuityTemplates?.zh ?? '' : promptBuilderConfig.continuityTemplates?.en ?? '';
   const continuityPrompt = useMemo(
     () =>
       buildContinuityPrompt({
         locale,
         workbench,
+        activeThread,
         selectedFilePath: workspace.selectedFile?.relativePath ?? null,
         selectedFileContent: workspace.selectedFile?.content.slice(0, FILE_CONTEXT_LIMIT) ?? null,
         targetKind: selectedTargetKind,
@@ -160,10 +225,13 @@ export function useWorkbenchController(input: UseWorkbenchControllerInput): UseW
         boundSkills,
         recentProviderSummary,
         recentLocalRunSummary,
+        continuityTemplate,
       }),
     [
+      activeThread,
       appState.projectContext.summary,
       boundSkills,
+      continuityTemplate,
       locale,
       recentLocalRunSummary,
       recentProviderSummary,
@@ -178,13 +246,20 @@ export function useWorkbenchController(input: UseWorkbenchControllerInput): UseW
   );
 
   useEffect(() => {
-    setTargetPrompt(continuityPrompt);
-  }, [continuityPrompt]);
+    const threadChanged = activeThreadIdRef.current !== activeThread?.id;
+    activeThreadIdRef.current = activeThread?.id ?? null;
+
+    if (threadChanged || (activeThread?.messages.length ?? 0) === 0) {
+      setTargetPrompt(continuityPrompt);
+    }
+  }, [continuityPrompt, activeThread?.id, activeThread?.messages.length]);
 
   const providerFlow = useWorkbenchProviderFlow({
     locale,
     workbench,
     persistWorkbench,
+    activeThreadId: activeThread?.id ?? null,
+    threadMessages: activeThread?.messages ?? [],
     selectedProviderId,
     selectedProviderDefinition,
     selectedProviderConfig,
@@ -199,6 +274,7 @@ export function useWorkbenchController(input: UseWorkbenchControllerInput): UseW
     appState,
     workbench,
     selectedAdapter,
+    activeThreadId: activeThread?.id ?? null,
     targetPrompt,
     targetModel,
     persistWorkbench,
@@ -232,6 +308,22 @@ export function useWorkbenchController(input: UseWorkbenchControllerInput): UseW
     setTargetModel(nextAdapter?.defaultModel ?? '');
   };
 
+  const handleThreadChange = (nextThreadId: string): void => {
+    void persistWorkbench({
+      ...workbench,
+      activeThreadId: nextThreadId,
+    });
+  };
+
+  const handleCreateThread = (): void => {
+    const nextThread = createTaskThread({ locale, objective: workbench.objective });
+    void persistWorkbench({
+      ...workbench,
+      activeThreadId: nextThread.id,
+      threads: [...workbench.threads, nextThread],
+    });
+  };
+
   const handleApplyPromptBuilderCommand = (command: string): void => {
     void persistWorkbench({
       ...workbench,
@@ -248,13 +340,15 @@ export function useWorkbenchController(input: UseWorkbenchControllerInput): UseW
 
   return {
     workbench,
+    activeThread,
+    chatMessages: activeThread?.messages ?? [],
+    threadOptions,
     browseResult: workspace.browseResult,
     browseError: workspace.browseError,
     isBrowsing: workspace.isBrowsing,
     selectedFile: workspace.selectedFile,
     previewError: workspace.previewError,
     isPreviewLoading: workspace.isPreviewLoading,
-    chatMessages: providerFlow.chatMessages,
     chatError: providerFlow.chatError,
     isSending: providerFlow.isSending,
     selectedTargetKind,
@@ -282,6 +376,8 @@ export function useWorkbenchController(input: UseWorkbenchControllerInput): UseW
     handleTargetKindChange,
     handleProviderChange,
     handleAdapterChange,
+    handleThreadChange,
+    handleCreateThread,
     handleToggleTask: taskBoard.handleToggleTask,
     handleAddTask: taskBoard.handleAddTask,
     handleProviderSend: providerFlow.handleProviderSend,

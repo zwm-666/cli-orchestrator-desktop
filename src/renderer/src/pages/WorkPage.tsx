@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import type { AppState, Locale, WorkbenchState } from '../../../shared/domain.js';
+import type { PromptBuilderConfig } from '../../../shared/promptBuilder.js';
 import type { AiConfig } from '../aiConfig.js';
 import { isProviderReady } from '../aiConfig.js';
 import { ChatPanel } from '../components/ChatPanel.js';
@@ -19,21 +20,24 @@ interface WorkPageProps {
   locale: Locale;
   aiConfig: AiConfig;
   appState: AppState;
+  promptBuilderConfig: PromptBuilderConfig;
   onSaveWorkbenchState: (state: WorkbenchState) => void | Promise<void>;
 }
 
-export function WorkPage({ locale, aiConfig, appState, onSaveWorkbenchState }: WorkPageProps): React.JSX.Element {
+export function WorkPage({ locale, aiConfig, appState, promptBuilderConfig, onSaveWorkbenchState }: WorkPageProps): React.JSX.Element {
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
 
   const controller = useWorkbenchController({
     locale,
     aiConfig,
     appState,
+    promptBuilderConfig,
     onSaveWorkbenchState,
   });
 
   const {
     workbench,
+    activeThread,
     browseResult,
     browseError,
     isBrowsing,
@@ -41,6 +45,7 @@ export function WorkPage({ locale, aiConfig, appState, onSaveWorkbenchState }: W
     previewError,
     isPreviewLoading,
     chatMessages,
+    threadOptions,
     chatError,
     isSending,
     selectedTargetKind,
@@ -68,6 +73,8 @@ export function WorkPage({ locale, aiConfig, appState, onSaveWorkbenchState }: W
     handleTargetKindChange,
     handleProviderChange,
     handleAdapterChange,
+    handleThreadChange,
+    handleCreateThread,
     handleToggleTask,
     handleAddTask,
     handleProviderSend,
@@ -212,6 +219,7 @@ export function WorkPage({ locale, aiConfig, appState, onSaveWorkbenchState }: W
             locale={locale}
             latestProviderActivity={workbench.latestProviderActivity}
             latestAdapterActivity={workbench.latestAdapterActivity}
+            activityLog={activeThread?.activityLog ?? []}
           />
         </div>
       </section>
@@ -226,6 +234,8 @@ export function WorkPage({ locale, aiConfig, appState, onSaveWorkbenchState }: W
         <WorkbenchControlPanel
           locale={locale}
           objective={workbench.objective}
+          activeThreadId={activeThread?.id ?? ''}
+          threadOptions={threadOptions}
           selectedTargetKind={selectedTargetKind}
           selectedProviderId={selectedProviderId}
           selectedAdapterId={selectedAdapterId}
@@ -237,6 +247,8 @@ export function WorkPage({ locale, aiConfig, appState, onSaveWorkbenchState }: W
           onTargetKindChange={handleTargetKindChange}
           onProviderChange={handleProviderChange}
           onAdapterChange={handleAdapterChange}
+          onThreadChange={handleThreadChange}
+          onCreateThread={handleCreateThread}
           onTargetModelChange={setTargetModel}
         />
       </WorkbenchSettingsDialog>

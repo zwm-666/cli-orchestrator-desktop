@@ -9,6 +9,8 @@ interface TargetOption {
 interface WorkbenchControlPanelProps {
   locale: Locale;
   objective: string;
+  activeThreadId: string;
+  threadOptions: TargetOption[];
   selectedTargetKind: WorkbenchTargetKind;
   selectedProviderId: string;
   selectedAdapterId: string;
@@ -20,6 +22,8 @@ interface WorkbenchControlPanelProps {
   onTargetKindChange: (value: WorkbenchTargetKind) => void;
   onProviderChange: (value: string) => void;
   onAdapterChange: (value: string) => void;
+  onThreadChange: (value: string) => void;
+  onCreateThread: () => void;
   onTargetModelChange: (value: string) => void;
 }
 
@@ -27,6 +31,8 @@ export function WorkbenchControlPanel(props: WorkbenchControlPanelProps): React.
   const {
     locale,
     objective,
+    activeThreadId,
+    threadOptions,
     selectedTargetKind,
     selectedProviderId,
     selectedAdapterId,
@@ -38,6 +44,8 @@ export function WorkbenchControlPanel(props: WorkbenchControlPanelProps): React.
     onTargetKindChange,
     onProviderChange,
     onAdapterChange,
+    onThreadChange,
+    onCreateThread,
     onTargetModelChange,
   } = props;
 
@@ -54,6 +62,26 @@ export function WorkbenchControlPanel(props: WorkbenchControlPanelProps): React.
           }}
         />
       </label>
+
+      <div className="selector-strip workbench-target-strip">
+        <label className="field">
+          <span>{locale === 'zh' ? '任务线程' : 'Task thread'}</span>
+          <select value={activeThreadId} onChange={(event) => { onThreadChange(event.target.value); }}>
+            {threadOptions.map((thread) => (
+              <option key={thread.id} value={thread.id}>
+                {thread.label}
+              </option>
+            ))}
+          </select>
+        </label>
+
+        <div className="field">
+          <span>{locale === 'zh' ? '线程操作' : 'Thread actions'}</span>
+          <button type="button" className="secondary-button" onClick={onCreateThread}>
+            {locale === 'zh' ? '新建线程' : 'New thread'}
+          </button>
+        </div>
+      </div>
 
       <div className="selector-strip workbench-target-strip">
         <label className="field">
