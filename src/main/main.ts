@@ -5,29 +5,14 @@ import { app, BrowserWindow, dialog, ipcMain } from 'electron';
 import type {
   BrowseWorkspaceInput,
   BrowseWorkspaceResult,
-  CancelOrchestrationInput,
-  CancelRunInput,
-  CreateDraftConversationInput,
-  DeleteAgentProfileInput,
-  DeleteMcpServerInput,
-  DeleteSkillInput,
-  GetOrchestrationRunInput,
   GetNextClaudeTaskResult,
-  PlanDraftInput,
   ReadWorkspaceFileInput,
   ReadWorkspaceFileResult,
-  RendererContinuityState,
   SaveAgentProfileInput,
   SaveMcpServerInput,
-  SaveProjectContextInput,
   SaveSkillInput,
-  SaveWorkbenchStateInput,
-  StartOrchestrationInput,
-  UpdateRoutingSettingsInput,
-  StartRunInput,
 } from '../shared/domain.js';
 import { IPC_CHANNELS } from '../shared/ipc.js';
-import type { SavePromptBuilderConfigInput } from '../shared/promptBuilder.js';
 import {
   formatIpcErrorMessage,
   validateBrowseWorkspaceInput,
@@ -75,9 +60,9 @@ const hasMeaningfulChange = (left: unknown, right: unknown): boolean => {
 };
 
 const createAppStatePatch = (previousState: import('../shared/domain.js').AppState, nextState: import('../shared/domain.js').AppState): Partial<import('../shared/domain.js').AppState> => {
-  const patch: Partial<import('../shared/domain.js').AppState> = {};
+  const patch = {} as Partial<import('../shared/domain.js').AppState>;
   const mutablePatch = patch as Record<string, unknown>;
-  const entries: Array<keyof import('../shared/domain.js').AppState> = [
+  const entries = [
     'adapters',
     'conversations',
     'tasks',
@@ -90,7 +75,7 @@ const createAppStatePatch = (previousState: import('../shared/domain.js').AppSta
     'orchestrationRuns',
     'orchestrationNodes',
     'workbench',
-  ];
+  ] as (keyof import('../shared/domain.js').AppState)[];
 
   for (const key of entries) {
     if (hasMeaningfulChange(previousState[key], nextState[key])) {
@@ -123,7 +108,7 @@ const safeHandle = <TInput, TResult>(
     try {
       return await handler(validator(input));
     } catch (error: unknown) {
-      throw new Error(formatIpcErrorMessage(error));
+      throw new Error(formatIpcErrorMessage(error), { cause: error });
     }
   };
 };
@@ -133,7 +118,7 @@ const safeNoInputHandle = <TResult>(handler: () => TResult | Promise<TResult>): 
     try {
       return await handler();
     } catch (error: unknown) {
-      throw new Error(formatIpcErrorMessage(error));
+      throw new Error(formatIpcErrorMessage(error), { cause: error });
     }
   };
 };
@@ -388,7 +373,7 @@ const registerIpc = (): void => {
     return orchestratorService.getAgentProfiles();
   }));
 
-  ipcMain.handle(IPC_CHANNELS.saveAgentProfile, safeHandle((value) => validateObjectInput<SaveAgentProfileInput>(value, 'save agent profile input'), (input) => {
+  ipcMain.handle(IPC_CHANNELS.saveAgentProfile, safeHandle((value) => validateObjectInput(value, 'save agent profile input') as unknown as SaveAgentProfileInput, (input) => {
     return orchestratorService.saveAgentProfile(input);
   }));
 
@@ -402,7 +387,7 @@ const registerIpc = (): void => {
     return orchestratorService.getSkills();
   }));
 
-  ipcMain.handle(IPC_CHANNELS.saveSkill, safeHandle((value) => validateObjectInput<SaveSkillInput>(value, 'save skill input'), (input) => {
+  ipcMain.handle(IPC_CHANNELS.saveSkill, safeHandle((value) => validateObjectInput(value, 'save skill input') as unknown as SaveSkillInput, (input) => {
     return orchestratorService.saveSkill(input);
   }));
 
@@ -416,7 +401,7 @@ const registerIpc = (): void => {
     return orchestratorService.getMcpServers();
   }));
 
-  ipcMain.handle(IPC_CHANNELS.saveMcpServer, safeHandle((value) => validateObjectInput<SaveMcpServerInput>(value, 'save mcp server input'), (input) => {
+  ipcMain.handle(IPC_CHANNELS.saveMcpServer, safeHandle((value) => validateObjectInput(value, 'save mcp server input') as unknown as SaveMcpServerInput, (input) => {
     return orchestratorService.saveMcpServer(input);
   }));
 

@@ -67,8 +67,8 @@ const assertOptionalNumber = (value: unknown, label: string): number | null => {
   return value;
 };
 
-export const validateObjectInput = <T extends object>(value: unknown, label: string): T => {
-  return assertRecord(value, label) as T;
+export const validateObjectInput = (value: unknown, label: string): Record<string, unknown> => {
+  return assertRecord(value, label);
 };
 
 export const validateSaveContinuityStateInput = (value: unknown): RendererContinuityState => {
