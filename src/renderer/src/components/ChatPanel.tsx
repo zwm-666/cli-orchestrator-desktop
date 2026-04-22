@@ -1,16 +1,10 @@
 import { useEffect, useRef } from 'react';
 import { Link } from 'react-router-dom';
-import type { Locale } from '../../../shared/domain.js';
-
-interface ChatMessage {
-  id: string;
-  role: 'user' | 'assistant';
-  content: string;
-}
+import type { Locale, TaskThreadMessage } from '../../../shared/domain.js';
 
 interface ChatPanelProps {
   locale: Locale;
-  messages: ChatMessage[];
+  messages: TaskThreadMessage[];
   inputValue: string;
   isSending: boolean;
   canSend: boolean;
@@ -74,7 +68,19 @@ export function ChatPanel(props: ChatPanelProps): React.JSX.Element {
           messages.map((message) => (
             <article key={message.id} className={`chat-message is-${message.role}`}>
               <div className="chat-message-topline">
-                <span className="status-pill">{message.role === 'user' ? (locale === 'zh' ? '你' : 'You') : (locale === 'zh' ? '助手' : 'Assistant')}</span>
+                <span className="status-pill">
+                  {message.role === 'user'
+                    ? locale === 'zh'
+                      ? '你'
+                      : 'You'
+                    : message.role === 'assistant'
+                      ? locale === 'zh'
+                        ? '助手'
+                        : 'Assistant'
+                      : locale === 'zh'
+                        ? '系统'
+                        : 'System'}
+                </span>
               </div>
               <p>{message.content}</p>
             </article>

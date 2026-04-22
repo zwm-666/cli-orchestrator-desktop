@@ -1,11 +1,5 @@
 import type { Locale, WorkbenchTaskItem } from '../../../shared/domain.js';
 
-export interface ChatMessage {
-  id: string;
-  role: 'user' | 'assistant';
-  content: string;
-}
-
 export interface WorkbenchOption {
   id: string;
   label: string;
