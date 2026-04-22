@@ -1,5 +1,4 @@
 import type { AppState, RunEvent, SaveProjectContextInput, SaveWorkbenchStateInput, Task, RunSession } from '../../shared/domain.js';
-import { DEFAULT_WORKBENCH_STATE } from '../../shared/domain.js';
 import type { LocalPersistenceStore } from '../persistence.js';
 
 type StateListener = (state: AppState) => void;

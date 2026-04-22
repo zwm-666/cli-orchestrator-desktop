@@ -10,7 +10,6 @@ import type {
   CreateDraftConversationInput,
   CreateDraftConversationResult,
   ExecutionTranscriptEntry,
-  McpServerDefinition,
   RunEvent,
   RunSession,
   RunStatus,
@@ -69,19 +68,6 @@ interface ParsedCodexEvent {
     status?: string;
   };
 }
-
-const EXECUTABLE_TOKENS = {
-  nodeExecPath: '$NODE_EXEC_PATH',
-} as const;
-
-const TERMINAL_STATUS_MESSAGE_PATTERNS = [
-  /^Process completed successfully\.$/i,
-  /^Process was interrupted by an application restart and cannot be resumed\.$/i,
-  /^Process failed to start\./i,
-  /^Process exited with code /i,
-  /^Process cancelled by user/i,
-  /^Process timed out after /i,
-];
 
 const createId = (prefix: string): string => `${prefix}-${crypto.randomUUID()}`;
 const getPrimaryStepId = (runId: string): string => `step-${runId}-primary`;
@@ -185,10 +171,6 @@ const tryParseJsonObject = (value: string): Record<string, unknown> | null => {
   } catch {
     return null;
   }
-};
-
-const isTerminalStatusMessage = (message: string): boolean => {
-  return TERMINAL_STATUS_MESSAGE_PATTERNS.some((pattern) => pattern.test(message));
 };
 
 export class RunManager {
