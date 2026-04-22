@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import type { AppState, Locale, WorkbenchState } from '../../../shared/domain.js';
 import {
+  appendActivityToThread,
   applyTaskUpdates,
   collectRunOutputText,
   createAdapterActivitySummary,
@@ -13,6 +14,7 @@ interface UseWorkbenchAdapterFlowInput {
   appState: AppState;
   workbench: WorkbenchState;
   selectedAdapter: AppState['adapters'][number] | null;
+  activeThreadId: string | null;
   targetPrompt: string;
   targetModel: string;
   persistWorkbench: (nextWorkbench: WorkbenchState) => Promise<void>;
@@ -29,7 +31,7 @@ interface UseWorkbenchAdapterFlowResult {
 }
 
 export function useWorkbenchAdapterFlow(input: UseWorkbenchAdapterFlowInput): UseWorkbenchAdapterFlowResult {
-  const { locale, appState, workbench, selectedAdapter, targetPrompt, targetModel, persistWorkbench, setTaskStatusMessage } = input;
+  const { locale, appState, workbench, selectedAdapter, activeThreadId, targetPrompt, targetModel, persistWorkbench, setTaskStatusMessage } = input;
   const [runTitle, setRunTitle] = useState('');
   const [runError, setRunError] = useState<string | null>(null);
   const [isStartingRun, setIsStartingRun] = useState(false);
@@ -74,21 +76,22 @@ export function useWorkbenchAdapterFlow(input: UseWorkbenchAdapterFlowInput): Us
           const processedIds = new Set(nextWorkbench.processedRunIds);
           processedIds.add(run.id);
           const nextActivity = createAdapterActivitySummary(locale, run, cliAdapterById.get(run.adapterId)?.displayName ?? run.adapterId, outputText);
+          const targetThreadId = run.workbenchThreadId ?? activeThreadId;
 
           if (updates) {
-            nextWorkbench = {
+            nextWorkbench = appendActivityToThread({
               ...nextWorkbench,
               tasks: applyTaskUpdates(nextWorkbench.tasks, updates, 'assistant'),
               processedRunIds: [...processedIds],
               latestAdapterActivity: nextActivity,
-            };
+            }, targetThreadId, nextActivity);
             syncedCount += 1;
           } else {
-            nextWorkbench = {
+            nextWorkbench = appendActivityToThread({
               ...nextWorkbench,
               processedRunIds: [...processedIds],
               latestAdapterActivity: nextActivity,
-            };
+            }, targetThreadId, nextActivity);
           }
 
           touched = true;
@@ -112,7 +115,7 @@ export function useWorkbenchAdapterFlow(input: UseWorkbenchAdapterFlowInput): Us
     };
 
     void syncChecklistFromRuns();
-  }, [appState.adapters, appState.runs, locale, persistWorkbench, setTaskStatusMessage, workbench]);
+  }, [activeThreadId, appState.adapters, appState.runs, locale, persistWorkbench, setTaskStatusMessage, workbench]);
 
   const handleStartAdapterRun = async (): Promise<void> => {
     if (!selectedAdapter) {
@@ -134,6 +137,7 @@ export function useWorkbenchAdapterFlow(input: UseWorkbenchAdapterFlowInput): Us
         prompt: targetPrompt,
         adapterId: selectedAdapter.id,
         model: targetModel || null,
+        workbenchThreadId: activeThreadId,
         taskType: 'code',
       });
     } catch (error: unknown) {
