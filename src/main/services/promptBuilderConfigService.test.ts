@@ -14,10 +14,14 @@ const createRootDir = (name: string): string => {
 void test('PromptBuilderConfigService loads prompt-builder template files', async () => {
   const rootDir = createRootDir('prompt-builder-load');
   const templateDir = path.resolve(rootDir, 'config', 'prompt-builder');
+  const continuityTemplateDir = path.resolve(rootDir, 'config', 'prompt-templates');
   mkdirSync(templateDir, { recursive: true });
+  mkdirSync(continuityTemplateDir, { recursive: true });
   writeFileSync(path.resolve(templateDir, 'project-context.md'), '# Project\n', 'utf8');
   writeFileSync(path.resolve(templateDir, 'engineering-rules.md'), '# Rules\n', 'utf8');
   writeFileSync(path.resolve(templateDir, 'output-format.md'), '# Output\n', 'utf8');
+  writeFileSync(path.resolve(continuityTemplateDir, 'continuity-handoff-en.md'), '# Handoff EN\n', 'utf8');
+  writeFileSync(path.resolve(continuityTemplateDir, 'continuity-handoff-zh.md'), '# 交接 ZH\n', 'utf8');
 
   const service = new PromptBuilderConfigService(rootDir);
   const config = await service.loadConfig();
@@ -25,6 +29,8 @@ void test('PromptBuilderConfigService loads prompt-builder template files', asyn
   assert.equal(config.projectContext, '# Project\n');
   assert.equal(config.engineeringRules, '# Rules\n');
   assert.equal(config.outputFormat, '# Output\n');
+  assert.equal(config.continuityTemplates?.en, '# Handoff EN\n');
+  assert.equal(config.continuityTemplates?.zh, '# 交接 ZH\n');
 });
 
 void test('PromptBuilderConfigService saves prompt-builder template files', async () => {
