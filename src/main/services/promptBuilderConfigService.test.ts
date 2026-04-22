@@ -11,7 +11,7 @@ const createRootDir = (name: string): string => {
   return rootDir;
 };
 
-test('PromptBuilderConfigService loads prompt-builder template files', async () => {
+void test('PromptBuilderConfigService loads prompt-builder template files', async () => {
   const rootDir = createRootDir('prompt-builder-load');
   const templateDir = path.resolve(rootDir, 'config', 'prompt-builder');
   mkdirSync(templateDir, { recursive: true });
@@ -27,7 +27,7 @@ test('PromptBuilderConfigService loads prompt-builder template files', async () 
   assert.equal(config.outputFormat, '# Output\n');
 });
 
-test('PromptBuilderConfigService saves prompt-builder template files', async () => {
+void test('PromptBuilderConfigService saves prompt-builder template files', async () => {
   const rootDir = createRootDir('prompt-builder-save');
   const service = new PromptBuilderConfigService(rootDir);
 

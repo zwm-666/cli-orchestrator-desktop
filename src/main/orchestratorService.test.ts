@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { mkdirSync, rmSync, writeFileSync } from 'node:fs';
+import { chmodSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import test from 'node:test';
 import type { AppState, RoutingSettings } from '../shared/domain.js';
@@ -188,21 +188,52 @@ const writeAdaptersConfig = (rootDir: string): void => {
   );
 };
 
-const writeNamedExecutable = (targetPath: string, contents: string): string => {
-  mkdirSync(path.dirname(targetPath), { recursive: true });
-  writeFileSync(targetPath, contents, 'utf8');
+const createExecutablePath = (targetPath: string): string => {
+  if (process.platform === 'win32') {
+    return targetPath;
+  }
+
+  const extension = path.extname(targetPath).toLowerCase();
+  if (extension === '.cmd' || extension === '.bat') {
+    return targetPath.slice(0, -extension.length);
+  }
+
   return targetPath;
+};
+
+const writeNamedExecutable = (targetPath: string, windowsContents: string, unixContents?: string): string => {
+  const executablePath = createExecutablePath(targetPath);
+  mkdirSync(path.dirname(executablePath), { recursive: true });
+
+  if (process.platform === 'win32') {
+    writeFileSync(executablePath, windowsContents, 'utf8');
+    return executablePath;
+  }
+
+  const normalizedContents = unixContents ?? '#!/bin/sh\nexit 0\n';
+  writeFileSync(executablePath, normalizedContents, 'utf8');
+  chmodSync(executablePath, 0o755);
+  return executablePath;
 };
 
 const writeFakeExecutable = (rootDir: string): string => {
   const binDir = path.resolve(rootDir, 'bin');
   mkdirSync(binDir, { recursive: true });
-  const executablePath = path.resolve(binDir, 'fake-ai.cmd');
-  writeFileSync(executablePath, '@echo off\r\necho fake-ai\r\n', 'utf8');
-  const blockedExecutablePath = path.resolve(binDir, 'blocked-ai.cmd');
-  writeFileSync(blockedExecutablePath, '@echo off\r\necho blocked-ai\r\n', 'utf8');
-  const opencodeExecutablePath = path.resolve(binDir, 'opencode.cmd');
-  writeFileSync(opencodeExecutablePath, '@echo off\r\n1>&2 echo Error: Session not found\r\nexit /b 1\r\n', 'utf8');
+  void writeNamedExecutable(
+    path.resolve(binDir, 'fake-ai.cmd'),
+    '@echo off\r\necho fake-ai\r\n',
+    '#!/bin/sh\necho fake-ai\n',
+  );
+  void writeNamedExecutable(
+    path.resolve(binDir, 'blocked-ai.cmd'),
+    '@echo off\r\necho blocked-ai\r\n',
+    '#!/bin/sh\necho blocked-ai\n',
+  );
+  void writeNamedExecutable(
+    path.resolve(binDir, 'opencode.cmd'),
+    '@echo off\r\n1>&2 echo Error: Session not found\r\nexit /b 1\r\n',
+    '#!/bin/sh\n>&2 echo Error: Session not found\nexit 1\n',
+  );
   return binDir;
 };
 
@@ -489,7 +520,11 @@ void test('OrchestratorService discovery honors customCommand overrides when rou
     assert.ok(before);
     assert.equal(before.availability, 'unavailable');
 
-    const customExecutablePath = writeNamedExecutable(path.resolve(rootDir, 'custom-bin', 'missing-ai.cmd'), '@echo off\r\necho custom missing ai\r\n');
+  const customExecutablePath = writeNamedExecutable(
+    path.resolve(rootDir, 'custom-bin', 'missing-ai.cmd'),
+    '@echo off\r\necho custom missing ai\r\n',
+    '#!/bin/sh\necho custom missing ai\n',
+  );
     const nextRouting = service.getRoutingSettings();
     nextRouting.adapterSettings['missing-ai'] = {
       enabled: true,
@@ -524,7 +559,11 @@ void test('OrchestratorService discovers Windows shims from APPDATA npm fallback
     process.env.PATH = '';
     process.env.PATHEXT = '.COM;.EXE;.BAT;.CMD';
     process.env.APPDATA = path.resolve(rootDir, 'AppData', 'Roaming');
-    writeNamedExecutable(path.resolve(process.env.APPDATA, 'npm', 'codex.cmd'), '@echo off\r\necho codex shim\r\n');
+  void writeNamedExecutable(
+    path.resolve(process.env.APPDATA, 'npm', 'codex.cmd'),
+    '@echo off\r\necho codex shim\r\n',
+    '#!/bin/sh\necho codex shim\n',
+  );
 
     const persistenceStore = new LocalPersistenceStore(rootDir);
     const service = new OrchestratorService(rootDir, persistenceStore);
@@ -549,7 +588,11 @@ void test('OrchestratorService does not treat wsl.exe alone as proof that Claude
     writeAdaptersConfig(rootDir);
     const binDir = path.resolve(rootDir, 'bin');
     mkdirSync(binDir, { recursive: true });
-    writeNamedExecutable(path.resolve(binDir, 'wsl.exe'), 'not-a-real-exe');
+  void writeNamedExecutable(
+    path.resolve(binDir, 'wsl.exe'),
+    'not-a-real-exe',
+    '#!/bin/sh\nexit 1\n',
+  );
     process.env.PATH = [binDir, previousPath ?? ''].filter((entry) => entry.length > 0).join(path.delimiter);
     process.env.PATHEXT = '.COM;.EXE;.BAT;.CMD';
 
