@@ -2,6 +2,8 @@ import type {
   AppLocale,
   RunSession,
   SkillDefinition,
+  TaskThread,
+  TaskThreadMessage,
   WorkbenchActivitySummary,
   WorkbenchSkillBinding,
   WorkbenchState,
@@ -19,9 +21,262 @@ export interface WorkbenchTaskUpdates {
 }
 
 const TASK_UPDATE_PATTERN = /<TASK_UPDATES>([\s\S]*?)<\/TASK_UPDATES>/gi;
+const CONTINUITY_PLACEHOLDER_PATTERN = /{{\s*([\w.]+)\s*}}/g;
+const THREAD_ACTIVITY_LOG_LIMIT = 25;
+export const MAX_TASK_THREAD_MESSAGES = 50;
 
 const escapeRegex = (value: string): string => {
   return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+};
+
+const clipDetail = (detail: string, limit = 500): string => {
+  const normalizedDetail = detail.trim();
+  return normalizedDetail.length > limit ? `${normalizedDetail.slice(0, limit)}…` : normalizedDetail;
+};
+
+const stringifyTaskList = (locale: AppLocale, tasks: WorkbenchTaskItem[], emptyLabel: string): string => {
+  return tasks.length > 0
+    ? tasks
+        .map((task, index) => `${index + 1}. [${WORKBENCH_TASK_STATUS_LABELS[locale][task.status]}] ${task.title}${task.detail ? ` — ${task.detail}` : ''}`)
+        .join('\n')
+    : emptyLabel;
+};
+
+const buildFullPromptTemplate = (locale: AppLocale): string => {
+  if (locale === 'zh') {
+    return [
+      '# 连续工作交接',
+      '',
+      '## 当前目标',
+      '{{objective}}',
+      '',
+      '## 即将切换到',
+      '- 工具类型：{{targetTypeLabel}}',
+      '- 目标：{{targetLabel}}',
+      '- 模型：{{modelLabel}}',
+      '',
+      '## 项目上下文',
+      '{{projectContext}}',
+      '',
+      '{{promptBuilderSection}}',
+      '{{recentProviderSection}}',
+      '{{recentLocalRunSection}}',
+      '## 已完成任务',
+      '{{completedTasks}}',
+      '',
+      '## 当前待推进任务',
+      '{{remainingTasks}}',
+      '',
+      '## 当前文件上下文',
+      '{{currentFileContext}}',
+      '',
+      '{{boundSkillsSection}}',
+      '## 下一步要求',
+      '- 不要从头重新分析。先延续当前线程和任务清单。',
+      '- 完成任务时勾完成；发现新任务时追加。',
+      '- 回复要简洁，优先给出下一步可执行动作。',
+      '',
+      '{{checklistInstruction}}',
+    ].join('\n');
+  }
+
+  return [
+    '# Continuity Handoff',
+    '',
+    '## Current Objective',
+    '{{objective}}',
+    '',
+    '## Switching To',
+    '- Tool type: {{targetTypeLabel}}',
+    '- Target: {{targetLabel}}',
+    '- Model: {{modelLabel}}',
+    '',
+    '## Project Context',
+    '{{projectContext}}',
+    '',
+    '{{promptBuilderSection}}',
+    '{{recentProviderSection}}',
+    '{{recentLocalRunSection}}',
+    '## Completed Tasks',
+    '{{completedTasks}}',
+    '',
+    '## Remaining Tasks',
+    '{{remainingTasks}}',
+    '',
+    '## Current File Context',
+    '{{currentFileContext}}',
+    '',
+    '{{boundSkillsSection}}',
+    '## Next-Step Instructions',
+    '- Continue from the current thread and checklist instead of restarting analysis.',
+    '- Mark tasks complete when done and add newly discovered tasks.',
+    '- Keep the answer concise and action-oriented.',
+    '',
+    '{{checklistInstruction}}',
+  ].join('\n');
+};
+
+const renderTemplate = (template: string, values: Record<string, string>): string => {
+  return template.replace(CONTINUITY_PLACEHOLDER_PATTERN, (_matched, key: string) => values[key] ?? '');
+};
+
+const buildThreadTitle = (locale: AppLocale, objective: string, explicitTitle?: string): string => {
+  const preferredTitle = explicitTitle?.trim() ?? '';
+  if (preferredTitle) {
+    return preferredTitle;
+  }
+
+  const normalizedObjective = objective.trim();
+  if (!normalizedObjective) {
+    return locale === 'zh' ? '新线程' : 'New thread';
+  }
+
+  return normalizedObjective.length > 72 ? `${normalizedObjective.slice(0, 72).trimEnd()}…` : normalizedObjective;
+};
+
+const buildTaskUpdateSummary = (locale: AppLocale, updates: WorkbenchTaskUpdates | null): string => {
+  if (locale === 'zh') {
+    return updates
+      ? `任务更新：完成 ${updates.completeTaskIds.length} 项，推进 ${updates.inProgressTaskIds.length} 项，新增 ${updates.newTasks.length} 项。`
+      : '任务更新：本次交互没有返回结构化任务更新块（TASK_UPDATES）。';
+  }
+
+  return updates
+    ? `Task updates: completed ${updates.completeTaskIds.length}, moved ${updates.inProgressTaskIds.length} in progress, added ${updates.newTasks.length}.`
+    : 'Task updates: this interaction did not return a structured TASK_UPDATES block.';
+};
+
+const updateThread = (
+  workbench: WorkbenchState,
+  threadId: string | null,
+  updater: (thread: TaskThread) => TaskThread,
+): WorkbenchState => {
+  if (!threadId) {
+    return workbench;
+  }
+
+  let changed = false;
+  const threads = workbench.threads.map((thread) => {
+    if (thread.id !== threadId) {
+      return thread;
+    }
+
+    changed = true;
+    return updater(thread);
+  });
+
+  return changed ? { ...workbench, threads } : workbench;
+};
+
+const summarizeOverflowMessages = (locale: AppLocale, threadId: string, messages: TaskThreadMessage[]): WorkbenchActivitySummary => {
+  const lastMessage = messages.at(-1) ?? null;
+  const sourceKind = lastMessage?.adapterId ? 'adapter' : 'provider';
+  const sourceId = lastMessage?.adapterId ?? lastMessage?.providerId ?? threadId;
+  const sourceLabel = lastMessage?.adapterId ?? lastMessage?.providerId ?? (locale === 'zh' ? '线程记忆' : 'Thread memory');
+  const detail = messages
+    .map((message) => `${message.role}: ${message.content.trim()}`)
+    .filter((entry) => entry.length > 0)
+    .join('\n\n');
+
+  return {
+    sourceKind,
+    sourceId,
+    sourceLabel,
+    modelLabel: '',
+    status: 'compressed',
+    detail: clipDetail(detail, 1200),
+    taskUpdateSummary:
+      locale === 'zh' ? `线程历史已压缩 ${messages.length} 条较早消息。` : `Compressed ${messages.length} older thread messages into memory.`,
+    recordedAt: lastMessage?.createdAt ?? new Date().toISOString(),
+  };
+};
+
+const formatFileContext = (locale: AppLocale, selectedFilePath: string | null, selectedFileContent: string | null): string => {
+  if (!selectedFilePath) {
+    return locale === 'zh' ? '- 当前没有选中文件。' : '- No file is currently selected.';
+  }
+
+  return locale === 'zh'
+    ? `- 文件：${selectedFilePath}\n- 片段：\n${selectedFileContent ?? '当前未加载文件内容。'}`
+    : `- File: ${selectedFilePath}\n- Snippet:\n${selectedFileContent ?? 'The file content is not loaded yet.'}`;
+};
+
+const buildBoundSkillsSection = (boundSkills: SkillDefinition[], skillText: string, locale: AppLocale): string => {
+  if (boundSkills.length === 0) {
+    return '';
+  }
+
+  return locale === 'zh'
+    ? `## 已绑定技能\n${boundSkills.map((skill) => `- ${skill.name}`).join('\n')}\n\n${skillText}`
+    : `## Bound Skills\n${boundSkills.map((skill) => `- ${skill.name}`).join('\n')}\n\n${skillText}`;
+};
+
+export const createTaskThread = (input: { locale: AppLocale; objective: string; title?: string }): TaskThread => {
+  const now = new Date().toISOString();
+
+  return {
+    id: `wb-thread-${crypto.randomUUID()}`,
+    title: buildThreadTitle(input.locale, input.objective, input.title),
+    messages: [],
+    activityLog: [],
+    createdAt: now,
+    updatedAt: now,
+  };
+};
+
+export const getActiveTaskThread = (workbench: WorkbenchState): TaskThread | null => {
+  if (!workbench.activeThreadId) {
+    return workbench.threads[0] ?? null;
+  }
+
+  return workbench.threads.find((thread) => thread.id === workbench.activeThreadId) ?? workbench.threads[0] ?? null;
+};
+
+export const appendActivityToThread = (
+  workbench: WorkbenchState,
+  threadId: string | null,
+  activity: WorkbenchActivitySummary,
+): WorkbenchState => {
+  return updateThread(workbench, threadId, (thread) => ({
+    ...thread,
+    activityLog: [...thread.activityLog, activity].slice(-THREAD_ACTIVITY_LOG_LIMIT),
+    updatedAt: activity.recordedAt,
+  }));
+};
+
+export const appendMessagesToThread = (input: {
+  locale: AppLocale;
+  workbench: WorkbenchState;
+  threadId: string | null;
+  messages: TaskThreadMessage[];
+}): WorkbenchState => {
+  const { locale, workbench, threadId, messages } = input;
+  if (!threadId || messages.length === 0) {
+    return workbench;
+  }
+
+  return updateThread(workbench, threadId, (thread) => {
+    const nextMessages = [...thread.messages, ...messages];
+    if (nextMessages.length <= MAX_TASK_THREAD_MESSAGES) {
+      return {
+        ...thread,
+        messages: nextMessages,
+        updatedAt: messages.at(-1)?.createdAt ?? new Date().toISOString(),
+      };
+    }
+
+    const overflowCount = nextMessages.length - MAX_TASK_THREAD_MESSAGES;
+    const overflowMessages = nextMessages.slice(0, overflowCount);
+    const retainedMessages = nextMessages.slice(-MAX_TASK_THREAD_MESSAGES);
+    const overflowSummary = summarizeOverflowMessages(locale, thread.id, overflowMessages);
+
+    return {
+      ...thread,
+      messages: retainedMessages,
+      activityLog: [...thread.activityLog, overflowSummary].slice(-THREAD_ACTIVITY_LOG_LIMIT),
+      updatedAt: retainedMessages.at(-1)?.createdAt ?? overflowSummary.recordedAt,
+    };
+  });
 };
 
 export const applyTaskUpdates = (
@@ -181,23 +436,6 @@ export const collectRunOutputText = (run: RunSession): string => {
     .join('\n');
 };
 
-const clipDetail = (detail: string, limit = 500): string => {
-  const normalizedDetail = detail.trim();
-  return normalizedDetail.length > limit ? `${normalizedDetail.slice(0, limit)}…` : normalizedDetail;
-};
-
-const buildTaskUpdateSummary = (locale: AppLocale, updates: WorkbenchTaskUpdates | null): string => {
-  if (locale === 'zh') {
-    return updates
-      ? `任务更新：完成 ${updates.completeTaskIds.length} 项，推进 ${updates.inProgressTaskIds.length} 项，新增 ${updates.newTasks.length} 项。`
-      : '任务更新：本次交互没有返回结构化任务更新块（TASK_UPDATES）。';
-  }
-
-  return updates
-    ? `Task updates: completed ${updates.completeTaskIds.length}, moved ${updates.inProgressTaskIds.length} in progress, added ${updates.newTasks.length}.`
-    : 'Task updates: this interaction did not return a structured TASK_UPDATES block.';
-};
-
 export const formatWorkbenchActivitySummary = (locale: AppLocale, activity: WorkbenchActivitySummary): string => {
   const localizedStatuses = RUN_STATUS_LABELS[locale] as Record<string, string>;
   const localizedStatus = localizedStatuses[activity.status] ?? (activity.status || (locale === 'zh' ? '未知状态' : 'unknown'));
@@ -212,7 +450,7 @@ export const formatWorkbenchActivitySummary = (locale: AppLocale, activity: Work
   }
 
   return [
-      `- Latest ${TARGET_KIND_LABELS[locale][activity.sourceKind].toLowerCase()}: ${activity.sourceLabel} / ${activity.modelLabel || 'no model'} / status ${localizedStatus}`,
+    `- Latest ${TARGET_KIND_LABELS[locale][activity.sourceKind].toLowerCase()}: ${activity.sourceLabel} / ${activity.modelLabel || 'no model'} / status ${localizedStatus}`,
     `- Recorded at: ${activity.recordedAt}`,
     `- Summary: ${activity.detail || 'No additional output summary was recorded.'}`,
     `- ${activity.taskUpdateSummary || 'Task updates: this interaction did not return a structured TASK_UPDATES block.'}`,
@@ -278,6 +516,7 @@ export const summarizeRecentLocalRun = (
 export const buildContinuityPrompt = (input: {
   locale: AppLocale;
   workbench: WorkbenchState;
+  activeThread: TaskThread | null;
   selectedFilePath: string | null;
   selectedFileContent: string | null;
   targetKind: WorkbenchTargetKind;
@@ -288,10 +527,12 @@ export const buildContinuityPrompt = (input: {
   boundSkills: SkillDefinition[];
   recentProviderSummary?: string | null;
   recentLocalRunSummary?: string | null;
+  continuityTemplate?: string | null;
 }): string => {
   const {
     locale,
     workbench,
+    activeThread,
     selectedFilePath,
     selectedFileContent,
     targetKind,
@@ -301,98 +542,76 @@ export const buildContinuityPrompt = (input: {
     boundSkills,
     recentProviderSummary,
     recentLocalRunSummary,
+    continuityTemplate,
   } = input;
 
   const completedTasks = workbench.tasks.filter((task) => task.status === 'completed');
   const activeTasks = workbench.tasks.filter((task) => task.status !== 'completed');
   const skillText = assembleSkillPromptText(boundSkills);
   const promptBuilderCommand = workbench.promptBuilderCommand?.trim() ?? '';
+  const fileContext = formatFileContext(locale, selectedFilePath, selectedFileContent);
+  const checklistInstruction = buildChecklistInstruction(locale);
+  const hasThreadHistory = Boolean(activeThread && (activeThread.messages.length > 0 || activeThread.activityLog.length > 0));
 
-  if (locale === 'zh') {
+  if (hasThreadHistory) {
+    const recentThreadActivities = activeThread?.activityLog.slice(-3).map((activity) => formatWorkbenchActivitySummary(locale, activity)).join('\n\n');
+
     return [
-      '# 连续工作交接',
+      locale === 'zh' ? '# 当前线程增量交接' : '# Incremental Thread Handoff',
       '',
-      '## 当前目标',
-      workbench.objective || '尚未填写工作目标。',
+      locale === 'zh' ? '## 继续使用当前线程' : '## Continue In The Current Thread',
+      locale === 'zh'
+        ? `- 线程：${activeThread?.title ?? '未命名线程'}\n- 保留消息：${activeThread?.messages.length ?? 0} 条\n- 历史摘要：${activeThread?.activityLog.length ?? 0} 条`
+        : `- Thread: ${activeThread?.title ?? 'Untitled thread'}\n- Retained messages: ${activeThread?.messages.length ?? 0}\n- History summaries: ${activeThread?.activityLog.length ?? 0}`,
       '',
-      `## 即将切换到`,
-      `- 工具类型：${TARGET_KIND_LABELS[locale][targetKind]}`,
-      `- 目标：${targetLabel || '未选择'}`,
-      `- 模型：${modelLabel || '未指定'}`,
+      locale === 'zh' ? '## 当前目标' : '## Current Objective',
+      workbench.objective || (locale === 'zh' ? '尚未填写工作目标。' : 'No work objective has been defined yet.'),
       '',
-      '## 项目上下文',
-      projectContextSummary || '暂无项目上下文摘要。',
+      locale === 'zh' ? '## 当前待推进任务' : '## Remaining Tasks',
+      stringifyTaskList(locale, activeTasks, locale === 'zh' ? '1. 先基于目标生成任务清单。' : '1. Generate an initial task list from the objective.'),
       '',
-      promptBuilderCommand ? `## 拆分命令生成器输出\n${promptBuilderCommand}\n` : '',
-      recentProviderSummary ? `## 最近一次模型服务交互\n${recentProviderSummary}\n` : '',
-      recentLocalRunSummary ? `## 最近一次本地工具运行\n${recentLocalRunSummary}\n` : '',
-      '## 已完成任务',
-      completedTasks.length > 0 ? completedTasks.map((task) => `- ${task.title}`).join('\n') : '- 暂无',
+      recentThreadActivities ? `${locale === 'zh' ? '## 线程最近摘要' : '## Recent Thread Summaries'}\n${recentThreadActivities}\n` : '',
+      recentProviderSummary ? `${locale === 'zh' ? '## 最近一次模型服务交互' : '## Latest Provider Interaction'}\n${recentProviderSummary}\n` : '',
+      recentLocalRunSummary ? `${locale === 'zh' ? '## 最近一次本地工具运行' : '## Latest Local Tool Run'}\n${recentLocalRunSummary}\n` : '',
+      locale === 'zh' ? '## 当前文件上下文' : '## Current File Context',
+      fileContext,
       '',
-      '## 当前待推进任务',
-      activeTasks.length > 0
-        ? activeTasks
-            .map((task, index) => `${index + 1}. [${WORKBENCH_TASK_STATUS_LABELS[locale][task.status]}] ${task.title}${task.detail ? ` — ${task.detail}` : ''}`)
-            .join('\n')
-        : '1. 先基于目标生成任务清单。',
+      buildBoundSkillsSection(boundSkills, skillText, locale),
       '',
-      '## 当前文件上下文',
-      selectedFilePath
-        ? `- 文件：${selectedFilePath}\n- 片段：\n${selectedFileContent ?? '当前未加载文件内容。'}`
-        : '- 当前没有选中文件。',
+      locale === 'zh'
+        ? '仅补充自上次线程消息以来新增的关键信息，不要重复完整交接模板。'
+        : 'Only add delta context since the last thread message. Do not repeat the full handoff template.',
       '',
-      boundSkills.length > 0 ? `## 已绑定技能\n${boundSkills.map((skill) => `- ${skill.name}`).join('\n')}\n\n${skillText}\n` : '',
-      '## 下一步要求',
-      '- 不要从头重新分析。先延续当前任务清单。',
-      '- 完成任务时勾完成；发现新任务时追加。',
-      '- 回复要简洁，优先给出下一步可执行动作。',
-      '',
-      buildChecklistInstruction(locale),
+      checklistInstruction,
     ]
       .filter((entry) => entry.length > 0)
       .join('\n');
   }
 
-  return [
-    '# Continuity Handoff',
-    '',
-    '## Current Objective',
-    workbench.objective || 'No work objective has been defined yet.',
-    '',
-    '## Switching To',
-    `- Tool type: ${targetKind === 'provider' ? 'Hosted Provider' : 'Local Adapter'}`,
-    `- Target: ${targetLabel || 'Not selected'}`,
-    `- Model: ${modelLabel || 'Not specified'}`,
-    '',
-    '## Project Context',
-    projectContextSummary || 'No project context summary yet.',
-    '',
-    promptBuilderCommand ? `## Split command builder output\n${promptBuilderCommand}\n` : '',
-    recentProviderSummary ? `## Latest Provider Interaction\n${recentProviderSummary}\n` : '',
-    recentLocalRunSummary ? `## Latest Local Tool Run\n${recentLocalRunSummary}\n` : '',
-    '## Completed Tasks',
-    completedTasks.length > 0 ? completedTasks.map((task) => `- ${task.title}`).join('\n') : '- None yet',
-    '',
-    '## Remaining Tasks',
-      activeTasks.length > 0
-        ? activeTasks
-            .map((task, index) => `${index + 1}. [${WORKBENCH_TASK_STATUS_LABELS[locale][task.status]}] ${task.title}${task.detail ? ` — ${task.detail}` : ''}`)
-            .join('\n')
-        : '1. Generate an initial task list from the objective.',
-    '',
-    '## Current File Context',
-    selectedFilePath
-      ? `- File: ${selectedFilePath}\n- Snippet:\n${selectedFileContent ?? 'The file content is not loaded yet.'}`
-      : '- No file is currently selected.',
-    '',
-    boundSkills.length > 0 ? `## Bound Skills\n${boundSkills.map((skill) => `- ${skill.name}`).join('\n')}\n\n${skillText}\n` : '',
-    '## Next-Step Instructions',
-    '- Continue from the current checklist instead of restarting analysis.',
-    '- Mark tasks complete when done and add newly discovered tasks.',
-    '- Keep the answer concise and action-oriented.',
-    '',
-    buildChecklistInstruction(locale),
-  ]
-    .filter((entry) => entry.length > 0)
+  const template = continuityTemplate?.trim() || buildFullPromptTemplate(locale);
+
+  return renderTemplate(template, {
+    objective: workbench.objective || (locale === 'zh' ? '尚未填写工作目标。' : 'No work objective has been defined yet.'),
+    targetTypeLabel: TARGET_KIND_LABELS[locale][targetKind],
+    targetLabel: targetLabel || (locale === 'zh' ? '未选择' : 'Not selected'),
+    modelLabel: modelLabel || (locale === 'zh' ? '未指定' : 'Not specified'),
+    projectContext: projectContextSummary || (locale === 'zh' ? '暂无项目上下文摘要。' : 'No project context summary yet.'),
+    promptBuilderSection: promptBuilderCommand
+      ? `${locale === 'zh' ? '## 拆分命令生成器输出' : '## Split Command Builder Output'}\n${promptBuilderCommand}\n`
+      : '',
+    recentProviderSection: recentProviderSummary
+      ? `${locale === 'zh' ? '## 最近一次模型服务交互' : '## Latest Provider Interaction'}\n${recentProviderSummary}\n`
+      : '',
+    recentLocalRunSection: recentLocalRunSummary
+      ? `${locale === 'zh' ? '## 最近一次本地工具运行' : '## Latest Local Tool Run'}\n${recentLocalRunSummary}\n`
+      : '',
+    completedTasks: completedTasks.length > 0 ? completedTasks.map((task) => `- ${task.title}`).join('\n') : locale === 'zh' ? '- 暂无' : '- None yet',
+    remainingTasks: stringifyTaskList(locale, activeTasks, locale === 'zh' ? '1. 先基于目标生成任务清单。' : '1. Generate an initial task list from the objective.'),
+    currentFileContext: fileContext,
+    boundSkillsSection: buildBoundSkillsSection(boundSkills, skillText, locale),
+    checklistInstruction,
+  })
+    .split('\n')
+    .filter((line, index, allLines) => line.trim().length > 0 || (index > 0 && (allLines[index - 1] ?? '').trim().length > 0))
     .join('\n');
 };
