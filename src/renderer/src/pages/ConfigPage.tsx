@@ -1,4 +1,5 @@
 import type { AppState, Locale, RoutingSettings, SkillDefinition, WorkbenchState } from '../../../shared/domain.js';
+import type { PromptBuilderConfig } from '../../../shared/promptBuilder.js';
 import type { AiConfig } from '../aiConfig.js';
 import { ConfigPageHero } from '../components/ConfigPageHero.js';
 import { ConfigIndexRail } from '../components/ConfigIndexRail.js';
@@ -19,10 +20,11 @@ interface ConfigPageProps {
   onSaveRoutingSettings: (settings: RoutingSettings) => void | Promise<void>;
   onSaveWorkbenchState: (state: WorkbenchState) => void | Promise<void>;
   onSaveSkill: (skill: SkillDefinition) => void | Promise<void>;
+  onSavePromptBuilderConfig: (config: PromptBuilderConfig) => void;
 }
 
 export function ConfigPage(props: ConfigPageProps): React.JSX.Element {
-  const { locale, aiConfig, appState, routingSettings, onSaveAiConfig, onSaveRoutingSettings, onSaveWorkbenchState, onSaveSkill } = props;
+  const { locale, aiConfig, appState, routingSettings, onSaveAiConfig, onSaveRoutingSettings, onSaveWorkbenchState, onSaveSkill, onSavePromptBuilderConfig } = props;
   const controller = useConfigPageController({
     locale,
     aiConfig,
@@ -33,7 +35,7 @@ export function ConfigPage(props: ConfigPageProps): React.JSX.Element {
     onSaveWorkbenchState,
     onSaveSkill,
   });
-  const promptBuilderController = usePromptBuilderConfigController(locale);
+  const promptBuilderController = usePromptBuilderConfigController(locale, onSavePromptBuilderConfig);
 
   return (
     <section className="page-stack config-page">

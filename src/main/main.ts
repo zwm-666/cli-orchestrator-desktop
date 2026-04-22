@@ -420,6 +420,7 @@ const registerIpc = (): void => {
 
 void app.whenReady().then(async () => {
   registerIpc();
+  await promptBuilderConfigService.loadConfig();
   await createMainWindow();
 
   app.on('activate', () => {

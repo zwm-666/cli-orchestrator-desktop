@@ -14,7 +14,10 @@ interface UsePromptBuilderConfigControllerResult {
   handleSave: () => Promise<void>;
 }
 
-export function usePromptBuilderConfigController(locale: Locale): UsePromptBuilderConfigControllerResult {
+export function usePromptBuilderConfigController(
+  locale: Locale,
+  onSavePromptBuilderConfig?: (config: PromptBuilderConfig) => void,
+): UsePromptBuilderConfigControllerResult {
   const copy = PROMPT_BUILDER_COPY[locale];
   const { config, isLoading, loadError, setConfig } = usePromptBuilderConfigLoader();
   const [draftConfig, setDraftConfig] = useState(config);
@@ -38,6 +41,7 @@ export function usePromptBuilderConfigController(locale: Locale): UsePromptBuild
       const saved = await window.desktopApi.savePromptBuilderConfig({ config: draftConfig });
       setConfig(saved);
       setDraftConfig(saved);
+      onSavePromptBuilderConfig?.(saved);
       setSaveStatus({ tone: 'success', message: copy.configSaved });
     } catch (error: unknown) {
       setSaveStatus({
