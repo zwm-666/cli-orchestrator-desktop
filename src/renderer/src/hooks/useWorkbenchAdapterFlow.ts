@@ -33,7 +33,7 @@ export function useWorkbenchAdapterFlow(input: UseWorkbenchAdapterFlowInput): Us
   const [runTitle, setRunTitle] = useState('');
   const [runError, setRunError] = useState<string | null>(null);
   const [isStartingRun, setIsStartingRun] = useState(false);
-  const processingRunIdsRef = useRef<Set<string>>(new Set());
+  const processingRunIdsRef = useRef(new Set());
 
   useEffect(() => {
     if (!runTitle.trim()) {

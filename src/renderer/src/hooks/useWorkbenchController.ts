@@ -73,7 +73,7 @@ export function useWorkbenchController(input: UseWorkbenchControllerInput): UseW
   const { locale, aiConfig, appState, onSaveWorkbenchState } = input;
   const workbench = appState.workbench ?? DEFAULT_WORKBENCH_STATE;
   const [selectedTargetKind, setSelectedTargetKind] = useState<WorkbenchTargetKind>('provider');
-  const [selectedProviderId, setSelectedProviderId] = useState<string>(aiConfig.active_provider ?? '');
+  const [selectedProviderId, setSelectedProviderId] = useState(aiConfig.active_provider ?? '');
   const [selectedAdapterId, setSelectedAdapterId] = useState('');
   const [targetModel, setTargetModel] = useState(aiConfig.active_model);
   const [targetPrompt, setTargetPrompt] = useState('');

@@ -15,7 +15,7 @@ import { TARGET_KIND_LABELS, WORKBENCH_TASK_STATUS_LABELS } from './workConfigCo
 export interface WorkbenchTaskUpdates {
   completeTaskIds: string[];
   inProgressTaskIds: string[];
-  newTasks: Array<{ title: string; detail: string }>;
+  newTasks: { title: string; detail: string }[];
 }
 
 const TASK_UPDATE_PATTERN = /<TASK_UPDATES>([\s\S]*?)<\/TASK_UPDATES>/gi;
