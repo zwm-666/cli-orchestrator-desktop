@@ -210,7 +210,7 @@ const getWindowsFallbackExecutableDirectories = (): string[] => {
     process.env.LOCALAPPDATA ? path.join(process.env.LOCALAPPDATA, 'Programs', 'Cursor', 'bin') : null,
     process.env.ProgramFiles ? path.join(process.env.ProgramFiles, 'Microsoft VS Code', 'bin') : null,
     process.env.ProgramFiles ? path.join(process.env.ProgramFiles, 'Cursor', 'resources', 'app', 'bin') : null,
-    process.env['ProgramFiles(x86)'] ? path.join(process.env['ProgramFiles(x86)']!, 'Microsoft VS Code', 'bin') : null,
+    process.env['ProgramFiles(x86)'] ? path.join(process.env['ProgramFiles(x86)'], 'Microsoft VS Code', 'bin') : null,
   ];
 
   return [...new Set(candidates.filter((entry): entry is string => Boolean(entry && entry.trim().length > 0)).map(normalizeDirectoryEntry))];
