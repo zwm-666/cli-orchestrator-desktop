@@ -249,6 +249,7 @@ export class RunManager {
       taskId,
       adapterId: adapter.id,
       model: normalizeOptionalString(templateContext.model),
+      ...(input.workbenchThreadId ? { workbenchThreadId: input.workbenchThreadId } : {}),
       status: 'pending',
       startedAt: createdAt,
       activeConversationId: conversation.id,
