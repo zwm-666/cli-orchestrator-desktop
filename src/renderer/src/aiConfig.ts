@@ -18,6 +18,7 @@ export interface AiProviderConfig {
   base_url: string;
   label?: string | undefined;
   default_model?: string | undefined;
+  models?: string[] | undefined;
   api_style?: ProviderApiStyle | undefined;
 }
 
@@ -131,6 +132,41 @@ const normalizeBoolean = (value: unknown, fallback: boolean): boolean => {
   return typeof value === 'boolean' ? value : fallback;
 };
 
+export const normalizeProviderModelList = (value: unknown): string[] => {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+
+  const uniqueModels = new Set<string>();
+  value.forEach((entry) => {
+    if (typeof entry !== 'string') {
+      return;
+    }
+
+    const normalizedEntry = entry.trim();
+    if (normalizedEntry.length > 0) {
+      uniqueModels.add(normalizedEntry);
+    }
+  });
+
+  return [...uniqueModels];
+};
+
+export const mergeProviderModelLists = (...lists: Array<string[] | undefined>): string[] => {
+  const merged = new Set<string>();
+
+  lists.forEach((list) => {
+    (list ?? []).forEach((entry) => {
+      const normalizedEntry = entry.trim();
+      if (normalizedEntry.length > 0) {
+        merged.add(normalizedEntry);
+      }
+    });
+  });
+
+  return [...merged];
+};
+
 const normalizeProviderApiStyle = (value: unknown, fallback: ProviderApiStyle): ProviderApiStyle => {
   return value === 'anthropic' || value === 'gemini' || value === 'openai' ? value : fallback;
 };
@@ -149,9 +185,13 @@ export const isAiProviderId = (value: unknown): value is string => {
 
 export function getProviderDefinition(providerId: string, config?: AiProviderConfig): AiProviderDefinition {
   const provider = AI_PROVIDERS.find((entry) => entry.id === providerId);
+  const configuredModels = mergeProviderModelLists(config?.models, config?.default_model ? [config.default_model] : []);
 
   if (provider) {
-    return provider;
+    return {
+      ...provider,
+      modelSuggestions: mergeProviderModelLists([...provider.modelSuggestions], configuredModels),
+    };
   }
 
   return {
@@ -160,7 +200,7 @@ export function getProviderDefinition(providerId: string, config?: AiProviderCon
     description: 'Bring your own compatible base URL and credential.',
     apiStyle: config?.api_style ?? 'openai',
     defaultBaseUrl: config?.base_url ?? '',
-    modelSuggestions: config?.default_model?.trim() ? [config.default_model.trim()] : [],
+    modelSuggestions: configuredModels,
   };
 }
 
@@ -171,6 +211,7 @@ export function createProviderConfig(providerId: BuiltinAiProviderId): AiProvide
     ...EMPTY_PROVIDER_CONFIG,
     base_url: definition.defaultBaseUrl,
     default_model: definition.modelSuggestions[0] ?? '',
+    models: [...definition.modelSuggestions],
     api_style: definition.apiStyle,
   };
 }
@@ -191,13 +232,22 @@ function normalizeProviderConfig(value: unknown, fallback: AiProviderConfig): Ai
   const apiKey = normalizeString(value.api_key, normalizeString(value.apiKey, fallback.api_key));
   const baseUrl = normalizeString(value.base_url, normalizeString(value.baseUrl, fallback.base_url));
   const enabledFallback = fallback.enabled || (apiKey.trim().length > 0 && baseUrl.trim().length > 0);
+  const models = mergeProviderModelLists(
+    fallback.models,
+    normalizeProviderModelList(value.models),
+    normalizeProviderModelList(value.saved_models),
+    normalizeProviderModelList(value.modelSuggestions),
+  );
+  const defaultModel = normalizeString(value.default_model, normalizeString(value.defaultModel, normalizeString(value.model, fallback.default_model ?? ''))).trim();
+  const resolvedModels = mergeProviderModelLists(models, defaultModel ? [defaultModel] : []);
 
   return {
     api_key: apiKey,
     enabled: normalizeBoolean(value.enabled, enabledFallback),
     base_url: baseUrl,
     label: normalizeOptionalString(value.label, fallback.label),
-    default_model: normalizeString(value.default_model, normalizeString(value.defaultModel, normalizeString(value.model, fallback.default_model ?? ''))),
+    default_model: defaultModel || resolvedModels[0] || fallback.default_model,
+    models: resolvedModels,
     api_style: normalizeProviderApiStyle(value.api_style, normalizeProviderApiStyle(value.apiStyle, fallback.api_style ?? 'openai')),
   };
 }
