@@ -1,5 +1,5 @@
-import { useMemo, useState } from 'react';
-import type { Locale } from '../../../shared/domain.js';
+import { useEffect, useMemo, useState } from 'react';
+import type { Locale, PlanDraft } from '../../../shared/domain.js';
 import { buildPromptBuilderCommand } from '../services/promptBuilderComposer.js';
 import { PROMPT_BUILDER_COPY } from '../promptBuilderCopy.js';
 import { usePromptBuilderConfigLoader } from './usePromptBuilderConfigLoader.js';
@@ -17,6 +17,7 @@ interface UseSplitCommandBuilderResult {
   isLoading: boolean;
   loadError: string | null;
   copyStatus: string | null;
+  analysisDraft: PlanDraft | null;
   setTask: (value: string) => void;
   setMaterials: (value: string) => void;
   setBoundaries: (value: string) => void;
@@ -27,13 +28,62 @@ interface UseSplitCommandBuilderResult {
 export function useSplitCommandBuilder(input: UseSplitCommandBuilderInput): UseSplitCommandBuilderResult {
   const { locale, onApplyToPrompt } = input;
   const copy = PROMPT_BUILDER_COPY[locale];
-  const { config, isLoading, loadError } = usePromptBuilderConfigLoader();
+  const { config, isLoading: isTemplateLoading, loadError: templateLoadError } = usePromptBuilderConfigLoader();
   const [task, setTask] = useState('');
   const [materials, setMaterials] = useState('');
   const [boundaries, setBoundaries] = useState('');
   const [copyStatus, setCopyStatus] = useState<string | null>(null);
+  const [analysisDraft, setAnalysisDraft] = useState<PlanDraft | null>(null);
+  const [isAnalyzing, setIsAnalyzing] = useState(false);
+  const [analysisError, setAnalysisError] = useState<string | null>(null);
 
-  const generatedCommand = useMemo(() => buildPromptBuilderCommand({ locale, config, task, materials, boundaries }), [boundaries, config, locale, materials, task]);
+  useEffect(() => {
+    const normalizedTask = task.trim();
+    if (!normalizedTask) {
+      setAnalysisDraft(null);
+      setAnalysisError(null);
+      setIsAnalyzing(false);
+      return;
+    }
+
+    let isActive = true;
+    const timer = window.setTimeout(() => {
+      setIsAnalyzing(true);
+      setAnalysisError(null);
+
+      void window.desktopApi.createPlanDraft({ rawInput: normalizedTask })
+        .then((result) => {
+          if (!isActive) {
+            return;
+          }
+
+          setAnalysisDraft(result.draft);
+        })
+        .catch((error: unknown) => {
+          if (!isActive) {
+            return;
+          }
+
+          setAnalysisError(error instanceof Error ? error.message : copy.configLoadFailed);
+          setAnalysisDraft(null);
+        })
+        .finally(() => {
+          if (isActive) {
+            setIsAnalyzing(false);
+          }
+        });
+    }, 250);
+
+    return () => {
+      isActive = false;
+      window.clearTimeout(timer);
+    };
+  }, [copy.configLoadFailed, task]);
+
+  const generatedCommand = useMemo(
+    () => buildPromptBuilderCommand({ locale, config, task, materials, boundaries, planDraft: analysisDraft }),
+    [analysisDraft, boundaries, config, locale, materials, task],
+  );
 
   const handleCopy = async (): Promise<void> => {
     if (!generatedCommand) {
@@ -61,9 +111,10 @@ export function useSplitCommandBuilder(input: UseSplitCommandBuilderInput): UseS
     materials,
     boundaries,
     generatedCommand,
-    isLoading,
-    loadError,
+    isLoading: isTemplateLoading || isAnalyzing,
+    loadError: templateLoadError ?? analysisError,
     copyStatus,
+    analysisDraft,
     setTask,
     setMaterials,
     setBoundaries,

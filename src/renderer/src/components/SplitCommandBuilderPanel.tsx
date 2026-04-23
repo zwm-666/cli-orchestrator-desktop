@@ -1,4 +1,5 @@
 import type { Locale } from '../../../shared/domain.js';
+import type { PlanDraft } from '../../../shared/domain.js';
 import { PROMPT_BUILDER_TEMPLATE_ORDER } from '../../../shared/promptBuilder.js';
 import { PROMPT_BUILDER_COPY, PROMPT_BUILDER_TEMPLATE_META } from '../promptBuilderCopy.js';
 
@@ -11,6 +12,7 @@ interface SplitCommandBuilderPanelProps {
   isLoading: boolean;
   loadError: string | null;
   copyStatus: string | null;
+  analysisDraft: PlanDraft | null;
   isApplied: boolean;
   onTaskChange: (value: string) => void;
   onMaterialsChange: (value: string) => void;
@@ -30,6 +32,7 @@ export function SplitCommandBuilderPanel(props: SplitCommandBuilderPanelProps): 
     isLoading,
     loadError,
     copyStatus,
+    analysisDraft,
     isApplied,
     onTaskChange,
     onMaterialsChange,
@@ -75,6 +78,16 @@ export function SplitCommandBuilderPanel(props: SplitCommandBuilderPanelProps): 
           ))}
         </div>
       </div>
+
+      {analysisDraft ? (
+        <div className="prompt-builder-source-row">
+          <span className="mini-meta">
+            {locale === 'zh'
+              ? `分析结果：${analysisDraft.displayCategory} / 置信度 ${analysisDraft.confidence}${analysisDraft.recommendedAdapterId ? ` / 适配器 ${analysisDraft.recommendedAdapterId}` : ''}${analysisDraft.recommendedModel ? ` / 模型 ${analysisDraft.recommendedModel}` : ''}`
+              : `Analysis: ${analysisDraft.displayCategory} / confidence ${analysisDraft.confidence}${analysisDraft.recommendedAdapterId ? ` / adapter ${analysisDraft.recommendedAdapterId}` : ''}${analysisDraft.recommendedModel ? ` / model ${analysisDraft.recommendedModel}` : ''}`}
+          </span>
+        </div>
+      ) : null}
 
       <label className="field">
         <span>{copy.previewLabel}</span>
