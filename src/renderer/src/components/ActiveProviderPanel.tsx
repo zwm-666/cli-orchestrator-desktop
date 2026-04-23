@@ -1,16 +1,18 @@
 import type { Locale } from '../../../shared/domain.js';
-import type { AiConfig, AiProviderDefinition, AiProviderId } from '../aiConfig.js';
-import { AI_PROVIDERS, getProviderDefinition, isProviderReady } from '../aiConfig.js';
+import type { AiConfig, AiProviderDefinition } from '../aiConfig.js';
+import { getProviderDefinition, isProviderReady } from '../aiConfig.js';
 
 interface ActiveProviderPanelProps {
   locale: Locale;
   draftConfig: AiConfig;
   activeProviderDefinition: AiProviderDefinition | null;
-  setActiveProvider: (providerId: AiProviderId | null) => void;
+  setActiveProvider: (providerId: string | null) => void;
   setActiveModel: (model: string) => void;
 }
 
 export function ActiveProviderPanel({ locale, draftConfig, activeProviderDefinition, setActiveProvider, setActiveModel }: ActiveProviderPanelProps): React.JSX.Element {
+  const activeProviderConfig = draftConfig.active_provider ? draftConfig.providers[draftConfig.active_provider] : null;
+
   return (
     <div className="config-provider-summary subdued-row">
       <div className="selector-strip">
@@ -20,13 +22,13 @@ export function ActiveProviderPanel({ locale, draftConfig, activeProviderDefinit
             value={draftConfig.active_provider ?? ''}
             onChange={(event) => {
               const providerId = event.target.value;
-              setActiveProvider(providerId ? (providerId as AiProviderId) : null);
+              setActiveProvider(providerId || null);
             }}
           >
             <option value="">{locale === 'zh' ? '选择模型服务' : 'Choose a provider'}</option>
-            {AI_PROVIDERS.map((provider) => (
-              <option key={provider.id} value={provider.id}>
-                {locale === 'zh' && provider.id === 'custom' ? '自定义兼容服务' : provider.label}
+            {Object.entries(draftConfig.providers).map(([providerId, providerConfig]) => (
+              <option key={providerId} value={providerId}>
+                {providerConfig.label?.trim() || getProviderDefinition(providerId, providerConfig).label}
               </option>
             ))}
           </select>
@@ -53,11 +55,11 @@ export function ActiveProviderPanel({ locale, draftConfig, activeProviderDefinit
         </label>
       </div>
 
-      {draftConfig.active_provider ? (
+      {draftConfig.active_provider && activeProviderConfig ? (
         <p className="muted config-provider-summary-copy">
           {locale === 'zh'
-            ? `工作台当前会使用 ${getProviderDefinition(draftConfig.active_provider).label} / ${draftConfig.active_model || '未指定模型'}。${isProviderReady(draftConfig.providers[draftConfig.active_provider], draftConfig.active_model) ? '当前可直接使用。' : '请补全凭据或模型后再使用。'}`
-            : `The Work page currently uses ${getProviderDefinition(draftConfig.active_provider).label} / ${draftConfig.active_model || 'no model selected'}. ${isProviderReady(draftConfig.providers[draftConfig.active_provider], draftConfig.active_model) ? 'It is ready to use.' : 'Finish the credentials or model before using it.'}`}
+            ? `工作台当前会使用 ${getProviderDefinition(draftConfig.active_provider, activeProviderConfig).label} / ${draftConfig.active_model || '未指定模型'}。${isProviderReady(activeProviderConfig, draftConfig.active_model) ? '当前可直接使用。' : '请补全凭据或模型后再使用。'}`
+            : `The Work page currently uses ${getProviderDefinition(draftConfig.active_provider, activeProviderConfig).label} / ${draftConfig.active_model || 'no model selected'}. ${isProviderReady(activeProviderConfig, draftConfig.active_model) ? 'It is ready to use.' : 'Finish the credentials or model before using it.'}`}
         </p>
       ) : null}
     </div>

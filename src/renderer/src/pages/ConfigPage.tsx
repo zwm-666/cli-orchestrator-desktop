@@ -1,7 +1,6 @@
 import type { AppState, Locale, RoutingSettings, SkillDefinition, WorkbenchState } from '../../../shared/domain.js';
 import type { PromptBuilderConfig } from '../../../shared/promptBuilder.js';
 import type { AiConfig } from '../aiConfig.js';
-import { ConfigPageHero } from '../components/ConfigPageHero.js';
 import { ConfigIndexRail } from '../components/ConfigIndexRail.js';
 import { ConfigSaveActionsSection } from '../components/ConfigSaveActionsSection.js';
 import { LocalToolsSection } from '../components/LocalToolsSection.js';
@@ -16,7 +15,7 @@ interface ConfigPageProps {
   aiConfig: AiConfig;
   appState: AppState;
   routingSettings: RoutingSettings;
-  onSaveAiConfig: (config: AiConfig) => void;
+  onSaveAiConfig: (config: AiConfig) => void | Promise<void>;
   onSaveRoutingSettings: (settings: RoutingSettings) => void | Promise<void>;
   onSaveWorkbenchState: (state: WorkbenchState) => void | Promise<void>;
   onSaveSkill: (skill: SkillDefinition) => void | Promise<void>;
@@ -39,8 +38,6 @@ export function ConfigPage(props: ConfigPageProps): React.JSX.Element {
 
   return (
     <section className="page-stack config-page">
-      <ConfigPageHero locale={locale} />
-
       <div className="config-layout">
         <ConfigIndexRail
           locale={locale}
@@ -59,6 +56,8 @@ export function ConfigPage(props: ConfigPageProps): React.JSX.Element {
             toggleProviderSecretVisibility={controller.toggleProviderSecretVisibility}
             setActiveProvider={controller.setActiveProvider}
             setActiveModel={controller.setActiveModel}
+            addCustomProvider={controller.addCustomProvider}
+            removeCustomProvider={controller.removeCustomProvider}
             handleTestProvider={controller.handleTestProvider}
           />
 

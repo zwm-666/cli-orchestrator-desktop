@@ -1,5 +1,5 @@
 import type { Locale } from '../../../shared/domain.js';
-import type { AiConfig, AiProviderDefinition, AiProviderId } from '../aiConfig.js';
+import type { AiConfig, AiProviderConfig, AiProviderDefinition, ProviderApiStyle } from '../aiConfig.js';
 import { ActiveProviderPanel } from './ActiveProviderPanel.js';
 import { ProviderCardsPanel } from './ProviderCardsPanel.js';
 import type { ProviderStatusMap, VisibilityMap } from '../configPageShared.js';
@@ -11,11 +11,20 @@ interface ProviderConfigSectionProps {
   providerStatuses: ProviderStatusMap;
   showSecrets: VisibilityMap;
   activeProviderDefinition: AiProviderDefinition | null;
-  updateProvider: (providerId: AiProviderId, updates: Partial<AiConfig['providers'][AiProviderId]>) => void;
-  toggleProviderSecretVisibility: (providerId: AiProviderId) => void;
-  setActiveProvider: (providerId: AiProviderId | null) => void;
+  updateProvider: (providerId: string, updates: Partial<AiProviderConfig>) => void;
+  toggleProviderSecretVisibility: (providerId: string) => void;
+  setActiveProvider: (providerId: string | null) => void;
   setActiveModel: (model: string) => void;
-  handleTestProvider: (providerId: AiProviderId) => Promise<void>;
+  addCustomProvider: (input: {
+    label: string;
+    base_url: string;
+    api_key: string;
+    default_model: string;
+    api_style: ProviderApiStyle;
+    enabled: boolean;
+  }) => void;
+  removeCustomProvider: (providerId: string) => void;
+  handleTestProvider: (providerId: string) => Promise<void>;
 }
 
 export function ProviderConfigSection(props: ProviderConfigSectionProps): React.JSX.Element {
@@ -29,6 +38,8 @@ export function ProviderConfigSection(props: ProviderConfigSectionProps): React.
     toggleProviderSecretVisibility,
     setActiveProvider,
     setActiveModel,
+    addCustomProvider,
+    removeCustomProvider,
     handleTestProvider,
   } = props;
 
@@ -52,6 +63,9 @@ export function ProviderConfigSection(props: ProviderConfigSectionProps): React.
         updateProvider={updateProvider}
         toggleProviderSecretVisibility={toggleProviderSecretVisibility}
         setActiveProvider={setActiveProvider}
+        setActiveModel={setActiveModel}
+        addCustomProvider={addCustomProvider}
+        removeCustomProvider={removeCustomProvider}
         handleTestProvider={handleTestProvider}
       />
 
