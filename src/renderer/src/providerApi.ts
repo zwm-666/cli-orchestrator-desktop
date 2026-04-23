@@ -1,4 +1,4 @@
-import type { AiProviderConfig, AiProviderId } from './aiConfig.js';
+import type { AiProviderConfig } from './aiConfig.js';
 import { getProviderDefinition } from './aiConfig.js';
 
 export type ProviderChatRole = 'system' | 'user' | 'assistant';
@@ -218,10 +218,10 @@ const performJsonRequest = async (
   return (await response.json()) as unknown;
 };
 
-export async function testProviderConnection(providerId: AiProviderId, config: AiProviderConfig): Promise<string> {
+export async function testProviderConnection(providerId: string, config: AiProviderConfig): Promise<string> {
   const apiKey = requireConfiguredValue(config.api_key, 'API key');
   const baseUrl = requireConfiguredValue(config.base_url, 'Base URL');
-  const provider = getProviderDefinition(providerId);
+  const provider = getProviderDefinition(providerId, config);
 
   let payload: unknown;
 
@@ -258,7 +258,7 @@ export async function testProviderConnection(providerId: AiProviderId, config: A
 }
 
 export async function sendProviderChat(
-  providerId: AiProviderId,
+  providerId: string,
   config: AiProviderConfig,
   model: string,
   messages: ProviderChatMessage[],
@@ -266,7 +266,7 @@ export async function sendProviderChat(
   const apiKey = requireConfiguredValue(config.api_key, 'API key');
   const baseUrl = requireConfiguredValue(config.base_url, 'Base URL');
   const resolvedModel = requireConfiguredValue(model, 'Model');
-  const provider = getProviderDefinition(providerId);
+  const provider = getProviderDefinition(providerId, config);
 
   if (provider.apiStyle === 'anthropic') {
     const systemMessage = messages

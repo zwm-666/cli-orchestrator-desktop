@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import type { AppState, Locale, TaskThread, WorkbenchState, WorkbenchTargetKind, WorkspaceEntry } from '../../../shared/domain.js';
 import { DEFAULT_WORKBENCH_STATE } from '../../../shared/domain.js';
 import type { PromptBuilderConfig } from '../../../shared/promptBuilder.js';
-import type { AiConfig, AiProviderDefinition } from '../aiConfig.js';
+import type { AiConfig, AiProviderConfig, AiProviderDefinition } from '../aiConfig.js';
 import { getProviderDefinition } from '../aiConfig.js';
 import {
   buildContinuityPrompt,
@@ -55,7 +55,7 @@ export interface UseWorkbenchControllerResult {
   providerOptions: WorkbenchOption[];
   adapterOptions: WorkbenchOption[];
   selectedProviderDefinition: AiProviderDefinition | null;
-  selectedProviderConfig: AiConfig['providers'][keyof AiConfig['providers']] | null;
+  selectedProviderConfig: AiProviderConfig | null;
   selectedAdapter: AppState['adapters'][number] | null;
   boundSkills: AppState['skills'];
   recentAdapterRuns: AppState['runs'];
@@ -148,9 +148,9 @@ export function useWorkbenchController(input: UseWorkbenchControllerInput): UseW
   );
   const providerOptions = useMemo<WorkbenchOption[]>(
     () =>
-      Object.keys(aiConfig.providers).map((providerId) => ({
+      Object.entries(aiConfig.providers).map(([providerId, providerConfig]) => ({
         id: providerId,
-        label: getProviderDefinition(providerId as Parameters<typeof getProviderDefinition>[0]).label,
+        label: providerConfig.label?.trim() || getProviderDefinition(providerId, providerConfig).label,
       })),
     [aiConfig.providers],
   );
@@ -174,10 +174,10 @@ export function useWorkbenchController(input: UseWorkbenchControllerInput): UseW
   }, [aiConfig.active_model, aiConfig.active_provider, selectedProviderId, selectedTargetKind]);
 
   const selectedProviderDefinition = useMemo(
-    () => (selectedProviderId ? getProviderDefinition(selectedProviderId as Parameters<typeof getProviderDefinition>[0]) : null),
-    [selectedProviderId],
+    () => (selectedProviderId ? getProviderDefinition(selectedProviderId, aiConfig.providers[selectedProviderId]) : null),
+    [aiConfig.providers, selectedProviderId],
   );
-  const selectedProviderConfig = selectedProviderId ? aiConfig.providers[selectedProviderId as keyof AiConfig['providers']] : null;
+  const selectedProviderConfig = selectedProviderId ? aiConfig.providers[selectedProviderId] ?? null : null;
   const selectedAdapter = availableAdapters.find((adapter) => adapter.id === selectedAdapterId) ?? null;
 
   const boundSkills = useMemo(() => {
@@ -296,9 +296,13 @@ export function useWorkbenchController(input: UseWorkbenchControllerInput): UseW
   };
 
   const handleProviderChange = (nextProviderId: string): void => {
+    const providerConfig = aiConfig.providers[nextProviderId];
+    const providerDefinition = providerConfig ? getProviderDefinition(nextProviderId, providerConfig) : null;
     setSelectedProviderId(nextProviderId);
     setTargetModel(
-      nextProviderId ? aiConfig.active_model || getProviderDefinition(nextProviderId as Parameters<typeof getProviderDefinition>[0]).modelSuggestions[0] || '' : '',
+      nextProviderId
+        ? providerConfig?.default_model?.trim() || aiConfig.active_model || providerDefinition?.modelSuggestions[0] || ''
+        : '',
     );
   };
 
