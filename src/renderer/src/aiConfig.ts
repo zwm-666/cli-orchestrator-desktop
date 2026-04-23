@@ -1,4 +1,4 @@
-export type AiProviderId =
+export type BuiltinAiProviderId =
   | 'anthropic'
   | 'openai'
   | 'groq'
@@ -6,8 +6,9 @@ export type AiProviderId =
   | 'deepseek'
   | 'sambanova'
   | 'cerebras'
-  | 'huggingface'
-  | 'custom';
+  | 'huggingface';
+
+export type AiProviderId = BuiltinAiProviderId | 'custom' | `custom-${string}`;
 
 export type ProviderApiStyle = 'openai' | 'anthropic' | 'gemini';
 
@@ -15,21 +16,24 @@ export interface AiProviderConfig {
   api_key: string;
   enabled: boolean;
   base_url: string;
+  label?: string | undefined;
+  default_model?: string | undefined;
+  api_style?: ProviderApiStyle | undefined;
 }
 
 export interface AiProviderDefinition {
-  id: AiProviderId;
+  id: string;
   label: string;
   description: string;
   apiStyle: ProviderApiStyle;
   defaultBaseUrl: string;
   modelSuggestions: readonly string[];
- }
+}
 
 export interface AiConfig {
-  active_provider: AiProviderId | null;
+  active_provider: string | null;
   active_model: string;
-  providers: Record<AiProviderId, AiProviderConfig>;
+  providers: Record<string, AiProviderConfig>;
 }
 
 export const AI_CONFIG_STORAGE_KEY = 'ai_config';
@@ -99,21 +103,17 @@ export const AI_PROVIDERS: readonly AiProviderDefinition[] = [
     defaultBaseUrl: 'https://router.huggingface.co/v1',
     modelSuggestions: ['meta-llama/Llama-3.3-70B-Instruct', 'Qwen/Qwen2.5-Coder-32B-Instruct'],
   },
-  {
-    id: 'custom',
-    label: 'Custom',
-    description: 'Bring your own OpenAI-compatible base URL and credential.',
-    apiStyle: 'openai',
-    defaultBaseUrl: '',
-    modelSuggestions: [''],
-  },
 ] as const;
 
 const EMPTY_PROVIDER_CONFIG: AiProviderConfig = {
   api_key: '',
   enabled: false,
   base_url: '',
+  default_model: '',
+  api_style: 'openai',
 };
+
+const BUILTIN_PROVIDER_IDS = AI_PROVIDERS.map((provider) => provider.id as BuiltinAiProviderId);
 
 const isRecord = (value: unknown): value is Record<string, unknown> => {
   return typeof value === 'object' && value !== null;
@@ -123,30 +123,55 @@ const normalizeString = (value: unknown, fallback: string): string => {
   return typeof value === 'string' ? value : fallback;
 };
 
+const normalizeOptionalString = (value: unknown, fallback?: string): string | undefined => {
+  return typeof value === 'string' ? value : fallback;
+};
+
 const normalizeBoolean = (value: unknown, fallback: boolean): boolean => {
   return typeof value === 'boolean' ? value : fallback;
 };
 
-export const isAiProviderId = (value: unknown): value is AiProviderId => {
-  return AI_PROVIDERS.some((provider) => provider.id === value);
+const normalizeProviderApiStyle = (value: unknown, fallback: ProviderApiStyle): ProviderApiStyle => {
+  return value === 'anthropic' || value === 'gemini' || value === 'openai' ? value : fallback;
 };
 
-export function getProviderDefinition(providerId: AiProviderId): AiProviderDefinition {
+export const isBuiltinAiProviderId = (value: string): value is BuiltinAiProviderId => {
+  return BUILTIN_PROVIDER_IDS.includes(value as BuiltinAiProviderId);
+};
+
+export const isCustomProviderId = (value: string): value is AiProviderId => {
+  return value === 'custom' || value.startsWith('custom-');
+};
+
+export const isAiProviderId = (value: unknown): value is string => {
+  return typeof value === 'string' && value.trim().length > 0;
+};
+
+export function getProviderDefinition(providerId: string, config?: AiProviderConfig): AiProviderDefinition {
   const provider = AI_PROVIDERS.find((entry) => entry.id === providerId);
 
-  if (!provider) {
-    throw new Error(`Unknown AI provider: ${providerId}`);
+  if (provider) {
+    return provider;
   }
 
-  return provider;
+  return {
+    id: providerId,
+    label: config?.label?.trim() || providerId,
+    description: 'Bring your own compatible base URL and credential.',
+    apiStyle: config?.api_style ?? 'openai',
+    defaultBaseUrl: config?.base_url ?? '',
+    modelSuggestions: config?.default_model?.trim() ? [config.default_model.trim()] : [],
+  };
 }
 
-export function createProviderConfig(providerId: AiProviderId): AiProviderConfig {
+export function createProviderConfig(providerId: BuiltinAiProviderId): AiProviderConfig {
   const definition = getProviderDefinition(providerId);
 
   return {
     ...EMPTY_PROVIDER_CONFIG,
     base_url: definition.defaultBaseUrl,
+    default_model: definition.modelSuggestions[0] ?? '',
+    api_style: definition.apiStyle,
   };
 }
 
@@ -154,17 +179,7 @@ export function createDefaultAiConfig(): AiConfig {
   return {
     active_provider: null,
     active_model: '',
-    providers: {
-      anthropic: createProviderConfig('anthropic'),
-      openai: createProviderConfig('openai'),
-      groq: createProviderConfig('groq'),
-      gemini: createProviderConfig('gemini'),
-      deepseek: createProviderConfig('deepseek'),
-      sambanova: createProviderConfig('sambanova'),
-      cerebras: createProviderConfig('cerebras'),
-      huggingface: createProviderConfig('huggingface'),
-      custom: createProviderConfig('custom'),
-    },
+    providers: Object.fromEntries(BUILTIN_PROVIDER_IDS.map((providerId) => [providerId, createProviderConfig(providerId)])),
   };
 }
 
@@ -173,26 +188,33 @@ function normalizeProviderConfig(value: unknown, fallback: AiProviderConfig): Ai
     return fallback;
   }
 
+  const apiKey = normalizeString(value.api_key, normalizeString(value.apiKey, fallback.api_key));
+  const baseUrl = normalizeString(value.base_url, normalizeString(value.baseUrl, fallback.base_url));
+  const enabledFallback = fallback.enabled || (apiKey.trim().length > 0 && baseUrl.trim().length > 0);
+
   return {
-    api_key: normalizeString(value.api_key, normalizeString(value.apiKey, fallback.api_key)),
-    enabled: normalizeBoolean(value.enabled, fallback.enabled),
-    base_url: normalizeString(value.base_url, normalizeString(value.baseUrl, fallback.base_url)),
+    api_key: apiKey,
+    enabled: normalizeBoolean(value.enabled, enabledFallback),
+    base_url: baseUrl,
+    label: normalizeOptionalString(value.label, fallback.label),
+    default_model: normalizeString(value.default_model, normalizeString(value.defaultModel, normalizeString(value.model, fallback.default_model ?? ''))),
+    api_style: normalizeProviderApiStyle(value.api_style, normalizeProviderApiStyle(value.apiStyle, fallback.api_style ?? 'openai')),
   };
 }
 
-function migrateLegacyActiveProvider(value: Record<string, unknown>): AiProviderId | null {
+function migrateLegacyActiveProvider(value: Record<string, unknown>): string | null {
   if (isAiProviderId(value.active_provider)) {
-    return value.active_provider;
+    return value.active_provider.trim();
   }
 
   if (isAiProviderId(value.activeProviderId)) {
-    return value.activeProviderId;
+    return value.activeProviderId.trim();
   }
 
   return null;
 }
 
-function migrateLegacyActiveModel(value: Record<string, unknown>, activeProvider: AiProviderId | null): string {
+function migrateLegacyActiveModel(value: Record<string, unknown>, activeProvider: string | null): string {
   if (typeof value.active_model === 'string') {
     return value.active_model;
   }
@@ -208,76 +230,105 @@ function migrateLegacyActiveModel(value: Record<string, unknown>, activeProvider
   const providers = isRecord(value.providers) ? value.providers : {};
   const activeProviderValue = providers[activeProvider];
   if (isRecord(activeProviderValue)) {
-    return normalizeString(activeProviderValue.model, '');
+    return normalizeString(activeProviderValue.default_model, normalizeString(activeProviderValue.model, ''));
   }
 
   return '';
 }
 
-export function loadAiConfig(): AiConfig {
+export function normalizeAiConfig(value: unknown): AiConfig | null {
+  if (!isRecord(value)) {
+    return null;
+  }
+
+  const defaults = createDefaultAiConfig();
+  const providers = isRecord(value.providers) ? value.providers : {};
+  const activeProvider = migrateLegacyActiveProvider(value);
+  const activeModel = migrateLegacyActiveModel(value, activeProvider);
+  const normalizedProviders: Record<string, AiProviderConfig> = {};
+
+  for (const providerId of BUILTIN_PROVIDER_IDS) {
+    const aliasValue = providerId === 'gemini' ? providers.gemini ?? providers.google : providers[providerId];
+    normalizedProviders[providerId] = normalizeProviderConfig(aliasValue, defaults.providers[providerId] ?? createProviderConfig(providerId));
+  }
+
+  for (const [providerId, providerValue] of Object.entries(providers)) {
+    if (isBuiltinAiProviderId(providerId) || providerId === 'google') {
+      continue;
+    }
+
+    normalizedProviders[providerId] = normalizeProviderConfig(providerValue, {
+      ...EMPTY_PROVIDER_CONFIG,
+      enabled: true,
+      label: providerId === 'custom' ? 'Custom' : providerId,
+      default_model: '',
+      api_style: 'openai',
+    });
+  }
+
+  const resolvedActiveModel =
+    activeModel || (activeProvider ? normalizedProviders[activeProvider]?.default_model?.trim() ?? '' : '');
+
+  return {
+    active_provider: activeProvider,
+    active_model: resolvedActiveModel,
+    providers: normalizedProviders,
+  };
+}
+
+function loadAiConfigFromLocalStorage(): AiConfig | null {
   if (typeof window === 'undefined') {
     return createDefaultAiConfig();
   }
 
   const storedValue = window.localStorage.getItem(AI_CONFIG_STORAGE_KEY);
-  const defaults = createDefaultAiConfig();
-
   if (!storedValue) {
-    return defaults;
+    return null;
   }
 
   try {
-    const parsedValue: unknown = JSON.parse(storedValue);
-
-    if (!isRecord(parsedValue)) {
-      return defaults;
-    }
-
-    const providers = isRecord(parsedValue.providers) ? parsedValue.providers : {};
-    const activeProvider = migrateLegacyActiveProvider(parsedValue);
-    const activeModel = migrateLegacyActiveModel(parsedValue, activeProvider);
-
-    return {
-      active_provider: activeProvider,
-      active_model: activeModel,
-      providers: {
-        anthropic: normalizeProviderConfig(providers.anthropic, defaults.providers.anthropic),
-        openai: normalizeProviderConfig(providers.openai, defaults.providers.openai),
-        groq: normalizeProviderConfig(providers.groq, defaults.providers.groq),
-        gemini: normalizeProviderConfig(providers.gemini ?? providers.google, defaults.providers.gemini),
-        deepseek: normalizeProviderConfig(providers.deepseek, defaults.providers.deepseek),
-        sambanova: normalizeProviderConfig(providers.sambanova, defaults.providers.sambanova),
-        cerebras: normalizeProviderConfig(providers.cerebras, defaults.providers.cerebras),
-        huggingface: normalizeProviderConfig(providers.huggingface, defaults.providers.huggingface),
-        custom: normalizeProviderConfig(providers.custom, defaults.providers.custom),
-      },
-    };
+    return normalizeAiConfig(JSON.parse(storedValue));
   } catch {
-    return defaults;
+    return null;
   }
 }
 
-export function saveAiConfig(config: AiConfig): void {
+export function loadAiConfig(): AiConfig {
+  return loadAiConfigFromLocalStorage() ?? createDefaultAiConfig();
+}
+
+export async function loadAiConfigFromPersistence(): Promise<AiConfig> {
+  const localConfig = loadAiConfigFromLocalStorage();
+  if (localConfig) {
+    return localConfig;
+  }
+
+  if (typeof window === 'undefined') {
+    return createDefaultAiConfig();
+  }
+
+  try {
+    const fileValue = await window.desktopApi.loadAiConfig();
+    const normalized = normalizeAiConfig(fileValue);
+    if (!normalized) {
+      return createDefaultAiConfig();
+    }
+
+    window.localStorage.setItem(AI_CONFIG_STORAGE_KEY, JSON.stringify(normalized));
+    return normalized;
+  } catch {
+    return createDefaultAiConfig();
+  }
+}
+
+export async function saveAiConfig(config: AiConfig): Promise<void> {
   if (typeof window === 'undefined') {
     return;
   }
 
-  const persistedConfig: AiConfig = {
-    ...config,
-    providers: {
-      anthropic: { ...config.providers.anthropic, api_key: '' },
-      openai: { ...config.providers.openai, api_key: '' },
-      groq: { ...config.providers.groq, api_key: '' },
-      gemini: { ...config.providers.gemini, api_key: '' },
-      deepseek: { ...config.providers.deepseek, api_key: '' },
-      sambanova: { ...config.providers.sambanova, api_key: '' },
-      cerebras: { ...config.providers.cerebras, api_key: '' },
-      huggingface: { ...config.providers.huggingface, api_key: '' },
-      custom: { ...config.providers.custom, api_key: '' },
-    },
-  };
-
-  window.localStorage.setItem(AI_CONFIG_STORAGE_KEY, JSON.stringify(persistedConfig));
+  const normalized = normalizeAiConfig(config) ?? createDefaultAiConfig();
+  window.localStorage.setItem(AI_CONFIG_STORAGE_KEY, JSON.stringify(normalized));
+  await window.desktopApi.saveAiConfig({ config: normalized as unknown as Record<string, unknown> });
 }
 
 export function getActiveProviderDetails(
@@ -287,9 +338,14 @@ export function getActiveProviderDetails(
     return null;
   }
 
+  const providerConfig = config.providers[config.active_provider];
+  if (!providerConfig) {
+    return null;
+  }
+
   return {
-    definition: getProviderDefinition(config.active_provider),
-    config: config.providers[config.active_provider],
+    definition: getProviderDefinition(config.active_provider, providerConfig),
+    config: providerConfig,
     model: config.active_model,
   };
 }
