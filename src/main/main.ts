@@ -1,4 +1,4 @@
-import { open, readdir, stat } from 'node:fs/promises';
+import { mkdir, open, readFile, readdir, stat, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { app, BrowserWindow, dialog, ipcMain } from 'electron';
@@ -26,6 +26,7 @@ import {
   validateObjectInput,
   validatePlanDraftInput,
   validateProjectContextInput,
+  validateSaveAiConfigInput,
   validatePromptBuilderSaveInput,
   validateReadWorkspaceFileInput,
   validateRecentRunsInput,
@@ -53,7 +54,31 @@ app.setPath('sessionData', path.resolve(electronDataDir, 'session'));
 const persistenceStore = new LocalPersistenceStore(rootDir);
 const orchestratorService = new OrchestratorService(rootDir, persistenceStore);
 const promptBuilderConfigService = new PromptBuilderConfigService(rootDir);
+const aiConfigFilePath = path.resolve(rootDir, 'config', 'ai-config.json');
 let lastBroadcastState = orchestratorService.getAppState();
+
+const isJsonObject = (value: unknown): value is Record<string, unknown> => {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
+};
+
+const loadPersistedAiConfig = async (): Promise<Record<string, unknown> | null> => {
+  try {
+    const content = await readFile(aiConfigFilePath, 'utf8');
+    const parsed = JSON.parse(content) as unknown;
+    return isJsonObject(parsed) ? parsed : null;
+  } catch (error: unknown) {
+    if ((error as NodeJS.ErrnoException).code === 'ENOENT') {
+      return null;
+    }
+
+    throw error;
+  }
+};
+
+const savePersistedAiConfig = async (config: Record<string, unknown>): Promise<void> => {
+  await mkdir(path.dirname(aiConfigFilePath), { recursive: true });
+  await writeFile(aiConfigFilePath, `${JSON.stringify(config, null, 2)}\n`, 'utf8');
+};
 
 const hasMeaningfulChange = (left: unknown, right: unknown): boolean => {
   return JSON.stringify(left) !== JSON.stringify(right);
@@ -327,6 +352,14 @@ const registerIpc = (): void => {
 
   ipcMain.handle(IPC_CHANNELS.savePromptBuilderConfig, safeHandle(validatePromptBuilderSaveInput, (input) => {
     return promptBuilderConfigService.saveConfig(input.config);
+  }));
+
+  ipcMain.handle(IPC_CHANNELS.loadAiConfig, safeNoInputHandle(() => {
+    return loadPersistedAiConfig();
+  }));
+
+  ipcMain.handle(IPC_CHANNELS.saveAiConfig, safeHandle(validateSaveAiConfigInput, async (input) => {
+    await savePersistedAiConfig(input.config);
   }));
 
   ipcMain.handle(IPC_CHANNELS.getNextClaudeTask, safeNoInputHandle((): GetNextClaudeTaskResult => {

@@ -17,6 +17,7 @@ import type {
   UpdateRoutingSettingsInput,
 } from '../shared/domain.js';
 import type { SavePromptBuilderConfigInput } from '../shared/promptBuilder.js';
+import type { SaveAiConfigInput } from '../shared/ipc.js';
 
 const isRecord = (value: unknown): value is Record<string, unknown> => {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
@@ -103,6 +104,12 @@ export const validatePromptBuilderSaveInput = (value: unknown): SavePromptBuilde
   const input = assertRecord(value, 'prompt builder save input');
   assertRecord(input.config, 'prompt builder save input.config');
   return input as unknown as SavePromptBuilderConfigInput;
+};
+
+export const validateSaveAiConfigInput = (value: unknown): SaveAiConfigInput => {
+  const input = assertRecord(value, 'save ai config input');
+  assertRecord(input.config, 'save ai config input.config');
+  return input as unknown as SaveAiConfigInput;
 };
 
 export const validateDraftConversationInput = (value: unknown): CreateDraftConversationInput => {

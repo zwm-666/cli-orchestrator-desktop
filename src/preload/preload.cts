@@ -36,6 +36,7 @@ import type {
   UpdateRoutingSettingsInput,
 } from '../shared/domain.js';
 import type { DesktopApi } from '../shared/ipc.js';
+import type { SaveAiConfigInput } from '../shared/ipc.js';
 import type { PromptBuilderConfig, SavePromptBuilderConfigInput } from '../shared/promptBuilder.js';
 
 const IPC_CHANNELS = {
@@ -50,6 +51,8 @@ const IPC_CHANNELS = {
   saveWorkbenchState: 'workbench:save-state',
   getPromptBuilderConfig: 'prompt-builder:get-config',
   savePromptBuilderConfig: 'prompt-builder:save-config',
+  loadAiConfig: 'config:load-ai-config',
+  saveAiConfig: 'config:save-ai-config',
   getNextClaudeTask: 'project:get-next-claude-task',
   createDraftConversation: 'conversation:create-draft',
   createPlanDraft: 'plan:create-draft',
@@ -91,6 +94,8 @@ const desktopApi: DesktopApi = {
   getPromptBuilderConfig: (): Promise<PromptBuilderConfig> => ipcRenderer.invoke(IPC_CHANNELS.getPromptBuilderConfig),
   savePromptBuilderConfig: (input: SavePromptBuilderConfigInput): Promise<PromptBuilderConfig> =>
     ipcRenderer.invoke(IPC_CHANNELS.savePromptBuilderConfig, input),
+  loadAiConfig: (): Promise<Record<string, unknown> | null> => ipcRenderer.invoke(IPC_CHANNELS.loadAiConfig),
+  saveAiConfig: (input: SaveAiConfigInput): Promise<void> => ipcRenderer.invoke(IPC_CHANNELS.saveAiConfig, input),
   getNextClaudeTask: (): Promise<GetNextClaudeTaskResult> => ipcRenderer.invoke(IPC_CHANNELS.getNextClaudeTask),
   createDraftConversation: (input: CreateDraftConversationInput) => ipcRenderer.invoke(IPC_CHANNELS.createDraftConversation, input),
   createPlanDraft: (input: PlanDraftInput): Promise<PlanDraftResult> => ipcRenderer.invoke(IPC_CHANNELS.createPlanDraft, input),

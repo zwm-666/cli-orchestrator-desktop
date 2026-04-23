@@ -40,6 +40,10 @@ import type {
 } from './domain.js';
 import type { PromptBuilderConfig, SavePromptBuilderConfigInput } from './promptBuilder.js';
 
+export interface SaveAiConfigInput {
+  config: Record<string, unknown>;
+}
+
 export const IPC_CHANNELS = {
   // Existing channels
   getAppState: 'app:get-state',
@@ -53,6 +57,8 @@ export const IPC_CHANNELS = {
   saveWorkbenchState: 'workbench:save-state',
   getPromptBuilderConfig: 'prompt-builder:get-config',
   savePromptBuilderConfig: 'prompt-builder:save-config',
+  loadAiConfig: 'config:load-ai-config',
+  saveAiConfig: 'config:save-ai-config',
   getNextClaudeTask: 'project:get-next-claude-task',
   createDraftConversation: 'conversation:create-draft',
   createPlanDraft: 'plan:create-draft',
@@ -98,6 +104,8 @@ export interface DesktopApi {
   saveWorkbenchState: (input: SaveWorkbenchStateInput) => Promise<AppState>;
   getPromptBuilderConfig: () => Promise<PromptBuilderConfig>;
   savePromptBuilderConfig: (input: SavePromptBuilderConfigInput) => Promise<PromptBuilderConfig>;
+  loadAiConfig: () => Promise<Record<string, unknown> | null>;
+  saveAiConfig: (input: SaveAiConfigInput) => Promise<void>;
   getNextClaudeTask: () => Promise<GetNextClaudeTaskResult>;
   createDraftConversation: (input: CreateDraftConversationInput) => Promise<CreateDraftConversationResult>;
   createPlanDraft: (input: PlanDraftInput) => Promise<PlanDraftResult>;
@@ -142,6 +150,8 @@ export interface IpcRequestMap {
   [IPC_CHANNELS.saveWorkbenchState]: SaveWorkbenchStateInput;
   [IPC_CHANNELS.getPromptBuilderConfig]: undefined;
   [IPC_CHANNELS.savePromptBuilderConfig]: SavePromptBuilderConfigInput;
+  [IPC_CHANNELS.loadAiConfig]: undefined;
+  [IPC_CHANNELS.saveAiConfig]: SaveAiConfigInput;
   [IPC_CHANNELS.getNextClaudeTask]: undefined;
   [IPC_CHANNELS.createDraftConversation]: CreateDraftConversationInput;
   [IPC_CHANNELS.createPlanDraft]: PlanDraftInput;
@@ -184,6 +194,8 @@ export interface IpcResponseMap {
   [IPC_CHANNELS.saveWorkbenchState]: AppState;
   [IPC_CHANNELS.getPromptBuilderConfig]: PromptBuilderConfig;
   [IPC_CHANNELS.savePromptBuilderConfig]: PromptBuilderConfig;
+  [IPC_CHANNELS.loadAiConfig]: Record<string, unknown> | null;
+  [IPC_CHANNELS.saveAiConfig]: undefined;
   [IPC_CHANNELS.getNextClaudeTask]: GetNextClaudeTaskResult;
   [IPC_CHANNELS.createDraftConversation]: CreateDraftConversationResult;
   [IPC_CHANNELS.createPlanDraft]: PlanDraftResult;
