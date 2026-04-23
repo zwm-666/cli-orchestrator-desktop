@@ -1,3 +1,4 @@
+import { useEffect, useRef, useState } from 'react';
 import type { Locale, WorkbenchTargetKind } from '../../../shared/domain.js';
 import { TARGET_KIND_LABELS } from '../workConfigCopy.js';
 
@@ -48,6 +49,20 @@ export function WorkbenchControlPanel(props: WorkbenchControlPanelProps): React.
     onCreateThread,
     onTargetModelChange,
   } = props;
+  const [objectiveDraft, setObjectiveDraft] = useState(objective);
+  const isComposingRef = useRef(false);
+
+  useEffect(() => {
+    if (!isComposingRef.current) {
+      setObjectiveDraft(objective);
+    }
+  }, [objective]);
+
+  const persistObjectiveDraft = (nextObjective: string): void => {
+    if (nextObjective !== objective) {
+      onObjectiveChange(nextObjective);
+    }
+  };
 
   return (
     <div className="workbench-control-panel">
@@ -55,10 +70,27 @@ export function WorkbenchControlPanel(props: WorkbenchControlPanelProps): React.
         <span>{locale === 'zh' ? '工作目标' : 'Objective'}</span>
         <textarea
           rows={3}
-          value={objective}
+          value={objectiveDraft}
           placeholder={locale === 'zh' ? '描述这次要完成的整体工作...' : 'Describe the overall objective for this work session...'}
           onChange={(event) => {
-            onObjectiveChange(event.target.value);
+            const nextValue = event.target.value;
+            setObjectiveDraft(nextValue);
+
+            if (!isComposingRef.current) {
+              persistObjectiveDraft(nextValue);
+            }
+          }}
+          onCompositionStart={() => {
+            isComposingRef.current = true;
+          }}
+          onCompositionEnd={(event) => {
+            isComposingRef.current = false;
+            const nextValue = event.currentTarget.value;
+            setObjectiveDraft(nextValue);
+            persistObjectiveDraft(nextValue);
+          }}
+          onBlur={(event) => {
+            persistObjectiveDraft(event.currentTarget.value);
           }}
         />
       </label>
