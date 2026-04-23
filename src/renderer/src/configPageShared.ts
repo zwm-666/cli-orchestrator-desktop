@@ -1,37 +1,16 @@
 import type { AppState, Locale, RoutingSettings, WorkbenchSkillBinding } from '../../shared/domain.js';
-import type { AiProviderId } from './aiConfig.js';
 
 export interface InlineStatus {
   tone: 'success' | 'error' | 'loading';
   message: string;
 }
 
-export type ProviderStatusMap = Record<AiProviderId, InlineStatus | null>;
-export type VisibilityMap = Record<AiProviderId, boolean>;
+export type ProviderStatusMap = Record<string, InlineStatus | null>;
+export type VisibilityMap = Record<string, boolean>;
 
-export const createProviderStatusMap = (): ProviderStatusMap => ({
-  anthropic: null,
-  openai: null,
-  groq: null,
-  gemini: null,
-  deepseek: null,
-  sambanova: null,
-  cerebras: null,
-  huggingface: null,
-  custom: null,
-});
+export const createProviderStatusMap = (): ProviderStatusMap => ({});
 
-export const createVisibilityMap = (): VisibilityMap => ({
-  anthropic: false,
-  openai: false,
-  groq: false,
-  gemini: false,
-  deepseek: false,
-  sambanova: false,
-  cerebras: false,
-  huggingface: false,
-  custom: false,
-});
+export const createVisibilityMap = (): VisibilityMap => ({});
 
 export const createSkillBinding = (): WorkbenchSkillBinding => ({
   id: `skill-binding-${crypto.randomUUID()}`,

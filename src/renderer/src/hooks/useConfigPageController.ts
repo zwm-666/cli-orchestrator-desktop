@@ -9,8 +9,8 @@ import type {
   WorkbenchTargetKind,
 } from '../../../shared/domain.js';
 import { DEFAULT_WORKBENCH_STATE } from '../../../shared/domain.js';
-import type { AiConfig, AiProviderId } from '../aiConfig.js';
-import { AI_CONFIG_STORAGE_KEY, AI_PROVIDERS, getProviderDefinition } from '../aiConfig.js';
+import type { AiConfig, AiProviderConfig, ProviderApiStyle } from '../aiConfig.js';
+import { AI_CONFIG_STORAGE_KEY, getProviderDefinition, isCustomProviderId } from '../aiConfig.js';
 import { localizeProviderRuntimeMessage } from '../providerRuntimeLocalization.js';
 import { testProviderConnection } from '../providerApi.js';
 import {
@@ -35,10 +35,19 @@ interface UseConfigPageControllerInput {
   aiConfig: AiConfig;
   appState: AppState;
   routingSettings: RoutingSettings;
-  onSaveAiConfig: (config: AiConfig) => void;
+  onSaveAiConfig: (config: AiConfig) => void | Promise<void>;
   onSaveRoutingSettings: (settings: RoutingSettings) => void | Promise<void>;
   onSaveWorkbenchState: (state: WorkbenchState) => void | Promise<void>;
   onSaveSkill: (skill: SkillDefinition) => void | Promise<void>;
+}
+
+interface CustomProviderInput {
+  label: string;
+  base_url: string;
+  api_key: string;
+  default_model: string;
+  api_style: ProviderApiStyle;
+  enabled: boolean;
 }
 
 export interface UseConfigPageControllerResult {
@@ -55,17 +64,19 @@ export interface UseConfigPageControllerResult {
   providerOptions: { id: string; label: string }[];
   adapterOptions: { id: string; label: string }[];
   getTargetOptions: (targetKind: WorkbenchTargetKind) => { id: string; label: string }[];
-  updateProvider: (providerId: AiProviderId, updates: Partial<AiConfig['providers'][AiProviderId]>) => void;
-  toggleProviderSecretVisibility: (providerId: AiProviderId) => void;
-  setActiveProvider: (providerId: AiProviderId | null) => void;
+  updateProvider: (providerId: string, updates: Partial<AiProviderConfig>) => void;
+  toggleProviderSecretVisibility: (providerId: string) => void;
+  setActiveProvider: (providerId: string | null) => void;
   setActiveModel: (model: string) => void;
+  addCustomProvider: (input: CustomProviderInput) => void;
+  removeCustomProvider: (providerId: string) => void;
   updateAdapterSetting: (adapterId: string, updates: Partial<RoutingSettings['adapterSettings'][string]>) => void;
   addBinding: () => void;
   updateBinding: (bindingId: string, updates: Partial<WorkbenchSkillBinding>) => void;
   removeBinding: (bindingId: string) => void;
   toggleBindingSkill: (bindingId: string, skillId: string, enabled: boolean) => void;
   handleSave: () => Promise<void>;
-  handleTestProvider: (providerId: AiProviderId) => Promise<void>;
+  handleTestProvider: (providerId: string) => Promise<void>;
   handleTestActiveProvider: () => Promise<void>;
   handleRefreshAdapters: () => Promise<void>;
   handleSaveSkill: (skill: SkillDefinition) => void;
@@ -95,15 +106,16 @@ export function useConfigPageController(input: UseConfigPageControllerInput): Us
   }, [appState.workbench]);
 
   const activeProviderDefinition = useMemo(
-    () => (draftConfig.active_provider ? getProviderDefinition(draftConfig.active_provider) : null),
-    [draftConfig.active_provider],
+    () => (draftConfig.active_provider ? getProviderDefinition(draftConfig.active_provider, draftConfig.providers[draftConfig.active_provider]) : null),
+    [draftConfig.active_provider, draftConfig.providers],
   );
   const providerOptions = useMemo(
-    () => AI_PROVIDERS.map((provider) => ({
-      id: provider.id,
-      label: locale === 'zh' && provider.id === 'custom' ? '自定义兼容服务' : provider.label,
-    })),
-    [locale],
+    () =>
+      Object.entries(draftConfig.providers).map(([providerId, providerConfig]) => ({
+        id: providerId,
+        label: providerConfig.label?.trim() || getProviderDefinition(providerId, providerConfig).label,
+      })),
+    [draftConfig.providers],
   );
 
   const userFacingAdapters = useMemo(
@@ -123,39 +135,152 @@ export function useConfigPageController(input: UseConfigPageControllerInput): Us
     return adapterOptions;
   };
 
-  const updateProvider = (providerId: AiProviderId, updates: Partial<AiConfig['providers'][AiProviderId]>): void => {
-    setDraftConfig((current) => ({
-      ...current,
-      providers: {
-        ...current.providers,
-        [providerId]: {
-          ...current.providers[providerId],
-          ...updates,
+  const updateProvider = (providerId: string, updates: Partial<AiProviderConfig>): void => {
+    setDraftConfig((current) => {
+      const currentProvider = current.providers[providerId];
+      if (!currentProvider) {
+        return current;
+      }
+
+      const nextProvider: AiProviderConfig = {
+        ...currentProvider,
+        ...updates,
+      };
+
+      if (
+        (typeof updates.api_key === 'string' && updates.api_key.trim().length > 0) ||
+        (typeof updates.base_url === 'string' && updates.base_url.trim().length > 0)
+      ) {
+        nextProvider.enabled = true;
+      }
+
+      return {
+        ...current,
+        active_model:
+          current.active_provider === providerId && typeof updates.default_model === 'string'
+            ? updates.default_model
+            : current.active_model,
+        providers: {
+          ...current.providers,
+          [providerId]: nextProvider,
         },
-      },
-    }));
+      };
+    });
   };
 
-  const toggleProviderSecretVisibility = (providerId: AiProviderId): void => {
+  const toggleProviderSecretVisibility = (providerId: string): void => {
     setShowSecrets((current) => ({ ...current, [providerId]: !current[providerId] }));
   };
 
-  const setActiveProvider = (providerId: AiProviderId | null): void => {
+  const setActiveProvider = (providerId: string | null): void => {
     if (!providerId) {
       setDraftConfig((current) => ({ ...current, active_provider: null, active_model: '' }));
       return;
     }
 
-    const providerDefinition = getProviderDefinition(providerId);
-    setDraftConfig((current) => ({
-      ...current,
-      active_provider: providerId,
-      active_model: current.active_provider === providerId && current.active_model ? current.active_model : providerDefinition.modelSuggestions[0] ?? '',
-    }));
+    setDraftConfig((current) => {
+      const providerConfig = current.providers[providerId];
+      if (!providerConfig) {
+        return current;
+      }
+
+      const providerDefinition = getProviderDefinition(providerId, providerConfig);
+      const nextModel =
+        (current.active_provider === providerId && current.active_model) ||
+        providerConfig.default_model?.trim() ||
+        providerDefinition.modelSuggestions[0] ||
+        current.active_model ||
+        '';
+
+      return {
+        ...current,
+        active_provider: providerId,
+        active_model: nextModel,
+      };
+    });
   };
 
   const setActiveModel = (model: string): void => {
-    setDraftConfig((current) => ({ ...current, active_model: model }));
+    setDraftConfig((current) => {
+      if (!current.active_provider) {
+        return { ...current, active_model: model };
+      }
+
+      const activeProviderConfig = current.providers[current.active_provider];
+      if (!activeProviderConfig) {
+        return { ...current, active_model: model };
+      }
+
+      return {
+        ...current,
+        active_model: model,
+        providers: {
+          ...current.providers,
+          [current.active_provider]: {
+            ...activeProviderConfig,
+            default_model: model,
+          },
+        },
+      };
+    });
+  };
+
+  const addCustomProvider = (input: CustomProviderInput): void => {
+    setDraftConfig((current) => {
+      const customProviderCount = Object.keys(current.providers).filter((providerId) => isCustomProviderId(providerId)).length;
+      if (customProviderCount >= 10) {
+        return current;
+      }
+
+      const providerId = `custom-${crypto.randomUUID()}`;
+      return {
+        ...current,
+        providers: {
+          ...current.providers,
+          [providerId]: {
+            api_key: input.api_key,
+            enabled: input.enabled,
+            base_url: input.base_url,
+            label: input.label,
+            default_model: input.default_model,
+            api_style: input.api_style,
+          },
+        },
+      };
+    });
+  };
+
+  const removeCustomProvider = (providerId: string): void => {
+    if (!isCustomProviderId(providerId)) {
+      return;
+    }
+
+    setDraftConfig((current) => {
+      if (!current.providers[providerId]) {
+        return current;
+      }
+
+      const nextProviders = { ...current.providers };
+      delete nextProviders[providerId];
+
+      return {
+        ...current,
+        active_provider: current.active_provider === providerId ? null : current.active_provider,
+        active_model: current.active_provider === providerId ? '' : current.active_model,
+        providers: nextProviders,
+      };
+    });
+
+    setProviderStatuses((current) => {
+      const next = { ...current };
+      delete next[providerId];
+      return next;
+    });
+    setShowSecrets((current) => {
+      const next = { ...current };
+      delete next[providerId];
+      return next;
+    });
   };
 
   const updateAdapterSetting = (adapterId: string, updates: Partial<RoutingSettings['adapterSettings'][string]>): void => {
@@ -220,14 +345,17 @@ export function useConfigPageController(input: UseConfigPageControllerInput): Us
   };
 
   const handleSave = async (): Promise<void> => {
-    onSaveAiConfig(draftConfig);
+    await onSaveAiConfig(draftConfig);
     await onSaveRoutingSettings(draftRoutingSettings);
     await onSaveWorkbenchState(draftWorkbench);
     setSaveStatus(getConfigSaveStatusMessage(locale, AI_CONFIG_STORAGE_KEY));
   };
 
-  const handleTestProvider = async (providerId: AiProviderId): Promise<void> => {
+  const handleTestProvider = async (providerId: string): Promise<void> => {
     const providerConfig = draftConfig.providers[providerId];
+    if (!providerConfig) {
+      return;
+    }
     const startedAt = performance.now();
 
     setProviderStatuses((current) => ({
@@ -307,6 +435,8 @@ export function useConfigPageController(input: UseConfigPageControllerInput): Us
     toggleProviderSecretVisibility,
     setActiveProvider,
     setActiveModel,
+    addCustomProvider,
+    removeCustomProvider,
     updateAdapterSetting,
     addBinding,
     updateBinding,
