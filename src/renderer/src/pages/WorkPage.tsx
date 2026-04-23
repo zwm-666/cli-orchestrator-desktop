@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import type { AppState, Locale, WorkbenchState } from '../../../shared/domain.js';
 import type { PromptBuilderConfig } from '../../../shared/promptBuilder.js';
 import type { AiConfig } from '../aiConfig.js';
@@ -26,6 +27,7 @@ interface WorkPageProps {
 
 export function WorkPage({ locale, aiConfig, appState, promptBuilderConfig, onSaveWorkbenchState }: WorkPageProps): React.JSX.Element {
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
+  const navigate = useNavigate();
 
   const controller = useWorkbenchController({
     locale,
@@ -102,20 +104,32 @@ export function WorkPage({ locale, aiConfig, appState, promptBuilderConfig, onSa
 
   return (
     <section className="page-stack work-page">
-      <div className="section-panel inlay-card workbench-action-row">
-        <WorkbenchSwitchTrigger
-          locale={locale}
-          selectedTargetKind={selectedTargetKind}
-          targetLabel={activeTargetLabel}
-          targetModel={targetModel}
-          onClick={() => {
-            setIsSettingsOpen(true);
-          }}
-        />
-      </div>
-
       <section className="workspace-grid">
         <div className="workspace-sidebar-stack">
+          <div className="section-panel inlay-card workbench-action-row">
+            <div className="card-actions provider-card-actions">
+              <WorkbenchSwitchTrigger
+                locale={locale}
+                selectedTargetKind={selectedTargetKind}
+                targetLabel={activeTargetLabel}
+                targetModel={targetModel}
+                onClick={() => {
+                  setIsSettingsOpen(true);
+                }}
+              />
+
+              <button
+                type="button"
+                className="secondary-button"
+                onClick={() => {
+                  void navigate('/config');
+                }}
+              >
+                {locale === 'zh' ? '打开配置页' : 'Open config'}
+              </button>
+            </div>
+          </div>
+
           <FileExplorer
             locale={locale}
             browseResult={browseResult}
@@ -166,6 +180,7 @@ export function WorkPage({ locale, aiConfig, appState, promptBuilderConfig, onSa
             isLoading={splitCommandBuilder.isLoading}
             loadError={splitCommandBuilder.loadError}
             copyStatus={splitCommandBuilder.copyStatus}
+            analysisDraft={splitCommandBuilder.analysisDraft}
             isApplied={Boolean(promptBuilderCommand && promptBuilderCommand === splitCommandBuilder.generatedCommand)}
             onTaskChange={splitCommandBuilder.setTask}
             onMaterialsChange={splitCommandBuilder.setMaterials}

@@ -22,9 +22,6 @@ export function TopNav({ locale, onSetLocale }: TopNavProps): React.JSX.Element 
         <NavLink to="/work" className={({ isActive }) => `route-link ${isActive ? 'is-active' : ''}`}>
           {locale === 'zh' ? '工作台' : 'Work'}
         </NavLink>
-        <NavLink to="/config" className={({ isActive }) => `route-link ${isActive ? 'is-active' : ''}`}>
-          {locale === 'zh' ? '配置' : 'Config'}
-        </NavLink>
       </nav>
 
       <div className="locale-inline-group">

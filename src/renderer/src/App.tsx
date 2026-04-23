@@ -3,7 +3,7 @@ import { HashRouter, Navigate, Route, Routes, useLocation } from 'react-router-d
 import type { AppState, Locale, RendererContinuityState, RoutingSettings, SaveSkillInput, SkillDefinition, WorkbenchState } from '../../shared/domain.js';
 import { DEFAULT_WORKBENCH_STATE } from '../../shared/domain.js';
 import { DEFAULT_PROMPT_BUILDER_CONFIG, type PromptBuilderConfig } from '../../shared/promptBuilder.js';
-import { loadAiConfig, saveAiConfig, type AiConfig } from './aiConfig.js';
+import { loadAiConfig, loadAiConfigFromPersistence, saveAiConfig, type AiConfig } from './aiConfig.js';
 import { TopNav } from './components/TopNav.js';
 import { ConfigPage } from './pages/ConfigPage.js';
 import { WorkPage } from './pages/WorkPage.js';
@@ -87,7 +87,8 @@ export function App(): React.JSX.Element {
 
     const loadState = async (): Promise<void> => {
       try {
-        const [nextAppState, nextRoutingSettings, nextContinuityState, nextPromptBuilderConfig] = await Promise.all([
+        const [nextAiConfig, nextAppState, nextRoutingSettings, nextContinuityState, nextPromptBuilderConfig] = await Promise.all([
+          loadAiConfigFromPersistence(),
           window.desktopApi.getAppState(),
           window.desktopApi.getRoutingSettings(),
           window.desktopApi.getContinuityState(),
@@ -98,6 +99,7 @@ export function App(): React.JSX.Element {
           return;
         }
 
+        setAiConfig(nextAiConfig);
         setAppState({ ...nextAppState, workbench: nextAppState.workbench ?? DEFAULT_WORKBENCH_STATE });
         setRoutingSettings(nextRoutingSettings);
         setContinuityState(nextContinuityState);
@@ -124,9 +126,9 @@ export function App(): React.JSX.Element {
     };
   }, []);
 
-  const handleSaveAiConfig = (nextConfig: AiConfig): void => {
+  const handleSaveAiConfig = async (nextConfig: AiConfig): Promise<void> => {
     setAiConfig(nextConfig);
-    saveAiConfig(nextConfig);
+    await saveAiConfig(nextConfig);
   };
 
   const handleSaveRoutingSettings = async (nextSettings: RoutingSettings): Promise<void> => {
@@ -173,7 +175,7 @@ export function App(): React.JSX.Element {
         <main className="routed-shell-main">
           <RoutePersistence continuityState={continuityState} onSaveContinuityState={handleSaveContinuityState} />
           <Routes>
-            <Route path="/" element={<Navigate to={continuityState.lastRoute ?? '/config'} replace />} />
+            <Route path="/" element={<Navigate to="/work" replace />} />
             <Route
               path="/work"
               element={
