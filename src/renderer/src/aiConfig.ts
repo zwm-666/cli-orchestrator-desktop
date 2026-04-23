@@ -298,11 +298,6 @@ export function loadAiConfig(): AiConfig {
 }
 
 export async function loadAiConfigFromPersistence(): Promise<AiConfig> {
-  const localConfig = loadAiConfigFromLocalStorage();
-  if (localConfig) {
-    return localConfig;
-  }
-
   if (typeof window === 'undefined') {
     return createDefaultAiConfig();
   }
@@ -310,15 +305,20 @@ export async function loadAiConfigFromPersistence(): Promise<AiConfig> {
   try {
     const fileValue = await window.desktopApi.loadAiConfig();
     const normalized = normalizeAiConfig(fileValue);
-    if (!normalized) {
-      return createDefaultAiConfig();
+    if (normalized) {
+      window.localStorage.setItem(AI_CONFIG_STORAGE_KEY, JSON.stringify(normalized));
+      return normalized;
     }
-
-    window.localStorage.setItem(AI_CONFIG_STORAGE_KEY, JSON.stringify(normalized));
-    return normalized;
   } catch {
-    return createDefaultAiConfig();
+    // fall through to localStorage fallback
   }
+
+  const localConfig = loadAiConfigFromLocalStorage();
+  if (localConfig) {
+    return localConfig;
+  }
+
+  return createDefaultAiConfig();
 }
 
 export async function saveAiConfig(config: AiConfig): Promise<void> {

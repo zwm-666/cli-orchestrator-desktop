@@ -54,7 +54,7 @@ app.setPath('sessionData', path.resolve(electronDataDir, 'session'));
 const persistenceStore = new LocalPersistenceStore(rootDir);
 const orchestratorService = new OrchestratorService(rootDir, persistenceStore);
 const promptBuilderConfigService = new PromptBuilderConfigService(rootDir);
-const aiConfigFilePath = path.resolve(rootDir, 'config', 'ai-config.json');
+const aiConfigFilePath = path.resolve(app.getPath('userData'), 'ai-config.json');
 let lastBroadcastState = orchestratorService.getAppState();
 
 const isJsonObject = (value: unknown): value is Record<string, unknown> => {
