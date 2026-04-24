@@ -123,12 +123,15 @@
 html,
 body,
 #root {
-  min-height: 100%;
+  width: 100%;
+  height: 100%;
+  min-height: 0;
+  overflow: hidden;
 }
 
 body {
   margin: 0;
-  min-height: 100vh;
+  height: 100vh;
   background: var(--bg-base);
   color: var(--text-base);
 }
@@ -485,7 +488,9 @@ h4,
 }
 
 .routed-shell {
-  min-height: 100vh;
+  width: 100%;
+  height: 100vh;
+  min-height: 0;
   display: grid;
   grid-template-rows: auto minmax(0, 1fr);
   gap: 0;
@@ -536,11 +541,15 @@ h4,
 
 .routed-shell-main {
   min-height: 0;
+  overflow: hidden;
 }
 
 .page-stack {
   align-content: start;
   padding: var(--space-3);
+  min-height: 0;
+  height: 100%;
+  overflow: auto;
 }
 
 .page-hero,
@@ -852,7 +861,8 @@ h4,
 .plan-page,
 .config-page,
 .work-page {
-  min-height: calc(100vh - var(--top-nav-height));
+  min-height: 0;
+  height: 100%;
 }
 
 .project-select-hero,
@@ -892,7 +902,8 @@ h4,
   display: grid;
   grid-template-columns: auto 8px minmax(300px, 1fr) 8px auto;
   align-items: stretch;
-  min-height: calc(100vh - var(--top-nav-height) - (2 * var(--space-3)));
+  min-height: 0;
+  height: 100%;
   gap: 0;
   background: var(--bg-base);
 }
@@ -908,8 +919,8 @@ h4,
 
 .cursor-sidebar-left,
 .cursor-sidebar-right {
-  max-height: calc(100vh - var(--top-nav-height) - (2 * var(--space-3)));
-  min-height: calc(100vh - var(--top-nav-height) - (2 * var(--space-3)));
+  max-height: 100%;
+  min-height: 0;
 }
 
 .cursor-sidebar-right {
