@@ -587,6 +587,59 @@ export const collectRunOutputText = (run: RunSession): string => {
     .join('\n');
 };
 
+const RUN_LIFECYCLE_OUTPUT_PATTERNS = [
+  /^Process started(?: with pid \d+)?\.?$/,
+  /^Process completed successfully\.?$/,
+  /^Process exited with code .+$/,
+  /^Process cancelled by user.*$/,
+  /^Process timed out after .+$/,
+  /^Manual handoff is ready\..*$/,
+];
+
+const cleanAdapterReplyText = (content: string): string => {
+  return stripTaskUpdateBlock(content)
+    .split('\n')
+    .map((line) => line.trimEnd())
+    .filter((line) => {
+      const normalizedLine = line.trim();
+      return normalizedLine.length > 0 && !RUN_LIFECYCLE_OUTPUT_PATTERNS.some((pattern) => pattern.test(normalizedLine));
+    })
+    .join('\n')
+    .trim();
+};
+
+export const buildAdapterReplyContent = (locale: AppLocale, run: RunSession, outputText: string): string => {
+  const assistantTranscript = run.transcript
+    .filter((entry) => entry.actor === 'assistant')
+    .map((entry) => entry.detail ?? entry.summary)
+    .join('\n');
+  const stdoutTranscript = run.transcript
+    .filter((entry) => entry.label === 'Stdout')
+    .map((entry) => entry.detail ?? entry.summary)
+    .join('\n');
+  const stderrTranscript = run.transcript
+    .filter((entry) => entry.label === 'Stderr')
+    .map((entry) => entry.detail ?? entry.summary)
+    .join('\n');
+
+  for (const candidate of [assistantTranscript, stdoutTranscript, outputText, stderrTranscript]) {
+    const cleaned = cleanAdapterReplyText(candidate);
+    if (cleaned.length > 0) {
+      return clipDetail(cleaned, 4000);
+    }
+  }
+
+  if (run.status === 'succeeded') {
+    return locale === 'zh'
+      ? '本地工具已完成，但没有返回可显示的回复内容。'
+      : 'The local tool completed, but did not return displayable reply content.';
+  }
+
+  return locale === 'zh'
+    ? `本地工具以 ${run.status} 结束，但没有返回可显示的回复内容。`
+    : `The local tool finished with ${run.status}, but did not return displayable reply content.`;
+};
+
 export const formatWorkbenchActivitySummary = (locale: AppLocale, activity: WorkbenchActivitySummary): string => {
   const localizedStatuses = RUN_STATUS_LABELS[locale] as Record<string, string>;
   const localizedStatus = localizedStatuses[activity.status] ?? (activity.status || (locale === 'zh' ? '未知状态' : 'unknown'));

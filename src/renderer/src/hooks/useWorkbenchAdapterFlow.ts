@@ -4,6 +4,7 @@ import {
   appendActivityToThread,
   appendMessagesToThread,
   applyTaskUpdates,
+  buildAdapterReplyContent,
   bindContinuationToThread,
   collectRunOutputText,
   createAdapterActivitySummary,
@@ -113,17 +114,11 @@ export function useWorkbenchAdapterFlow(input: UseWorkbenchAdapterFlowInput): Us
                   latestAdapterActivity: nextActivity,
                 }, targetThreadId, nextActivity);
 
+            const replyContent = buildAdapterReplyContent(locale, run, outputText);
             const completionMessage: TaskThreadMessage = {
               id: crypto.randomUUID(),
-              role: 'system',
-              content:
-                run.status === 'succeeded'
-                  ? locale === 'zh'
-                    ? `本地工具 ${cliAdapterById.get(run.adapterId)?.displayName ?? run.adapterId} 已完成。`
-                    : `Local tool ${cliAdapterById.get(run.adapterId)?.displayName ?? run.adapterId} completed.`
-                  : locale === 'zh'
-                    ? `本地工具 ${cliAdapterById.get(run.adapterId)?.displayName ?? run.adapterId} 以 ${run.status} 结束。`
-                    : `Local tool ${cliAdapterById.get(run.adapterId)?.displayName ?? run.adapterId} finished with ${run.status}.`,
+              role: 'assistant',
+              content: replyContent,
               providerId: null,
               adapterId: run.adapterId,
               sourceKind: 'adapter',
@@ -194,26 +189,12 @@ export function useWorkbenchAdapterFlow(input: UseWorkbenchAdapterFlowInput): Us
         orchestrationRunId: null,
         createdAt,
       };
-      const launchMessage: TaskThreadMessage = {
-        id: crypto.randomUUID(),
-        role: 'system',
-        content: locale === 'zh' ? `已启动本地工具 ${selectedAdapter.displayName}。` : `Started local tool ${selectedAdapter.displayName}.`,
-        providerId: null,
-        adapterId: selectedAdapter.id,
-        sourceKind: 'adapter',
-        sourceLabel: selectedAdapter.displayName,
-        modelLabel: targetModel || null,
-        agentLabel: selectedAgentLabel ?? null,
-        orchestrationRunId: null,
-        createdAt,
-      };
-
       await queueWorkbenchPersist((currentWorkbench) => {
         return appendMessagesToThread({
           locale,
           workbench: currentWorkbench,
           threadId: activeThreadId,
-          messages: [requestMessage, launchMessage],
+          messages: [requestMessage],
         });
       });
 
