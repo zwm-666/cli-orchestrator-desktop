@@ -280,6 +280,33 @@ const areTaskThreadMessagesEqual = (left: TaskThreadMessage, right: TaskThreadMe
     && left.createdAt === right.createdAt;
 };
 
+const applyThreadMessageLimit = (
+  locale: AppLocale,
+  thread: TaskThread,
+  nextMessages: TaskThreadMessage[],
+  fallbackUpdatedAt: string,
+): TaskThread => {
+  if (nextMessages.length <= MAX_TASK_THREAD_MESSAGES) {
+    return {
+      ...thread,
+      messages: nextMessages,
+      updatedAt: fallbackUpdatedAt,
+    };
+  }
+
+  const overflowCount = nextMessages.length - MAX_TASK_THREAD_MESSAGES;
+  const overflowMessages = nextMessages.slice(0, overflowCount);
+  const retainedMessages = nextMessages.slice(-MAX_TASK_THREAD_MESSAGES);
+  const overflowSummary = summarizeOverflowMessages(locale, thread.id, overflowMessages);
+
+  return {
+    ...thread,
+    messages: retainedMessages,
+    activityLog: [...thread.activityLog, overflowSummary].slice(-THREAD_ACTIVITY_LOG_LIMIT),
+    updatedAt: retainedMessages.at(-1)?.createdAt ?? overflowSummary.recordedAt,
+  };
+};
+
 export const upsertOrchestrationThreadBinding = (
   workbench: WorkbenchState,
   binding: WorkbenchOrchestrationBinding,
@@ -348,25 +375,7 @@ export const appendMessagesToThread = (input: {
 
   return updateThread(workbench, threadId, (thread) => {
     const nextMessages = [...thread.messages, ...messages];
-    if (nextMessages.length <= MAX_TASK_THREAD_MESSAGES) {
-      return {
-        ...thread,
-        messages: nextMessages,
-        updatedAt: messages.at(-1)?.createdAt ?? new Date().toISOString(),
-      };
-    }
-
-    const overflowCount = nextMessages.length - MAX_TASK_THREAD_MESSAGES;
-    const overflowMessages = nextMessages.slice(0, overflowCount);
-    const retainedMessages = nextMessages.slice(-MAX_TASK_THREAD_MESSAGES);
-    const overflowSummary = summarizeOverflowMessages(locale, thread.id, overflowMessages);
-
-    return {
-      ...thread,
-      messages: retainedMessages,
-      activityLog: [...thread.activityLog, overflowSummary].slice(-THREAD_ACTIVITY_LOG_LIMIT),
-      updatedAt: retainedMessages.at(-1)?.createdAt ?? overflowSummary.recordedAt,
-    };
+    return applyThreadMessageLimit(locale, thread, nextMessages, messages.at(-1)?.createdAt ?? new Date().toISOString());
   });
 };
 
@@ -408,25 +417,7 @@ export const upsertMessagesToThread = (input: {
       return thread;
     }
 
-    if (nextMessages.length <= MAX_TASK_THREAD_MESSAGES) {
-      return {
-        ...thread,
-        messages: nextMessages,
-        updatedAt: messages.at(-1)?.createdAt ?? thread.updatedAt,
-      };
-    }
-
-    const overflowCount = nextMessages.length - MAX_TASK_THREAD_MESSAGES;
-    const overflowMessages = nextMessages.slice(0, overflowCount);
-    const retainedMessages = nextMessages.slice(-MAX_TASK_THREAD_MESSAGES);
-    const overflowSummary = summarizeOverflowMessages(locale, thread.id, overflowMessages);
-
-    return {
-      ...thread,
-      messages: retainedMessages,
-      activityLog: [...thread.activityLog, overflowSummary].slice(-THREAD_ACTIVITY_LOG_LIMIT),
-      updatedAt: retainedMessages.at(-1)?.createdAt ?? overflowSummary.recordedAt,
-    };
+    return applyThreadMessageLimit(locale, thread, nextMessages, messages.at(-1)?.createdAt ?? thread.updatedAt);
   });
 };
 
