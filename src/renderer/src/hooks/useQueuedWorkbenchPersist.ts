@@ -14,7 +14,7 @@ interface UseQueuedWorkbenchPersistResult {
 export function useQueuedWorkbenchPersist(input: UseQueuedWorkbenchPersistInput): UseQueuedWorkbenchPersistResult {
   const { workbench, persistWorkbench } = input;
   const workbenchRef = useRef(workbench);
-  const queueRef = useRef<Promise<void>>(Promise.resolve());
+  const queueRef = useRef(Promise.resolve());
 
   useEffect(() => {
     workbenchRef.current = workbench;

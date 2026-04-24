@@ -189,7 +189,7 @@ export function useWorkbenchOrchestrationFlow(input: UseWorkbenchOrchestrationFl
         ? `${locale === 'zh' ? '错误输出' : 'stderr'}: ${event.message}`
         : event.message;
 
-      queueWorkbenchPersist((currentWorkbench) => {
+      void queueWorkbenchPersist((currentWorkbench) => {
         return appendMessagesToThread({
           locale,
           workbench: currentWorkbench,
@@ -227,7 +227,7 @@ export function useWorkbenchOrchestrationFlow(input: UseWorkbenchOrchestrationFl
       return;
     }
 
-    queueWorkbenchPersist((currentWorkbench) => {
+    void queueWorkbenchPersist((currentWorkbench) => {
       let nextWorkbench = currentWorkbench;
 
       runningNodes.forEach((node) => {
