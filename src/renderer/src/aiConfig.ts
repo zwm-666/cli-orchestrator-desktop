@@ -152,7 +152,7 @@ export const normalizeProviderModelList = (value: unknown): string[] => {
   return [...uniqueModels];
 };
 
-export const mergeProviderModelLists = (...lists: Array<string[] | undefined>): string[] => {
+export const mergeProviderModelLists = (...lists: (string[] | undefined)[]): string[] => {
   const merged = new Set<string>();
 
   lists.forEach((list) => {

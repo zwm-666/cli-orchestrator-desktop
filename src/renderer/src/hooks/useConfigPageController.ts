@@ -82,6 +82,10 @@ export interface UseConfigPageControllerResult {
   handleSaveSkill: (skill: SkillDefinition) => void;
 }
 
+const omitRecordKey = <TValue,>(record: Record<string, TValue>, keyToOmit: string): Record<string, TValue> => {
+  return Object.fromEntries(Object.entries(record).filter(([key]) => key !== keyToOmit));
+};
+
 export function useConfigPageController(input: UseConfigPageControllerInput): UseConfigPageControllerResult {
   const { locale, aiConfig, appState, routingSettings, onSaveAiConfig, onSaveRoutingSettings, onSaveWorkbenchState, onSaveSkill } = input;
   const [draftConfig, setDraftConfig] = useState(aiConfig);
@@ -274,26 +278,19 @@ export function useConfigPageController(input: UseConfigPageControllerInput): Us
         return current;
       }
 
-      const nextProviders = { ...current.providers };
-      delete nextProviders[providerId];
-
       return {
         ...current,
         active_provider: current.active_provider === providerId ? null : current.active_provider,
         active_model: current.active_provider === providerId ? '' : current.active_model,
-        providers: nextProviders,
+        providers: omitRecordKey(current.providers, providerId),
       };
     });
 
     setProviderStatuses((current) => {
-      const next = { ...current };
-      delete next[providerId];
-      return next;
+      return omitRecordKey(current, providerId);
     });
     setShowSecrets((current) => {
-      const next = { ...current };
-      delete next[providerId];
-      return next;
+      return omitRecordKey(current, providerId);
     });
   };
 
