@@ -30,7 +30,7 @@ void test('PromptBuilderConfigService loads prompt-builder template files', asyn
   assert.equal(config.engineeringRules, '# Rules\n');
   assert.equal(config.outputFormat, '# Output\n');
   assert.equal(config.continuityTemplates?.en, '# Handoff EN\n');
-  assert.equal(config.continuityTemplates?.zh, '# 交接 ZH\n');
+  assert.equal(config.continuityTemplates.zh, '# 交接 ZH\n');
 });
 
 void test('PromptBuilderConfigService saves prompt-builder template files', async () => {

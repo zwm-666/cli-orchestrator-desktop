@@ -676,7 +676,7 @@ export const buildExecutionPlan = (
         orchestrationRunId,
         parentNodeId: previousNodeId,
         dependsOnNodeIds: previousNodeId ? [previousNodeId] : [],
-        agentProfileId: profile?.id ?? null,
+        agentProfileId: profile.id,
         skillIds: [],
         mcpServerIds: [],
         taskType: 'research',

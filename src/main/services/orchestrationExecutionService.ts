@@ -380,7 +380,7 @@ export class OrchestrationExecutionService {
   }
 
   private getDiscussionKeyword(context: OrchestrationContext): string {
-    return context.orchestrationRun.discussionConfig?.consensusKeyword?.trim() || '<CONSENSUS>';
+    return context.orchestrationRun.discussionConfig?.consensusKeyword.trim() || '<CONSENSUS>';
   }
 
   private hasDiscussionConsensus(context: OrchestrationContext): boolean {
@@ -426,7 +426,6 @@ export class OrchestrationExecutionService {
     let previousNodeId: string | null = previousRoundIds.at(-1) ?? null;
 
     participantIds.forEach((participantId, index) => {
-      const profile = participantId ? (agentProfiles.find((entry) => entry.id === participantId) ?? null) : null;
       const nodeId = `orch-node-${crypto.randomUUID()}`;
       const dependsOnNodeIds = [
         ...previousRoundIds,
