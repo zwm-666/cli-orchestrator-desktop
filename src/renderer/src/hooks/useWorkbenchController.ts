@@ -59,6 +59,7 @@ export interface UseWorkbenchControllerResult {
   previewError: string | null;
   isPreviewLoading: boolean;
   isApplyingFile: boolean;
+  isSavingFile: boolean;
   chatError: string | null;
   isSending: boolean;
   canSend: boolean;
@@ -115,9 +116,11 @@ export interface UseWorkbenchControllerResult {
   setSelectedOrchestrationParticipantIds: (value: string[]) => void;
   selectWorkspaceFolder: () => Promise<void>;
   loadDirectory: (relativePath: string | null) => Promise<void>;
+  loadDirectoryEntries: (relativePath: string | null) => Promise<WorkspaceEntry[]>;
   loadFilePreview: (entry: WorkspaceEntry) => Promise<void>;
   loadFilePreviewByPath: (relativePath: string) => Promise<void>;
   applyToSelectedFile: (content: string) => Promise<void>;
+  saveSelectedFile: (content: string) => Promise<void>;
 }
 
 const normalizeThreadedWorkbench = (workbench: WorkbenchState, locale: Locale, bootstrapThread: TaskThread): WorkbenchState => {
@@ -165,9 +168,7 @@ export function useWorkbenchController(input: UseWorkbenchControllerInput): UseW
   const [orchestrationPrompt, setOrchestrationPrompt] = useState('');
   const [selectedOrchestrationParticipantIds, setSelectedOrchestrationParticipantIds] = useState<string[]>([]);
 
-  if (!bootstrapThreadRef.current) {
-    bootstrapThreadRef.current = createTaskThread({ locale, objective: persistedWorkbench.objective });
-  }
+  bootstrapThreadRef.current ??= createTaskThread({ locale, objective: persistedWorkbench.objective });
 
   const workbench = useMemo(
     () => normalizeThreadedWorkbench(persistedWorkbench, locale, bootstrapThreadRef.current ?? createTaskThread({ locale, objective: persistedWorkbench.objective })),
@@ -339,11 +340,12 @@ export function useWorkbenchController(input: UseWorkbenchControllerInput): UseW
   useEffect(() => {
     const threadChanged = activeThreadIdRef.current !== activeThread?.id;
     activeThreadIdRef.current = activeThread?.id ?? null;
+    const activeThreadMessageCount = activeThread ? activeThread.messages.length : 0;
 
-    if (threadChanged || (activeThread?.messages.length ?? 0) === 0) {
+    if (threadChanged || activeThreadMessageCount === 0) {
       setTargetPrompt(continuityPrompt);
     }
-  }, [activeThread?.id, activeThread?.messages.length, continuityPrompt]);
+  }, [activeThread, continuityPrompt]);
 
   const providerFlow = useWorkbenchProviderFlow({
     locale,
@@ -532,6 +534,7 @@ export function useWorkbenchController(input: UseWorkbenchControllerInput): UseW
     previewError: workspace.previewError,
     isPreviewLoading: workspace.isPreviewLoading,
     isApplyingFile: workspace.isApplyingFile,
+    isSavingFile: workspace.isSavingFile,
     chatError: selectedTargetKind === 'provider' ? providerFlow.chatError : adapterFlow.runError,
     isSending: selectedTargetKind === 'provider' ? providerFlow.isSending : adapterFlow.isStartingRun,
     canSend,
@@ -588,8 +591,10 @@ export function useWorkbenchController(input: UseWorkbenchControllerInput): UseW
     setSelectedOrchestrationParticipantIds,
     selectWorkspaceFolder: workspace.selectWorkspaceFolder,
     loadDirectory: workspace.loadDirectory,
+    loadDirectoryEntries: workspace.loadDirectoryEntries,
     loadFilePreview: workspace.loadFilePreview,
     loadFilePreviewByPath: workspace.loadFilePreviewByPath,
     applyToSelectedFile: workspace.applyToSelectedFile,
+    saveSelectedFile: workspace.saveSelectedFile,
   };
 }

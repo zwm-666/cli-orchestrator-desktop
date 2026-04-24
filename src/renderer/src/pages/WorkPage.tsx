@@ -1,11 +1,11 @@
 import { useEffect, useRef, useState } from 'react';
-import type { AppState, Locale, WorkbenchState } from '../../../shared/domain.js';
+import type { AppState, Locale, WorkbenchActivitySummary, WorkbenchState } from '../../../shared/domain.js';
 import type { PromptBuilderConfig } from '../../../shared/promptBuilder.js';
 import type { AiConfig } from '../aiConfig.js';
 import { AgentStatusPanel } from '../components/AgentStatusPanel.js';
 import { ChatPanel } from '../components/ChatPanel.js';
+import { FileEditor } from '../components/FileEditor.js';
 import { FileExplorer } from '../components/FileExplorer.js';
-import { FilePreview } from '../components/FilePreview.js';
 import { LocalRunProgressPanel } from '../components/LocalRunProgressPanel.js';
 import { OrchestrationPanel } from '../components/OrchestrationPanel.js';
 import { OrchestrationProgressPanel } from '../components/OrchestrationProgressPanel.js';
@@ -67,7 +67,8 @@ export function WorkPage({ locale, aiConfig, appState, promptBuilderConfig, onSa
 
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent): void => {
-      const isPrimaryModifier = navigator.platform.toLowerCase().includes('mac') ? event.metaKey : event.ctrlKey;
+      const isMacLike = /Mac|iPhone|iPad|iPod/u.test(navigator.userAgent);
+      const isPrimaryModifier = isMacLike ? event.metaKey : event.ctrlKey;
       if (!isPrimaryModifier) {
         return;
       }
@@ -97,6 +98,14 @@ export function WorkPage({ locale, aiConfig, appState, promptBuilderConfig, onSa
     }
   };
 
+  const threadActivityLog = controller.activeThread?.activityLog ?? [];
+  const latestProviderActivity = [...threadActivityLog]
+    .reverse()
+    .find((activity): activity is WorkbenchActivitySummary => activity.sourceKind === 'provider') ?? null;
+  const latestAdapterActivity = [...threadActivityLog]
+    .reverse()
+    .find((activity): activity is WorkbenchActivitySummary => activity.sourceKind === 'adapter') ?? null;
+
   return (
     <section className="page-stack work-page cursor-work-page">
       <div className="cursor-workspace-layout">
@@ -116,11 +125,10 @@ export function WorkPage({ locale, aiConfig, appState, promptBuilderConfig, onSa
               selectedFilePath={controller.selectedFile?.relativePath ?? null}
               onRefresh={() => { void controller.loadDirectory(controller.browseResult?.currentPath ?? null); }}
               onCollapseAll={() => { void controller.loadDirectory(null); }}
+              onLoadDirectoryEntries={controller.loadDirectoryEntries}
               onOpenDirectory={(relativePath) => { void controller.loadDirectory(relativePath); }}
               onOpenFile={(entry) => { void controller.loadFilePreview(entry); }}
             />
-
-            <FilePreview locale={locale} file={controller.selectedFile} isLoading={controller.isPreviewLoading} errorMessage={controller.previewError} />
           </aside>
         ) : (
           <button type="button" className="cursor-collapsed-rail" onClick={() => { setCollapsedSide((current) => ({ ...current, left: false })); }}>
@@ -153,7 +161,33 @@ export function WorkPage({ locale, aiConfig, appState, promptBuilderConfig, onSa
             </div>
           </div>
 
-          <ChatPanel
+          <FileEditor
+            locale={locale}
+            file={controller.selectedFile}
+            isLoading={controller.isPreviewLoading}
+            isSaving={controller.isSavingFile}
+            errorMessage={controller.previewError}
+            onSave={(content) => { void controller.saveSelectedFile(content); }}
+          />
+        </main>
+
+        <div className="cursor-resizer" onMouseDown={() => { resizingSideRef.current = 'right'; }} />
+
+        {!collapsedSide.right ? (
+          <aside className="cursor-sidebar cursor-sidebar-right" style={{ width: rightSidebarWidth }}>
+            <div className="cursor-sidebar-topline">
+              <button type="button" className="secondary-button secondary-button-compact" onClick={() => { setCollapsedSide((current) => ({ ...current, right: true })); }}>
+                {locale === 'zh' ? '折叠右栏' : 'Hide right rail'}
+              </button>
+              <button type="button" className="secondary-button secondary-button-compact" onClick={() => { controller.handleOpenOrchestrationPanel('standard'); }}>
+                /orchestrate
+              </button>
+              <button type="button" className="secondary-button secondary-button-compact" onClick={() => { controller.handleOpenOrchestrationPanel('discussion'); }}>
+                /discuss
+              </button>
+            </div>
+
+            <ChatPanel
             locale={locale}
             messages={controller.chatMessages}
             inputValue={controller.targetPrompt}
@@ -176,6 +210,9 @@ export function WorkPage({ locale, aiConfig, appState, promptBuilderConfig, onSa
             onTargetModelChange={controller.setTargetModel}
             onSubmit={() => { void controller.handleSendEntry(); }}
             onNewThread={controller.handleNewThread}
+            onRetryMessage={(message) => {
+              controller.setTargetPrompt(message.content);
+            }}
             onDropFile={(absolutePath) => {
               const relativePath = resolveWorkspaceRelativePath(controller.workspaceRoot, absolutePath);
               if (!relativePath) {
@@ -187,23 +224,6 @@ export function WorkPage({ locale, aiConfig, appState, promptBuilderConfig, onSa
             }}
             onApplyCodeToFile={(content) => { void controller.applyToSelectedFile(content); }}
           />
-        </main>
-
-        <div className="cursor-resizer" onMouseDown={() => { resizingSideRef.current = 'right'; }} />
-
-        {!collapsedSide.right ? (
-          <aside className="cursor-sidebar cursor-sidebar-right" style={{ width: rightSidebarWidth }}>
-            <div className="cursor-sidebar-topline">
-              <button type="button" className="secondary-button secondary-button-compact" onClick={() => { setCollapsedSide((current) => ({ ...current, right: true })); }}>
-                {locale === 'zh' ? '折叠右栏' : 'Hide right rail'}
-              </button>
-              <button type="button" className="secondary-button secondary-button-compact" onClick={() => { controller.handleOpenOrchestrationPanel('standard'); }}>
-                /orchestrate
-              </button>
-              <button type="button" className="secondary-button secondary-button-compact" onClick={() => { controller.handleOpenOrchestrationPanel('discussion'); }}>
-                /discuss
-              </button>
-            </div>
 
             <WorkbenchTaskPanel
               locale={locale}
@@ -234,9 +254,9 @@ export function WorkPage({ locale, aiConfig, appState, promptBuilderConfig, onSa
 
             <WorkbenchActivityPanel
               locale={locale}
-              latestProviderActivity={controller.workbench.latestProviderActivity}
-              latestAdapterActivity={controller.workbench.latestAdapterActivity}
-              activityLog={controller.activeThread?.activityLog ?? []}
+              latestProviderActivity={latestProviderActivity}
+              latestAdapterActivity={latestAdapterActivity}
+              activityLog={threadActivityLog}
             />
 
             <AgentStatusPanel locale={locale} agentProfiles={appState.agentProfiles} />

@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef } from 'react';
+import { useEffect, useMemo } from 'react';
 import type { Locale, OrchestrationRun, TaskThreadMessage } from '../../../shared/domain.js';
 import type { ComposerTargetOption } from '../hooks/useWorkbenchController.js';
 import type { WorkbenchOption } from '../hooks/workbenchControllerShared.js';
@@ -28,6 +28,7 @@ interface ChatPanelProps {
   onNewThread: () => void;
   onDropFile: (absolutePath: string) => void;
   onApplyCodeToFile: (code: string) => void;
+  onRetryMessage: (message: TaskThreadMessage) => void;
 }
 
 interface ParsedChunk {
@@ -44,7 +45,7 @@ const parseMessageContent = (content: string): ParsedChunk[] => {
   let lastIndex = 0;
 
   for (const match of content.matchAll(pattern)) {
-    const matchIndex = match.index ?? 0;
+    const matchIndex = match.index;
     if (matchIndex > lastIndex) {
       chunks.push({ type: 'text', value: content.slice(lastIndex, matchIndex), language: null });
     }
@@ -118,10 +119,10 @@ export function ChatPanel(props: ChatPanelProps): React.JSX.Element {
     onNewThread,
     onDropFile,
     onApplyCodeToFile,
+    onRetryMessage,
   } = props;
 
-  const localTextareaRef = useRef<HTMLTextAreaElement | null>(null);
-  const textareaRef = inputRef ?? localTextareaRef;
+  const textareaRef = inputRef;
 
   useEffect(() => {
     const textarea = textareaRef.current;
@@ -135,7 +136,7 @@ export function ChatPanel(props: ChatPanelProps): React.JSX.Element {
 
   const showCommandMenu = inputValue.trimStart().startsWith('/');
   const activeMentionQuery = useMemo(() => {
-    const matched = inputValue.match(/(?:^|\s)@([^\s]*)$/);
+    const matched = /(?:^|\s)@([^\s]*)$/u.exec(inputValue);
     return matched?.[1]?.toLowerCase() ?? null;
   }, [inputValue]);
   const filteredAgentOptions = useMemo(() => {
@@ -196,6 +197,28 @@ export function ChatPanel(props: ChatPanelProps): React.JSX.Element {
                 {message.sourceLabel ? <span className="status-pill">{locale === 'zh' ? '经由' : 'via'} {message.sourceLabel}</span> : null}
                 {message.modelLabel ? <span className="status-pill">{message.modelLabel}</span> : null}
                 {message.discussionRound ? <span className="status-pill">{locale === 'zh' ? `第 ${message.discussionRound} 轮` : `Round ${message.discussionRound}`}</span> : null}
+                <span className="chat-message-actions">
+                  <button
+                    type="button"
+                    className="secondary-button secondary-button-compact"
+                    onClick={() => {
+                      void navigator.clipboard.writeText(message.content);
+                    }}
+                  >
+                    {locale === 'zh' ? '复制' : 'Copy'}
+                  </button>
+                  {message.role === 'assistant' ? (
+                    <button
+                      type="button"
+                      className="secondary-button secondary-button-compact"
+                      onClick={() => {
+                        onRetryMessage(message);
+                      }}
+                    >
+                      {locale === 'zh' ? '重试' : 'Retry'}
+                    </button>
+                  ) : null}
+                </span>
               </div>
 
               <div className="chat-message-body">
@@ -280,8 +303,8 @@ export function ChatPanel(props: ChatPanelProps): React.JSX.Element {
             }}
             onDrop={(event) => {
               event.preventDefault();
-              const droppedFile = Array.from(event.dataTransfer.files)[0] as File & { path?: string };
-              if (droppedFile?.path) {
+              const [droppedFile] = Array.from(event.dataTransfer.files) as (File & { path?: string })[];
+              if (typeof droppedFile?.path === 'string' && droppedFile.path.length > 0) {
                 onDropFile(droppedFile.path);
               }
             }}

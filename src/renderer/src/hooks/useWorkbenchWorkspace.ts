@@ -18,11 +18,14 @@ interface UseWorkbenchWorkspaceResult {
   previewError: string | null;
   isPreviewLoading: boolean;
   isApplyingFile: boolean;
+  isSavingFile: boolean;
   workspaceStatusMessage: string | null;
   selectWorkspaceFolder: () => Promise<void>;
   loadDirectory: (relativePath: string | null) => Promise<void>;
+  loadDirectoryEntries: (relativePath: string | null) => Promise<WorkspaceEntry[]>;
   loadFilePreview: (entry: WorkspaceEntry) => Promise<void>;
   loadFilePreviewByPath: (relativePath: string) => Promise<void>;
+  saveSelectedFile: (content: string) => Promise<void>;
   applyToSelectedFile: (content: string) => Promise<void>;
 }
 
@@ -34,6 +37,7 @@ export function useWorkbenchWorkspace({ locale, workspaceRoot, onWorkspaceRootCh
   const [previewError, setPreviewError] = useState<string | null>(null);
   const [isPreviewLoading, setIsPreviewLoading] = useState(false);
   const [isApplyingFile, setIsApplyingFile] = useState(false);
+  const [isSavingFile, setIsSavingFile] = useState(false);
   const [workspaceStatusMessage, setWorkspaceStatusMessage] = useState<string | null>(null);
 
   const workspaceLabel = useMemo(() => getWorkspaceLabelFromPath(workspaceRoot), [workspaceRoot]);
@@ -82,6 +86,18 @@ export function useWorkbenchWorkspace({ locale, workspaceRoot, onWorkspaceRootCh
       }
     },
     [locale, workspaceRoot],
+  );
+
+  const loadDirectoryEntries = useCallback(
+    async (relativePath: string | null): Promise<WorkspaceEntry[]> => {
+      if (!workspaceRoot) {
+        return [];
+      }
+
+      const nextBrowseResult = await window.desktopApi.browseWorkspace({ relativePath, workspaceRoot });
+      return nextBrowseResult.entries;
+    },
+    [workspaceRoot],
   );
 
   const loadFilePreview = useCallback(
@@ -139,6 +155,43 @@ export function useWorkbenchWorkspace({ locale, workspaceRoot, onWorkspaceRootCh
     [locale, selectedFile, workspaceRoot],
   );
 
+  const saveSelectedFile = useCallback(
+    async (content: string): Promise<void> => {
+      if (!workspaceRoot || !selectedFile) {
+        return;
+      }
+
+      if (selectedFile.truncated) {
+        setPreviewError(locale === 'zh' ? '截断文件不能直接保存。' : 'Truncated files cannot be saved from the editor.');
+        return;
+      }
+
+      setIsSavingFile(true);
+      setPreviewError(null);
+
+      try {
+        await window.desktopApi.writeWorkspaceFile({
+          relativePath: selectedFile.relativePath,
+          content,
+          workspaceRoot,
+        });
+        const refreshedFile = await window.desktopApi.readWorkspaceFile({ relativePath: selectedFile.relativePath, workspaceRoot });
+        setSelectedFile(refreshedFile);
+        setWorkspaceStatusMessage(
+          locale === 'zh'
+            ? `已保存 ${selectedFile.relativePath}`
+            : `Saved ${selectedFile.relativePath}`,
+        );
+        await loadDirectory(browseResult?.currentPath ?? null);
+      } catch (error: unknown) {
+        setPreviewError(toErrorMessage(error, locale === 'zh' ? '无法保存当前文件。' : 'Unable to save the current file.'));
+      } finally {
+        setIsSavingFile(false);
+      }
+    },
+    [browseResult?.currentPath, loadDirectory, locale, selectedFile, workspaceRoot],
+  );
+
   useEffect(() => {
     if (!workspaceRoot) {
       setBrowseResult(null);
@@ -163,11 +216,14 @@ export function useWorkbenchWorkspace({ locale, workspaceRoot, onWorkspaceRootCh
     previewError,
     isPreviewLoading,
     isApplyingFile,
+    isSavingFile,
     workspaceStatusMessage,
     selectWorkspaceFolder,
     loadDirectory,
+    loadDirectoryEntries,
     loadFilePreview,
     loadFilePreviewByPath,
+    saveSelectedFile,
     applyToSelectedFile,
   };
 }
