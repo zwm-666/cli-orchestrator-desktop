@@ -14,7 +14,12 @@ export const toErrorMessage = (error: unknown, fallback: string): string => {
   return error instanceof Error ? error.message : fallback;
 };
 
-export const createWorkbenchTask = (title: string, detail: string, source: WorkbenchTaskItem['source']): WorkbenchTaskItem => {
+export const createWorkbenchTask = (
+  title: string,
+  detail: string,
+  source: WorkbenchTaskItem['source'],
+  agentProfileId: string | null = null,
+): WorkbenchTaskItem => {
   const now = new Date().toISOString();
   return {
     id: `wb-task-${crypto.randomUUID()}`,
@@ -22,6 +27,7 @@ export const createWorkbenchTask = (title: string, detail: string, source: Workb
     detail,
     status: 'pending',
     source,
+    agentProfileId,
     createdAt: now,
     updatedAt: now,
     completedAt: null,
