@@ -80,6 +80,7 @@ export interface UseWorkbenchControllerResult {
   selectedAdapter: AppState['adapters'][number] | null;
   boundSkills: AppState['skills'];
   recentAdapterRuns: AppState['runs'];
+  activeThreadRuns: AppState['runs'];
   isOrchestrationPanelOpen: boolean;
   orchestrationMode: 'standard' | 'discussion';
   orchestrationExecutionStyle: OrchestrationExecutionStyle;
@@ -365,6 +366,7 @@ export function useWorkbenchController(input: UseWorkbenchControllerInput): UseW
     appState,
     workbench,
     selectedAdapter,
+    activeThread,
     activeThreadId: activeThread?.id ?? null,
     targetPrompt,
     targetModel,
@@ -499,6 +501,18 @@ export function useWorkbenchController(input: UseWorkbenchControllerInput): UseW
     ? Boolean(selectedProviderId && selectedProviderConfig && isProviderReady(selectedProviderConfig, targetModel))
     : Boolean(selectedAdapter);
 
+  const activeThreadRuns = useMemo(() => {
+    const threadId = activeThread?.id ?? null;
+    if (!threadId) {
+      return [];
+    }
+
+    return appState.runs
+      .filter((run) => run.workbenchThreadId === threadId)
+      .sort((left, right) => right.startedAt.localeCompare(left.startedAt))
+      .slice(0, 5);
+  }, [activeThread?.id, appState.runs]);
+
   return {
     workbench,
     activeThread,
@@ -539,6 +553,7 @@ export function useWorkbenchController(input: UseWorkbenchControllerInput): UseW
     selectedAdapter,
     boundSkills,
     recentAdapterRuns: adapterFlow.recentAdapterRuns,
+    activeThreadRuns,
     isOrchestrationPanelOpen,
     orchestrationMode,
     orchestrationExecutionStyle,
