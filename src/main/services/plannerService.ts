@@ -10,7 +10,11 @@ import type {
   AgentProfile,
   AgentRoleType,
   CliAdapter,
+  DiscussionAutomationConfig,
+  DiscussionAutomationConfigInput,
   McpServerDefinition,
+  OrchestrationAutomationMode,
+  OrchestrationExecutionStyle,
   OrchestrationNode,
   OrchestrationRun,
   PlanConfidence,
@@ -65,6 +69,50 @@ const TASK_TYPE_KEYWORDS = {
 // ---------------------------------------------------------------------------
 
 const createId = (prefix: string): string => `${prefix}-${crypto.randomUUID()}`;
+
+const DEFAULT_DISCUSSION_CONFIG: DiscussionAutomationConfig = {
+  maxRounds: 3,
+  participantsPerRound: 2,
+  participantProfileIds: [],
+  consensusStrategy: 'keyword',
+  consensusKeyword: '<CONSENSUS>',
+  requireFinalSynthesis: true,
+};
+
+const clampInteger = (value: number, minimum: number, maximum: number): number => {
+  return Math.max(minimum, Math.min(maximum, Math.trunc(value)));
+};
+
+const buildDiscussionConfig = (
+  input: DiscussionAutomationConfigInput | null | undefined,
+  maxIterationsOverride: number | null,
+): DiscussionAutomationConfig => {
+  const configuredMaxRounds =
+    typeof input?.maxRounds === 'number' && Number.isFinite(input.maxRounds)
+      ? clampInteger(input.maxRounds, 1, 12)
+      : DEFAULT_DISCUSSION_CONFIG.maxRounds;
+  const maxRounds =
+    typeof maxIterationsOverride === 'number' && Number.isFinite(maxIterationsOverride)
+      ? clampInteger(maxIterationsOverride, 1, 12)
+      : configuredMaxRounds;
+
+  return {
+    maxRounds,
+    participantsPerRound:
+      typeof input?.participantsPerRound === 'number' && Number.isFinite(input.participantsPerRound)
+        ? clampInteger(input.participantsPerRound, 1, 5)
+        : DEFAULT_DISCUSSION_CONFIG.participantsPerRound,
+    participantProfileIds: Array.isArray(input?.participantProfileIds)
+      ? input.participantProfileIds.filter((entry) => typeof entry === 'string' && entry.trim().length > 0)
+      : [],
+    consensusStrategy: input?.consensusStrategy ?? DEFAULT_DISCUSSION_CONFIG.consensusStrategy,
+    consensusKeyword: normalizeOptionalString(input?.consensusKeyword) ?? DEFAULT_DISCUSSION_CONFIG.consensusKeyword,
+    requireFinalSynthesis:
+      typeof input?.requireFinalSynthesis === 'boolean'
+        ? input.requireFinalSynthesis
+        : DEFAULT_DISCUSSION_CONFIG.requireFinalSynthesis,
+  };
+};
 
 const normalizePlannerWhitespace = (value: string): string =>
   value
@@ -432,6 +480,130 @@ const resolveAgentProfileForNode = (taskType: TaskType, agentProfiles: AgentProf
   return agentProfiles.find((p) => p.enabled) ?? null;
 };
 
+const resolveTaskTypeForProfile = (profile: AgentProfile): TaskType => {
+  switch (profile.role) {
+    case 'planner':
+      return 'planning';
+    case 'coder':
+      return 'code';
+    case 'researcher':
+    case 'reviewer':
+    case 'tester':
+      return 'research';
+    default:
+      return 'general';
+  }
+};
+
+const resolveSelectedProfiles = (agentProfiles: AgentProfile[], participantProfileIds: string[] | undefined): AgentProfile[] => {
+  const enabledProfiles = agentProfiles.filter((profile) => profile.enabled);
+  if (!participantProfileIds || participantProfileIds.length === 0) {
+    return enabledProfiles;
+  }
+
+  const selectedIds = new Set(participantProfileIds);
+  const selectedProfiles = enabledProfiles.filter((profile) => selectedIds.has(profile.id));
+  return selectedProfiles.length > 0 ? selectedProfiles : enabledProfiles;
+};
+
+const buildProfileExecutionPlan = (input: {
+  rawInput: string;
+  conversationId: string;
+  agentProfiles: AgentProfile[];
+  selectedProfiles: AgentProfile[];
+  skills: SkillDefinition[];
+  mcpServers: McpServerDefinition[];
+  masterAgentProfileId: string | null;
+  projectContextSummary: string | null;
+  executionStyle: Exclude<OrchestrationExecutionStyle, 'planner'>;
+}): ExecutionPlan => {
+  const { rawInput, conversationId, selectedProfiles, skills, mcpServers, masterAgentProfileId, projectContextSummary, executionStyle } = input;
+  const orchestrationRunId = createId('orch-run');
+  const now = new Date().toISOString();
+  const contextPrefix = projectContextSummary?.trim() ? `Project context summary:\n${projectContextSummary.trim()}\n\n` : '';
+  const profiles = selectedProfiles.length > 0 ? selectedProfiles : [null];
+  const nodes: OrchestrationNode[] = [];
+
+  profiles.forEach((profile, index) => {
+    const taskType = profile ? resolveTaskTypeForProfile(profile) : 'general';
+    const nodeId = createId('orch-node');
+    const previousNodeId = executionStyle === 'sequential' ? (nodes.at(-1)?.id ?? null) : null;
+    const promptPrefix = executionStyle === 'parallel'
+      ? 'Provide your independent perspective on the task below and deliver the best concrete next steps from your specialization.'
+      : index === 0
+        ? 'Start the multi-agent workflow by tackling the task below from your specialization.'
+        : 'Continue the multi-agent workflow below. Build on upstream results, challenge weak assumptions, and add concrete improvements from your specialization.';
+    const skillIds = matchSkillsForNode(taskType, rawInput, skills);
+
+    nodes.push({
+      id: nodeId,
+      orchestrationRunId,
+      parentNodeId: previousNodeId,
+      dependsOnNodeIds: previousNodeId ? [previousNodeId] : [],
+      agentProfileId: profile?.id ?? null,
+      skillIds,
+      mcpServerIds: resolveMcpServersForNode(skillIds, profile ?? null, skills, mcpServers),
+      taskType,
+      title: profile ? profile.name : 'General agent',
+      prompt: `${contextPrefix}${promptPrefix}\n\nTask:\n${rawInput}`,
+      status: previousNodeId ? 'waiting_on_deps' : 'ready',
+      runId: null,
+      resultSummary: null,
+      resultPayload: null,
+      retryCount: 0,
+    });
+  });
+
+  if (profiles.length > 1) {
+    const synthesizerProfile =
+      (masterAgentProfileId ? input.agentProfiles.find((profile) => profile.id === masterAgentProfileId && profile.enabled) : null) ??
+      selectedProfiles[0] ??
+      null;
+    const synthesisDependsOnNodeIds = nodes.map((node) => node.id);
+    const synthesisSkillIds = matchSkillsForNode('planning', rawInput, skills);
+
+    nodes.push({
+      id: createId('orch-node'),
+      orchestrationRunId,
+      parentNodeId: synthesisDependsOnNodeIds.at(-1) ?? null,
+      dependsOnNodeIds: synthesisDependsOnNodeIds,
+      agentProfileId: synthesizerProfile?.id ?? null,
+      skillIds: synthesisSkillIds,
+      mcpServerIds: resolveMcpServersForNode(synthesisSkillIds, synthesizerProfile, skills, mcpServers),
+      taskType: 'planning',
+      title: 'Synthesize multi-agent result',
+      prompt: `${contextPrefix}Synthesize the upstream agent results into one final recommendation. Resolve disagreements, name trade-offs, and give a concrete execution plan for:\n\n${rawInput}`,
+      status: 'waiting_on_deps',
+      runId: null,
+      resultSummary: null,
+      resultPayload: null,
+      retryCount: 0,
+    });
+  }
+
+  return {
+    orchestrationRun: {
+      id: orchestrationRunId,
+      conversationId,
+      rootPrompt: rawInput,
+      status: 'planning',
+      masterAgentProfileId: masterAgentProfileId ?? null,
+      automationMode: 'standard',
+      executionStyle,
+      discussionConfig: null,
+      projectContextSummary,
+      currentIteration: 1,
+      maxIterations: 1,
+      stopReason: null,
+      planVersion: 1,
+      createdAt: now,
+      updatedAt: now,
+      finalSummary: null,
+    },
+    nodes,
+  };
+};
+
 // ---------------------------------------------------------------------------
 // Execution plan builder
 // ---------------------------------------------------------------------------
@@ -445,9 +617,126 @@ export const buildExecutionPlan = (
   skills: SkillDefinition[],
   mcpServers: McpServerDefinition[],
   masterAgentProfileId: string | null,
-  automationMode: 'standard' | 'review_loop' = 'standard',
+  automationMode: OrchestrationAutomationMode = 'standard',
   projectContextSummary: string | null = null,
+  maxIterationsOverride: number | null = null,
+  discussionConfigInput: DiscussionAutomationConfigInput | null = null,
+  executionStyle: OrchestrationExecutionStyle = 'planner',
+  participantProfileIds: string[] = [],
 ): ExecutionPlan => {
+  const selectedProfiles = resolveSelectedProfiles(agentProfiles, participantProfileIds);
+
+  if (automationMode === 'standard' && executionStyle !== 'planner' && selectedProfiles.length > 0) {
+    return buildProfileExecutionPlan({
+      rawInput,
+      conversationId,
+      agentProfiles,
+      selectedProfiles,
+      skills,
+      mcpServers,
+      masterAgentProfileId,
+      projectContextSummary,
+      executionStyle,
+    });
+  }
+
+  if (automationMode === 'discussion') {
+    const orchestrationRunId = createId('orch-run');
+    const now = new Date().toISOString();
+    const discussionConfig = buildDiscussionConfig(
+      {
+        ...discussionConfigInput,
+        participantProfileIds:
+          discussionConfigInput?.participantProfileIds && discussionConfigInput.participantProfileIds.length > 0
+            ? discussionConfigInput.participantProfileIds
+            : participantProfileIds,
+      },
+      maxIterationsOverride,
+    );
+    const contextPrefix = projectContextSummary?.trim()
+      ? `Project context summary:\n${projectContextSummary.trim()}\n\n`
+      : '';
+    const candidateProfiles = resolveSelectedProfiles(agentProfiles, discussionConfig.participantProfileIds);
+    const orderedProfiles = [
+      ...candidateProfiles.filter((profile) => profile.role === 'researcher'),
+      ...candidateProfiles.filter((profile) => profile.role === 'reviewer'),
+      ...candidateProfiles.filter((profile) => profile.role === 'coder'),
+      ...candidateProfiles.filter((profile) => profile.role === 'planner'),
+      ...candidateProfiles.filter((profile) => !['researcher', 'reviewer', 'coder', 'planner'].includes(profile.role)),
+    ];
+    const participantProfiles = orderedProfiles.slice(0, discussionConfig.participantsPerRound);
+
+    const nodes: OrchestrationNode[] = [];
+
+    participantProfiles.forEach((profile, index) => {
+      const nodeId = createId('orch-node');
+      const previousNodeId = nodes.at(-1)?.id ?? null;
+      nodes.push({
+        id: nodeId,
+        orchestrationRunId,
+        parentNodeId: previousNodeId,
+        dependsOnNodeIds: previousNodeId ? [previousNodeId] : [],
+        agentProfileId: profile?.id ?? null,
+        skillIds: [],
+        mcpServerIds: [],
+        taskType: 'research',
+        title: `Discussion round 1 · perspective ${index + 1}`,
+        prompt: `${contextPrefix}Round 1 discussion. Review the topic below, then contribute your perspective in sequence. Reference earlier speakers if available, name trade-offs, and include ${discussionConfig.consensusKeyword} only if you believe the group has converged.\n\nTopic:\n${rawInput}`,
+        status: previousNodeId ? 'waiting_on_deps' : 'ready',
+        runId: null,
+        resultSummary: null,
+        resultPayload: null,
+        retryCount: 0,
+        discussionRound: 1,
+        discussionRole: 'speaker',
+      });
+    });
+
+    if (nodes.length === 0) {
+      nodes.push({
+        id: createId('orch-node'),
+        orchestrationRunId,
+        parentNodeId: null,
+        dependsOnNodeIds: [],
+        agentProfileId: null,
+        skillIds: [],
+        mcpServerIds: [],
+        taskType: 'research',
+        title: 'Discussion round 1 · perspective 1',
+        prompt: `${contextPrefix}Round 1 discussion. Provide an independent analysis and proposed solution for the request below.\n\nRequest:\n${rawInput}`,
+        status: 'ready',
+        runId: null,
+        resultSummary: null,
+        resultPayload: null,
+        retryCount: 0,
+        discussionRound: 1,
+        discussionRole: 'speaker',
+      });
+    }
+
+    return {
+      orchestrationRun: {
+        id: orchestrationRunId,
+        conversationId,
+        rootPrompt: rawInput,
+        status: 'planning',
+        masterAgentProfileId: masterAgentProfileId ?? null,
+        automationMode,
+        executionStyle: 'sequential',
+        discussionConfig,
+        projectContextSummary,
+        currentIteration: 1,
+        maxIterations: discussionConfig.maxRounds,
+        stopReason: null,
+        planVersion: 1,
+        createdAt: now,
+        updatedAt: now,
+        finalSummary: null,
+      },
+      nodes,
+    };
+  }
+
   if (automationMode === 'review_loop') {
     const orchestrationRunId = createId('orch-run');
     const now = new Date().toISOString();
@@ -472,9 +761,14 @@ export const buildExecutionPlan = (
         status: 'planning',
         masterAgentProfileId: masterAgentProfileId ?? null,
         automationMode,
+        executionStyle: 'planner',
+        discussionConfig: null,
         projectContextSummary,
         currentIteration: 1,
-        maxIterations: 2,
+        maxIterations:
+          typeof maxIterationsOverride === 'number' && Number.isFinite(maxIterationsOverride)
+            ? clampInteger(maxIterationsOverride, 1, 8)
+            : 2,
         stopReason: null,
         planVersion: 1,
         createdAt: now,
@@ -598,9 +892,14 @@ export const buildExecutionPlan = (
       status: 'planning',
       masterAgentProfileId: masterAgentProfileId ?? null,
       automationMode,
+      executionStyle: 'planner',
+      discussionConfig: null,
       projectContextSummary,
       currentIteration: 1,
-      maxIterations: 1,
+      maxIterations:
+        typeof maxIterationsOverride === 'number' && Number.isFinite(maxIterationsOverride)
+          ? clampInteger(maxIterationsOverride, 1, 8)
+          : 1,
       stopReason: null,
       planVersion: 1,
       createdAt: now,

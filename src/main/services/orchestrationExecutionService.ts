@@ -45,16 +45,19 @@ export class OrchestrationExecutionService {
   private onRunStart: RunStartCallback | null = null;
   private onStateUpdate: StateUpdateCallback | null = null;
   private skillRegistry: SkillRegistryService | null = null;
+  private getStateSnapshot: (() => AppState) | null = null;
 
   /** Wire up callbacks to the main orchestrator service. */
   public initialize(
     onRunStart: RunStartCallback,
     onStateUpdate: StateUpdateCallback,
     skillRegistry: SkillRegistryService,
+    getStateSnapshot?: () => AppState,
   ): void {
     this.onRunStart = onRunStart;
     this.onStateUpdate = onStateUpdate;
     this.skillRegistry = skillRegistry;
+    this.getStateSnapshot = getStateSnapshot ?? null;
   }
 
   /**
@@ -106,12 +109,21 @@ export class OrchestrationExecutionService {
       const isSuccess = runStatus === 'succeeded';
       const nodeStatus: OrchestrationNodeStatus = isSuccess ? 'completed' : 'failed';
       const profile = node.agentProfileId ? (agentProfiles.find((p) => p.id === node.agentProfileId) ?? null) : null;
+      const persistedNode = this.getStateSnapshot?.().orchestrationNodes.find((entry) => entry.id === node.id) ?? null;
+      const resultPayload = persistedNode?.resultPayload ?? node.resultPayload ?? null;
+      const transcriptSummary = resultPayload?.transcriptSummary?.trim() ?? '';
+      const resultSummary = transcriptSummary.length > 0
+        ? transcriptSummary
+        : isSuccess
+          ? 'Node completed successfully.'
+          : `Node failed with run status: ${runStatus}.`;
 
       // Update node status
       context.nodes[nodeIndex] = {
         ...node,
         status: nodeStatus,
-        resultSummary: isSuccess ? 'Node completed successfully.' : `Node failed with run status: ${runStatus}.`,
+        resultPayload,
+        resultSummary,
       };
 
       // Check if we should retry on failure
@@ -348,6 +360,183 @@ export class OrchestrationExecutionService {
     return parts.join('\n\n');
   }
 
+  private getDiscussionNodes(context: OrchestrationContext): OrchestrationNode[] {
+    return context.nodes.filter((node) => typeof node.discussionRound === 'number');
+  }
+
+  private getDiscussionParticipantIds(context: OrchestrationContext, agentProfiles: AgentProfile[]): (string | null)[] {
+    const configuredIds = context.orchestrationRun.discussionConfig?.participantProfileIds ?? [];
+    const enabledIdSet = new Set(agentProfiles.filter((profile) => profile.enabled).map((profile) => profile.id));
+    const configuredParticipants = configuredIds.filter((entry) => enabledIdSet.has(entry));
+    if (configuredParticipants.length > 0) {
+      return configuredParticipants;
+    }
+
+    const initialParticipants = this.getDiscussionNodes(context)
+      .filter((node) => node.discussionRound === 1)
+      .map((node) => node.agentProfileId ?? null);
+
+    return initialParticipants.length > 0 ? initialParticipants : [null];
+  }
+
+  private getDiscussionKeyword(context: OrchestrationContext): string {
+    return context.orchestrationRun.discussionConfig?.consensusKeyword?.trim() || '<CONSENSUS>';
+  }
+
+  private hasDiscussionConsensus(context: OrchestrationContext): boolean {
+    const discussionConfig = context.orchestrationRun.discussionConfig;
+    const latestRound = Math.max(...this.getDiscussionNodes(context).map((node) => node.discussionRound ?? 0), 0);
+    if (!discussionConfig || latestRound < 1) {
+      return false;
+    }
+
+    const latestRoundNodes = this.getDiscussionNodes(context).filter((node) => node.discussionRound === latestRound);
+    if (latestRoundNodes.length === 0) {
+      return false;
+    }
+
+    if (discussionConfig.consensusStrategy === 'summary_match') {
+      const normalizedSummaries = latestRoundNodes
+        .map((node) => node.resultSummary?.trim().toLowerCase() ?? '')
+        .filter((entry) => entry.length > 0);
+      return normalizedSummaries.length > 1 && normalizedSummaries.every((entry) => entry === normalizedSummaries[0]);
+    }
+
+    const keyword = this.getDiscussionKeyword(context).toLowerCase();
+    return latestRoundNodes.some((node) => {
+      const haystacks = [node.resultSummary, node.resultPayload?.transcriptSummary, node.resultPayload?.reviewNotes.join(' | ') ?? ''];
+      return haystacks.some((entry) => entry?.toLowerCase().includes(keyword));
+    });
+  }
+
+  private createDiscussionRoundNodes(context: OrchestrationContext, agentProfiles: AgentProfile[], nextRound: number): void {
+    const participantIds = this.getDiscussionParticipantIds(context, agentProfiles);
+    const previousRoundNodes = this.getDiscussionNodes(context).filter((node) => node.discussionRound === nextRound - 1);
+    const previousRoundIds = previousRoundNodes.map((node) => node.id);
+    const conversationTranscript = this.getDiscussionNodes(context)
+      .filter((node) => this.isNodeTerminal(node.status))
+      .map((node) => {
+        const profileName = node.agentProfileId
+          ? (agentProfiles.find((profile) => profile.id === node.agentProfileId)?.name ?? node.title)
+          : node.title;
+        return `- ${profileName} [Round ${node.discussionRound ?? 1}]: ${node.resultSummary ?? 'No summary recorded.'}`;
+      })
+      .join('\n');
+    const keyword = this.getDiscussionKeyword(context);
+    let previousNodeId: string | null = previousRoundIds.at(-1) ?? null;
+
+    participantIds.forEach((participantId, index) => {
+      const profile = participantId ? (agentProfiles.find((entry) => entry.id === participantId) ?? null) : null;
+      const nodeId = `orch-node-${crypto.randomUUID()}`;
+      const dependsOnNodeIds = [
+        ...previousRoundIds,
+        ...(previousNodeId && !previousRoundIds.includes(previousNodeId) ? [previousNodeId] : []),
+      ];
+
+      context.nodes.push({
+        id: nodeId,
+        orchestrationRunId: context.orchestrationRun.id,
+        parentNodeId: previousNodeId,
+        dependsOnNodeIds,
+        agentProfileId: participantId,
+        skillIds: [],
+        mcpServerIds: [],
+        taskType: 'research',
+        title: `Discussion round ${nextRound} · perspective ${index + 1}`,
+        prompt: [
+          `Round ${nextRound} discussion. Continue the same topic with all prior discussion context below.`,
+          `Only include ${keyword} if the group has actually converged.`,
+          '',
+          `Topic:\n${context.orchestrationRun.rootPrompt}`,
+          '',
+          'Discussion so far:',
+          conversationTranscript || '- No prior discussion summaries recorded.',
+          '',
+          'Respond with your updated position, what changed, and concrete next steps.',
+        ].join('\n'),
+        status: dependsOnNodeIds.length > 0 ? 'waiting_on_deps' : 'ready',
+        runId: null,
+        resultSummary: null,
+        resultPayload: null,
+        retryCount: 0,
+        discussionRound: nextRound,
+        discussionRole: 'speaker',
+      });
+
+      previousNodeId = nodeId;
+    });
+
+    context.orchestrationRun = {
+      ...context.orchestrationRun,
+      currentIteration: nextRound,
+      updatedAt: new Date().toISOString(),
+    };
+  }
+
+  private createDiscussionSynthesisNode(context: OrchestrationContext, agentProfiles: AgentProfile[]): boolean {
+    const synthesisExists = this.getDiscussionNodes(context).some((node) => node.discussionRole === 'synthesizer');
+    if (synthesisExists) {
+      return false;
+    }
+
+    const participantIds = this.getDiscussionParticipantIds(context, agentProfiles).filter((entry): entry is string => entry !== null);
+    const synthesisProfile =
+      (context.orchestrationRun.masterAgentProfileId
+        ? (agentProfiles.find((profile) => profile.id === context.orchestrationRun.masterAgentProfileId) ?? null)
+        : null) ??
+      (participantIds.length > 0 ? (agentProfiles.find((profile) => profile.id === participantIds[0]) ?? null) : null);
+    const discussionNodeIds = this.getDiscussionNodes(context).map((node) => node.id);
+    if (discussionNodeIds.length === 0) {
+      return false;
+    }
+
+    context.nodes.push({
+      id: `orch-node-${crypto.randomUUID()}`,
+      orchestrationRunId: context.orchestrationRun.id,
+      parentNodeId: discussionNodeIds.at(-1) ?? null,
+      dependsOnNodeIds: discussionNodeIds,
+      agentProfileId: synthesisProfile?.id ?? null,
+      skillIds: [],
+      mcpServerIds: [],
+      taskType: 'planning',
+      title: 'Discussion final synthesis',
+      prompt: [
+        'Synthesize the full discussion into one final answer.',
+        `Topic:\n${context.orchestrationRun.rootPrompt}`,
+        '',
+        'Use the upstream discussion results to produce a final recommendation, trade-offs, and next-step plan.',
+      ].join('\n'),
+      status: 'waiting_on_deps',
+      runId: null,
+      resultSummary: null,
+      resultPayload: null,
+      retryCount: 0,
+      discussionRound: context.orchestrationRun.currentIteration,
+      discussionRole: 'synthesizer',
+    });
+
+    context.orchestrationRun = {
+      ...context.orchestrationRun,
+      stopReason: this.hasDiscussionConsensus(context)
+        ? `Consensus keyword detected: ${this.getDiscussionKeyword(context)}`
+        : 'Reached maximum discussion rounds.',
+      updatedAt: new Date().toISOString(),
+    };
+
+    return true;
+  }
+
+  private finalizeContext(context: OrchestrationContext, status: OrchestrationRun['status'], stopReason: string | null = null): void {
+    context.orchestrationRun = {
+      ...context.orchestrationRun,
+      status,
+      updatedAt: new Date().toISOString(),
+      finalSummary: this.buildFinalSummary(context),
+      stopReason: stopReason ?? context.orchestrationRun.stopReason,
+    };
+    this.activeOrchestrations.delete(context.orchestrationRun.id);
+  }
+
   /**
    * After a node completes, advance the orchestration state machine.
    * Loops to dispatch multiple ready nodes and reach terminal state.
@@ -359,21 +548,51 @@ export class OrchestrationExecutionService {
       const allSucceeded = context.nodes.every((n) => n.status === 'completed' || n.status === 'skipped');
 
       if (allTerminal) {
+        if (context.orchestrationRun.automationMode === 'discussion') {
+          const consensusReached = this.hasDiscussionConsensus(context);
+          const discussionConfig = context.orchestrationRun.discussionConfig;
+          const synthesisCompleted = this.getDiscussionNodes(context).some((node) => node.discussionRole === 'synthesizer');
+          const canAdvanceRound =
+            !consensusReached &&
+            Boolean(discussionConfig) &&
+            context.orchestrationRun.currentIteration < context.orchestrationRun.maxIterations &&
+            !synthesisCompleted;
+
+          if (canAdvanceRound) {
+            this.createDiscussionRoundNodes(context, agentProfiles, context.orchestrationRun.currentIteration + 1);
+            this.dispatchReadyNodes(context, agentProfiles);
+            continue;
+          }
+
+          if ((discussionConfig?.requireFinalSynthesis ?? false) && !synthesisCompleted) {
+            const createdSynthesis = this.createDiscussionSynthesisNode(context, agentProfiles);
+            if (createdSynthesis) {
+              this.dispatchReadyNodes(context, agentProfiles);
+              continue;
+            }
+          }
+
+          this.finalizeContext(
+            context,
+            allSucceeded ? 'completed' : 'failed',
+            consensusReached
+              ? `Consensus keyword detected: ${this.getDiscussionKeyword(context)}`
+              : context.orchestrationRun.currentIteration >= context.orchestrationRun.maxIterations
+                ? 'Reached max discussion rounds.'
+                : context.orchestrationRun.stopReason,
+          );
+          return;
+        }
+
         const reachedIterationLimit =
           context.orchestrationRun.automationMode === 'review_loop' &&
           context.orchestrationRun.currentIteration >= context.orchestrationRun.maxIterations;
 
-        // All nodes done
-        context.orchestrationRun = {
-          ...context.orchestrationRun,
-          status: allSucceeded ? 'completed' : 'failed',
-          updatedAt: new Date().toISOString(),
-          finalSummary: this.buildFinalSummary(context),
-          stopReason: reachedIterationLimit
-            ? 'Reached max review-loop iterations.'
-            : context.orchestrationRun.stopReason,
-        };
-        this.activeOrchestrations.delete(context.orchestrationRun.id);
+        this.finalizeContext(
+          context,
+          allSucceeded ? 'completed' : 'failed',
+          reachedIterationLimit ? 'Reached max review-loop iterations.' : context.orchestrationRun.stopReason,
+        );
         return;
       }
 
@@ -395,6 +614,11 @@ export class OrchestrationExecutionService {
 
   /** Build a final summary from all node results. */
   private buildFinalSummary(context: OrchestrationContext): string {
+    const synthesisSummary = context.nodes.find((node) => node.discussionRole === 'synthesizer' && node.resultSummary)?.resultSummary;
+    if (synthesisSummary) {
+      return synthesisSummary;
+    }
+
     const summaries = context.nodes.filter((n) => n.resultSummary).map((n) => `• ${n.title}: ${n.resultSummary}`);
     if (summaries.length === 0) return 'Orchestration completed with no node summaries.';
     return summaries.join('\n');
