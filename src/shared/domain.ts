@@ -191,8 +191,16 @@ export interface TaskThreadMessage {
   id: string;
   role: 'user' | 'assistant' | 'system';
   content: string;
+  messageKind?: 'default' | 'orchestration_event' | 'orchestration_result' | 'discussion_final' | null;
   providerId: string | null;
   adapterId: string | null;
+  sourceKind: 'provider' | 'adapter' | 'orchestration' | null;
+  sourceLabel: string | null;
+  modelLabel: string | null;
+  agentLabel: string | null;
+  orchestrationRunId: string | null;
+  orchestrationNodeId?: string | null;
+  discussionRound?: number | null;
   createdAt: string;
 }
 
@@ -205,12 +213,23 @@ export interface TaskThread {
   updatedAt: string;
 }
 
+export interface WorkbenchOrchestrationBinding {
+  orchestrationRunId: string;
+  threadId: string;
+  createdAt: string;
+}
+
 export interface WorkbenchState {
   objective: string;
+  workspaceRoot: string | null;
+  recentWorkspaceRoots?: string[];
   tasks: WorkbenchTaskItem[];
   skillBindings: WorkbenchSkillBinding[];
   promptBuilderCommand: string | null;
   processedRunIds: string[];
+  processedOrchestrationNodeIds?: string[];
+  orchestrationThreadBindings?: WorkbenchOrchestrationBinding[];
+  activeOrchestrationRunId?: string | null;
   activeThreadId: string | null;
   threads: TaskThread[];
   /** @deprecated Prefer per-thread activityLog. */
@@ -223,10 +242,15 @@ export interface WorkbenchState {
 
 export const DEFAULT_WORKBENCH_STATE: WorkbenchState = {
   objective: '',
+  workspaceRoot: null,
+  recentWorkspaceRoots: [],
   tasks: [],
   skillBindings: [],
   promptBuilderCommand: null,
   processedRunIds: [],
+  processedOrchestrationNodeIds: [],
+  orchestrationThreadBindings: [],
+  activeOrchestrationRunId: null,
   activeThreadId: null,
   threads: [],
   latestProviderActivity: null,
@@ -539,6 +563,27 @@ export interface McpServerDefinition {
 // ---------------------------------------------------------------------------
 
 export type OrchestrationRunStatus = 'planning' | 'executing' | 'aggregating' | 'completed' | 'failed' | 'cancelled';
+export type OrchestrationAutomationMode = 'standard' | 'review_loop' | 'discussion';
+export type OrchestrationExecutionStyle = 'planner' | 'sequential' | 'parallel';
+export type DiscussionConsensusStrategy = 'keyword' | 'summary_match';
+
+export interface DiscussionAutomationConfig {
+  maxRounds: number;
+  participantsPerRound: number;
+  participantProfileIds?: string[];
+  consensusStrategy: DiscussionConsensusStrategy;
+  consensusKeyword: string;
+  requireFinalSynthesis: boolean;
+}
+
+export interface DiscussionAutomationConfigInput {
+  maxRounds?: number | null;
+  participantsPerRound?: number | null;
+  participantProfileIds?: string[];
+  consensusStrategy?: DiscussionConsensusStrategy;
+  consensusKeyword?: string | null;
+  requireFinalSynthesis?: boolean;
+}
 
 export type OrchestrationNodeStatus =
   | 'pending'
@@ -560,7 +605,9 @@ export interface OrchestrationRun {
   rootPrompt: string;
   status: OrchestrationRunStatus;
   masterAgentProfileId: string | null;
-  automationMode: 'standard' | 'review_loop';
+  automationMode: OrchestrationAutomationMode;
+  executionStyle?: OrchestrationExecutionStyle;
+  discussionConfig?: DiscussionAutomationConfig | null;
   projectContextSummary: string | null;
   currentIteration: number;
   maxIterations: number;
@@ -595,6 +642,10 @@ export interface OrchestrationNode {
   adapterOverride?: string | null;
   /** Per-orchestration model override (takes precedence over profile). */
   modelOverride?: string | null;
+  /** Dynamic discussion iteration index (1-based). */
+  discussionRound?: number;
+  /** Discussion role hint (speaker, critic, synthesizer). */
+  discussionRole?: 'speaker' | 'critic' | 'synthesizer';
 }
 
 // ---------------------------------------------------------------------------
@@ -624,7 +675,10 @@ export interface StartOrchestrationInput {
   prompt: string;
   conversationId?: string;
   masterAgentProfileId?: string | null;
-  automationMode?: 'standard' | 'review_loop';
+  automationMode?: OrchestrationAutomationMode;
+  executionStyle?: OrchestrationExecutionStyle;
+  participantProfileIds?: string[];
+  discussionConfig?: DiscussionAutomationConfigInput | null;
   maxIterations?: number | null;
   /** Override the model used by all nodes (takes precedence over profile defaults). */
   modelOverride?: string | null;
@@ -713,25 +767,50 @@ export interface WorkspaceEntry {
 
 export interface BrowseWorkspaceInput {
   relativePath: string | null;
+  workspaceRoot?: string | null;
 }
 
 export interface BrowseWorkspaceResult {
   rootLabel: string;
+  workspaceRoot: string;
   currentPath: string;
   parentPath: string | null;
   entries: WorkspaceEntry[];
 }
 
+export interface SelectWorkspaceFolderResult {
+  workspaceRoot: string | null;
+  rootLabel: string | null;
+  wasChanged: boolean;
+}
+
 export interface ReadWorkspaceFileInput {
   relativePath: string;
+  workspaceRoot?: string | null;
 }
 
 export interface ReadWorkspaceFileResult {
   rootLabel: string;
+  workspaceRoot: string;
   relativePath: string;
   content: string;
   truncated: boolean;
   totalBytes: number;
+}
+
+export interface ApplyWorkspaceFileInput {
+  relativePath: string;
+  content: string;
+  workspaceRoot?: string | null;
+  createIfMissing?: boolean;
+}
+
+export interface ApplyWorkspaceFileResult {
+  rootLabel: string;
+  workspaceRoot: string;
+  relativePath: string;
+  bytesWritten: number;
+  savedAt: string;
 }
 
 // ---------------------------------------------------------------------------

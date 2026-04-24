@@ -1,5 +1,7 @@
 import type {
   AgentProfile,
+  ApplyWorkspaceFileInput,
+  ApplyWorkspaceFileResult,
   AppState,
   BrowseWorkspaceInput,
   BrowseWorkspaceResult,
@@ -30,6 +32,7 @@ import type {
   SaveProjectContextInput,
   SaveSkillInput,
   SaveWorkbenchStateInput,
+  SelectWorkspaceFolderResult,
   SkillDefinition,
   StartOrchestrationInput,
   StartOrchestrationResult,
@@ -88,7 +91,9 @@ export const IPC_CHANNELS = {
   saveMcpServer: 'mcp:save-server',
   deleteMcpServer: 'mcp:delete-server',
   browseWorkspace: 'workspace:browse',
+  selectWorkspaceFolder: 'workspace:select-folder',
   readWorkspaceFile: 'workspace:read-file',
+  applyWorkspaceFile: 'workspace:apply-to-file',
 } as const;
 
 export interface DesktopApi {
@@ -135,7 +140,9 @@ export interface DesktopApi {
   saveMcpServer: (input: SaveMcpServerInput) => Promise<McpServerDefinition>;
   deleteMcpServer: (input: DeleteMcpServerInput) => Promise<void>;
   browseWorkspace: (input: BrowseWorkspaceInput) => Promise<BrowseWorkspaceResult>;
+  selectWorkspaceFolder: () => Promise<SelectWorkspaceFolderResult>;
   readWorkspaceFile: (input: ReadWorkspaceFileInput) => Promise<ReadWorkspaceFileResult>;
+  applyWorkspaceFile: (input: ApplyWorkspaceFileInput) => Promise<ApplyWorkspaceFileResult>;
 }
 
 export interface IpcRequestMap {
@@ -179,7 +186,9 @@ export interface IpcRequestMap {
   [IPC_CHANNELS.saveMcpServer]: SaveMcpServerInput;
   [IPC_CHANNELS.deleteMcpServer]: DeleteMcpServerInput;
   [IPC_CHANNELS.browseWorkspace]: BrowseWorkspaceInput;
+  [IPC_CHANNELS.selectWorkspaceFolder]: undefined;
   [IPC_CHANNELS.readWorkspaceFile]: ReadWorkspaceFileInput;
+  [IPC_CHANNELS.applyWorkspaceFile]: ApplyWorkspaceFileInput;
 }
 
 export interface IpcResponseMap {
@@ -223,5 +232,7 @@ export interface IpcResponseMap {
   [IPC_CHANNELS.saveMcpServer]: McpServerDefinition;
   [IPC_CHANNELS.deleteMcpServer]: undefined;
   [IPC_CHANNELS.browseWorkspace]: BrowseWorkspaceResult;
+  [IPC_CHANNELS.selectWorkspaceFolder]: SelectWorkspaceFolderResult;
   [IPC_CHANNELS.readWorkspaceFile]: ReadWorkspaceFileResult;
+  [IPC_CHANNELS.applyWorkspaceFile]: ApplyWorkspaceFileResult;
 }
