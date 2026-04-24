@@ -16,9 +16,11 @@ interface WorkbenchControlPanelProps {
   selectedProviderId: string;
   selectedAdapterId: string;
   targetModel: string;
+  targetModelOptions: string[];
   providerOptions: TargetOption[];
   adapterOptions: TargetOption[];
   boundSkillNames: string[];
+  hideTargetControls?: boolean;
   onObjectiveChange: (value: string) => void;
   onTargetKindChange: (value: WorkbenchTargetKind) => void;
   onProviderChange: (value: string) => void;
@@ -38,9 +40,11 @@ export function WorkbenchControlPanel(props: WorkbenchControlPanelProps): React.
     selectedProviderId,
     selectedAdapterId,
     targetModel,
+    targetModelOptions,
     providerOptions,
     adapterOptions,
     boundSkillNames,
+    hideTargetControls = false,
     onObjectiveChange,
     onTargetKindChange,
     onProviderChange,
@@ -115,57 +119,82 @@ export function WorkbenchControlPanel(props: WorkbenchControlPanelProps): React.
         </div>
       </div>
 
-      <div className="selector-strip workbench-target-strip">
-        <label className="field">
-          <span>{locale === 'zh' ? '目标类型' : 'Target type'}</span>
-          <select
-            value={selectedTargetKind}
-            onChange={(event) => {
-              onTargetKindChange(event.target.value as WorkbenchTargetKind);
-            }}
-          >
-            <option value="provider">{TARGET_KIND_LABELS[locale].provider}</option>
-            <option value="adapter">{TARGET_KIND_LABELS[locale].adapter}</option>
-          </select>
-        </label>
-
-        {selectedTargetKind === 'provider' ? (
+      {!hideTargetControls ? (
+        <div className="selector-strip workbench-target-strip">
           <label className="field">
-            <span>{TARGET_KIND_LABELS[locale].provider}</span>
-            <select value={selectedProviderId} onChange={(event) => { onProviderChange(event.target.value); }}>
-              <option value="">{locale === 'zh' ? '选择服务' : 'Choose a provider'}</option>
-              {providerOptions.map((provider) => (
-                <option key={provider.id} value={provider.id}>
-                  {provider.label}
-                </option>
-              ))}
+            <span>{locale === 'zh' ? '目标类型' : 'Target type'}</span>
+            <select
+              value={selectedTargetKind}
+              onChange={(event) => {
+                onTargetKindChange(event.target.value as WorkbenchTargetKind);
+              }}
+            >
+              <option value="provider">{TARGET_KIND_LABELS[locale].provider}</option>
+              <option value="adapter">{TARGET_KIND_LABELS[locale].adapter}</option>
             </select>
           </label>
-        ) : (
-          <label className="field">
-            <span>{TARGET_KIND_LABELS[locale].adapter}</span>
-            <select value={selectedAdapterId} onChange={(event) => { onAdapterChange(event.target.value); }}>
-              <option value="">{locale === 'zh' ? '选择本地工具' : 'Choose a local adapter'}</option>
-              {adapterOptions.map((adapter) => (
-                <option key={adapter.id} value={adapter.id}>
-                  {adapter.label}
-                </option>
-              ))}
-            </select>
-          </label>
-        )}
 
-        <label className="field">
-          <span>{locale === 'zh' ? '模型' : 'Model'}</span>
-          <input
-            value={targetModel}
-            placeholder={locale === 'zh' ? '为当前目标指定模型' : 'Set the model for the current target'}
-            onChange={(event) => {
-              onTargetModelChange(event.target.value);
-            }}
-          />
-        </label>
-      </div>
+          {selectedTargetKind === 'provider' ? (
+            <label className="field">
+              <span>{TARGET_KIND_LABELS[locale].provider}</span>
+              <select value={selectedProviderId} onChange={(event) => { onProviderChange(event.target.value); }}>
+                <option value="">{locale === 'zh' ? '选择服务' : 'Choose a provider'}</option>
+                {providerOptions.map((provider) => (
+                  <option key={provider.id} value={provider.id}>
+                    {provider.label}
+                  </option>
+                ))}
+              </select>
+            </label>
+          ) : (
+            <label className="field">
+              <span>{TARGET_KIND_LABELS[locale].adapter}</span>
+              <select value={selectedAdapterId} onChange={(event) => { onAdapterChange(event.target.value); }}>
+                <option value="">{locale === 'zh' ? '选择本地工具' : 'Choose a local adapter'}</option>
+                {adapterOptions.map((adapter) => (
+                  <option key={adapter.id} value={adapter.id}>
+                    {adapter.label}
+                  </option>
+                ))}
+              </select>
+            </label>
+          )}
+
+          <label className="field">
+            <span>{locale === 'zh' ? '模型' : 'Model'}</span>
+            {targetModelOptions.length > 0 ? (
+              <select
+                value={targetModel}
+                onChange={(event) => {
+                  onTargetModelChange(event.target.value);
+                }}
+              >
+                <option value="">{locale === 'zh' ? '选择已保存模型' : 'Choose a saved model'}</option>
+                {targetModelOptions.map((model) => (
+                  <option key={model} value={model}>
+                    {model}
+                  </option>
+                ))}
+              </select>
+            ) : null}
+            <input
+              list={targetModelOptions.length > 0 ? 'workbench-target-model-list' : undefined}
+              value={targetModel}
+              placeholder={locale === 'zh' ? '为当前目标指定模型' : 'Set the model for the current target'}
+              onChange={(event) => {
+                onTargetModelChange(event.target.value);
+              }}
+            />
+            {targetModelOptions.length > 0 ? (
+              <datalist id="workbench-target-model-list">
+                {targetModelOptions.map((model) => (
+                  <option key={model} value={model} />
+                ))}
+              </datalist>
+            ) : null}
+          </label>
+        </div>
+      ) : null}
 
       <div className="workbench-settings-meta">
         <div className="badge-pair">
