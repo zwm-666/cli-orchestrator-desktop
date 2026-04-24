@@ -1,12 +1,13 @@
 import { useEffect, useState } from 'react';
-import { HashRouter, Navigate, Route, Routes, useLocation } from 'react-router-dom';
-import type { AppState, Locale, RendererContinuityState, RoutingSettings, SaveSkillInput, SkillDefinition, WorkbenchState } from '../../shared/domain.js';
+import { HashRouter, Navigate, Route, Routes, useLocation, useNavigate } from 'react-router-dom';
+import type { AppState, Locale, RendererContinuityState, RoutingSettings, SaveSkillInput, SelectWorkspaceFolderResult, SkillDefinition, WorkbenchState } from '../../shared/domain.js';
 import { DEFAULT_WORKBENCH_STATE } from '../../shared/domain.js';
 import { DEFAULT_PROMPT_BUILDER_CONFIG, type PromptBuilderConfig } from '../../shared/promptBuilder.js';
 import { loadAiConfig, loadAiConfigFromPersistence, saveAiConfig, type AiConfig } from './aiConfig.js';
 import { TopNav } from './components/TopNav.js';
 import { ConfigPage } from './pages/ConfigPage.js';
-import { ProjectSelectPage } from './pages/ProjectSelectPage.js';
+import { FolderSelectPage } from './pages/FolderSelectPage.js';
+import { PlanPage } from './pages/PlanPage.js';
 import { WorkPage } from './pages/WorkPage.js';
 
 const DEFAULT_CONTINUITY: RendererContinuityState = {
@@ -57,7 +58,7 @@ function RoutePersistence({ continuityState, onSaveContinuityState }: RoutePersi
   const location = useLocation();
 
   useEffect(() => {
-    if (location.pathname !== '/work' && location.pathname !== '/config') {
+    if (location.pathname !== '/plan' && location.pathname !== '/work' && location.pathname !== '/config') {
       return;
     }
 
@@ -74,13 +75,172 @@ function RoutePersistence({ continuityState, onSaveContinuityState }: RoutePersi
   return null;
 }
 
+interface RoutedAppContentProps {
+  locale: Locale;
+  aiConfig: AiConfig;
+  appState: AppState;
+  routingSettings: RoutingSettings;
+  continuityState: RendererContinuityState;
+  promptBuilderConfig: PromptBuilderConfig;
+  isSelectingProjectFolder: boolean;
+  onSelectProjectFolder: () => Promise<SelectWorkspaceFolderResult>;
+  onOpenRecentWorkspace: (workspaceRoot: string) => Promise<void>;
+  onRemoveRecentWorkspace: (workspaceRoot: string) => Promise<void>;
+  onSetLocale: (locale: Locale) => void;
+  onSaveAiConfig: (nextConfig: AiConfig) => Promise<void>;
+  onSaveRoutingSettings: (nextSettings: RoutingSettings) => Promise<void>;
+  onSaveWorkbenchState: (nextWorkbenchState: WorkbenchState) => Promise<void>;
+  onSaveContinuityState: (nextState: RendererContinuityState) => Promise<void>;
+  onSaveSkill: (skill: SkillDefinition) => Promise<void>;
+  onSavePromptBuilderConfig: (config: PromptBuilderConfig) => void;
+}
+
+const hasPlanSeed = (workbench: WorkbenchState | undefined): boolean => {
+  return Boolean(workbench?.objective.trim() || (workbench?.tasks.length ?? 0) > 0);
+};
+
+function RoutedAppContent(props: RoutedAppContentProps): React.JSX.Element {
+  const {
+    locale,
+    aiConfig,
+    appState,
+    routingSettings,
+    continuityState,
+    promptBuilderConfig,
+    isSelectingProjectFolder,
+    onSelectProjectFolder,
+    onOpenRecentWorkspace,
+    onRemoveRecentWorkspace,
+    onSetLocale,
+    onSaveAiConfig,
+    onSaveRoutingSettings,
+    onSaveWorkbenchState,
+    onSaveContinuityState,
+    onSaveSkill,
+    onSavePromptBuilderConfig,
+  } = props;
+  const location = useLocation();
+  const navigate = useNavigate();
+  const workbench = appState.workbench ?? DEFAULT_WORKBENCH_STATE;
+  const hasWorkspaceRoot = Boolean(workbench.workspaceRoot);
+  const shouldShowTopNav = location.pathname !== '/' && hasWorkspaceRoot;
+  const defaultWorkspaceRoute = continuityState.lastRoute && continuityState.lastRoute !== '/config'
+    ? continuityState.lastRoute
+    : hasPlanSeed(workbench)
+      ? '/work'
+      : '/plan';
+
+  const openProjectFolder = async (): Promise<void> => {
+    const selection = await onSelectProjectFolder();
+    if (selection.workspaceRoot) {
+      void navigate('/plan');
+    }
+  };
+
+  const openRecentWorkspace = async (workspaceRoot: string): Promise<void> => {
+    await onOpenRecentWorkspace(workspaceRoot);
+    void navigate(hasPlanSeed(workbench) ? '/work' : '/plan');
+  };
+
+  return (
+    <div className="routed-shell">
+      {shouldShowTopNav ? (
+        <TopNav
+          locale={locale}
+          workspaceLabel={workbench.workspaceRoot?.split(/[/\\]/).filter(Boolean).at(-1) ?? null}
+          onSetLocale={onSetLocale}
+          onSwitchProject={() => {
+            void navigate('/');
+          }}
+        />
+      ) : null}
+
+      <main className="routed-shell-main">
+        <RoutePersistence continuityState={continuityState} onSaveContinuityState={onSaveContinuityState} />
+        <Routes>
+          <Route
+            path="/"
+            element={
+              <FolderSelectPage
+                locale={locale}
+                currentWorkspaceRoot={workbench.workspaceRoot}
+                recentWorkspaceRoots={workbench.recentWorkspaceRoots ?? []}
+                isSelecting={isSelectingProjectFolder}
+                onOpenFolder={() => {
+                  void openProjectFolder();
+                }}
+                onOpenRecentWorkspace={(workspaceRoot) => {
+                  void openRecentWorkspace(workspaceRoot);
+                }}
+                onRemoveRecentWorkspace={(workspaceRoot) => {
+                  void onRemoveRecentWorkspace(workspaceRoot);
+                }}
+              />
+            }
+          />
+          <Route
+            path="/plan"
+            element={hasWorkspaceRoot ? (
+              <PlanPage
+                locale={locale}
+                appState={appState}
+                continuityState={continuityState}
+                onSaveWorkbenchState={onSaveWorkbenchState}
+                onSaveContinuityState={onSaveContinuityState}
+              />
+            ) : <Navigate to="/" replace />}
+          />
+          <Route
+            path="/work"
+            element={hasWorkspaceRoot ? (
+              <WorkPage
+                locale={locale}
+                aiConfig={aiConfig}
+                appState={appState}
+                promptBuilderConfig={promptBuilderConfig}
+                onSaveWorkbenchState={(nextState) => {
+                  void onSaveWorkbenchState(nextState);
+                }}
+              />
+            ) : <Navigate to="/" replace />}
+          />
+          <Route
+            path="/config"
+            element={hasWorkspaceRoot ? (
+              <ConfigPage
+                locale={locale}
+                aiConfig={aiConfig}
+                appState={appState}
+                routingSettings={routingSettings}
+                onSaveAiConfig={onSaveAiConfig}
+                onSaveRoutingSettings={(nextSettings) => {
+                  void onSaveRoutingSettings(nextSettings);
+                }}
+                onSaveWorkbenchState={(nextState) => {
+                  void onSaveWorkbenchState(nextState);
+                }}
+                onSaveSkill={(skill) => {
+                  void onSaveSkill(skill);
+                }}
+                onSavePromptBuilderConfig={onSavePromptBuilderConfig}
+              />
+            ) : <Navigate to="/" replace />}
+          />
+          <Route path="*" element={<Navigate to={hasWorkspaceRoot ? defaultWorkspaceRoute : '/'} replace />} />
+        </Routes>
+      </main>
+    </div>
+  );
+}
+
 export function App(): React.JSX.Element {
   const [aiConfig, setAiConfig] = useState<AiConfig>(() => loadAiConfig());
   const [appState, setAppState] = useState(DEFAULT_APP_STATE);
   const [routingSettings, setRoutingSettings] = useState(DEFAULT_ROUTING_SETTINGS);
   const [continuityState, setContinuityState] = useState(DEFAULT_CONTINUITY);
-  const [promptBuilderConfig, setPromptBuilderConfig] = useState<PromptBuilderConfig>(DEFAULT_PROMPT_BUILDER_CONFIG);
+  const [promptBuilderConfig, setPromptBuilderConfig] = useState(DEFAULT_PROMPT_BUILDER_CONFIG);
   const [isBootstrapping, setIsBootstrapping] = useState(true);
+  const [isSelectingProjectFolder, setIsSelectingProjectFolder] = useState(false);
   const locale: Locale = continuityState.locale;
 
   useEffect(() => {
@@ -142,16 +302,34 @@ export function App(): React.JSX.Element {
     setAppState({ ...nextAppState, workbench: nextAppState.workbench ?? DEFAULT_WORKBENCH_STATE });
   };
 
-  const handleSelectWorkspaceFolder = async (): Promise<void> => {
-    await window.desktopApi.selectWorkspaceFolder();
-    const nextAppState = await window.desktopApi.getAppState();
-    setAppState({ ...nextAppState, workbench: nextAppState.workbench ?? DEFAULT_WORKBENCH_STATE });
+  const handleSelectProjectFolder = async (): Promise<SelectWorkspaceFolderResult> => {
+    setIsSelectingProjectFolder(true);
+    try {
+      const selection = await window.desktopApi.selectProjectFolder();
+      const nextAppState = await window.desktopApi.getAppState();
+      setAppState({ ...nextAppState, workbench: nextAppState.workbench ?? DEFAULT_WORKBENCH_STATE });
+      return selection;
+    } finally {
+      setIsSelectingProjectFolder(false);
+    }
   };
 
   const handleOpenRecentWorkspace = async (workspaceRoot: string): Promise<void> => {
     await handleSaveWorkbenchState({
       ...(appState.workbench ?? DEFAULT_WORKBENCH_STATE),
       workspaceRoot,
+    });
+  };
+
+  const handleRemoveRecentWorkspace = async (workspaceRoot: string): Promise<void> => {
+    const currentWorkbench = appState.workbench ?? DEFAULT_WORKBENCH_STATE;
+    if (currentWorkbench.workspaceRoot === workspaceRoot) {
+      return;
+    }
+
+    await handleSaveWorkbenchState({
+      ...currentWorkbench,
+      recentWorkspaceRoots: (currentWorkbench.recentWorkspaceRoots ?? []).filter((entry) => entry !== workspaceRoot),
     });
   };
 
@@ -176,80 +354,31 @@ export function App(): React.JSX.Element {
     return <main className="app-loading-state">{locale === 'zh' ? '正在加载渲染层状态...' : 'Loading renderer state...'}</main>;
   }
 
-  if (!appState.workbench?.workspaceRoot) {
-    return (
-      <ProjectSelectPage
-        locale={locale}
-        recentWorkspaceRoots={appState.workbench?.recentWorkspaceRoots ?? []}
-        onOpenFolder={() => {
-          void handleSelectWorkspaceFolder();
-        }}
-        onOpenRecentWorkspace={(workspaceRoot) => {
-          void handleOpenRecentWorkspace(workspaceRoot);
-        }}
-      />
-    );
-  }
-
   return (
     <HashRouter>
-      <div className="routed-shell">
-        <TopNav
-          locale={locale}
-          workspaceLabel={appState.workbench.workspaceRoot.split(/[/\\]/).filter(Boolean).at(-1) ?? null}
-          onSetLocale={(nextLocale) => {
-            void handleLocaleChange(nextLocale);
-          }}
-          onSwitchProject={() => {
-            void handleSelectWorkspaceFolder();
-          }}
-        />
-
-        <main className="routed-shell-main">
-          <RoutePersistence continuityState={continuityState} onSaveContinuityState={handleSaveContinuityState} />
-          <Routes>
-            <Route path="/" element={<Navigate to="/work" replace />} />
-            <Route
-              path="/work"
-              element={
-                <WorkPage
-                  locale={locale}
-                  aiConfig={aiConfig}
-                  appState={appState}
-                  promptBuilderConfig={promptBuilderConfig}
-                  onSaveWorkbenchState={(nextState) => {
-                    void handleSaveWorkbenchState(nextState);
-                  }}
-                />
-              }
-            />
-            <Route
-              path="/config"
-              element={
-                  <ConfigPage
-                    locale={locale}
-                    aiConfig={aiConfig}
-                    appState={appState}
-                    routingSettings={routingSettings}
-                  onSaveAiConfig={handleSaveAiConfig}
-                  onSaveRoutingSettings={(nextSettings) => {
-                    void handleSaveRoutingSettings(nextSettings);
-                  }}
-                  onSaveWorkbenchState={(nextState) => {
-                    void handleSaveWorkbenchState(nextState);
-                  }}
-                    onSaveSkill={(skill) => {
-                      void handleSaveSkill(skill);
-                    }}
-                    onSavePromptBuilderConfig={(config) => {
-                      setPromptBuilderConfig(config);
-                    }}
-                  />
-                }
-              />
-          </Routes>
-        </main>
-      </div>
+      <RoutedAppContent
+        locale={locale}
+        aiConfig={aiConfig}
+        appState={appState}
+        routingSettings={routingSettings}
+        continuityState={continuityState}
+        promptBuilderConfig={promptBuilderConfig}
+        isSelectingProjectFolder={isSelectingProjectFolder}
+        onSelectProjectFolder={handleSelectProjectFolder}
+        onOpenRecentWorkspace={handleOpenRecentWorkspace}
+        onRemoveRecentWorkspace={handleRemoveRecentWorkspace}
+        onSetLocale={(nextLocale) => {
+          void handleLocaleChange(nextLocale);
+        }}
+        onSaveAiConfig={handleSaveAiConfig}
+        onSaveRoutingSettings={handleSaveRoutingSettings}
+        onSaveWorkbenchState={handleSaveWorkbenchState}
+        onSaveContinuityState={handleSaveContinuityState}
+        onSaveSkill={handleSaveSkill}
+        onSavePromptBuilderConfig={(config) => {
+          setPromptBuilderConfig(config);
+        }}
+      />
     </HashRouter>
   );
 }

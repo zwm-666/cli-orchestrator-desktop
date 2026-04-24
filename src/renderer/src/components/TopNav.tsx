@@ -21,6 +21,9 @@ export function TopNav({ locale, workspaceLabel, onSetLocale, onSwitchProject }:
       </div>
 
       <nav className="top-nav-links" aria-label="Primary">
+        <NavLink to="/plan" className={({ isActive }) => `route-link ${isActive ? 'is-active' : ''}`}>
+          {locale === 'zh' ? '计划' : 'Plan'}
+        </NavLink>
         <NavLink to="/work" className={({ isActive }) => `route-link ${isActive ? 'is-active' : ''}`}>
           {locale === 'zh' ? '工作台' : 'Work'}
         </NavLink>
@@ -32,7 +35,7 @@ export function TopNav({ locale, workspaceLabel, onSetLocale, onSwitchProject }:
       <div className="locale-inline-group">
         {workspaceLabel ? <span className="status-pill">{workspaceLabel}</span> : null}
         <button type="button" className="secondary-button secondary-button-compact" onClick={onSwitchProject}>
-          {locale === 'zh' ? '切换项目' : 'Switch project'}
+          {locale === 'zh' ? '更换文件夹' : 'Change folder'}
         </button>
         {(['en', 'zh'] as const).map((entry) => (
           <button
