@@ -159,7 +159,7 @@ const renderProviderModelConfig = (input: {
   saveConfig: (updates: Partial<AiProviderConfig>) => void;
   setActiveModel: (model: string) => void;
 }): React.JSX.Element => {
-  const { locale, providerId, providerDefinition, currentModel, modelEditorValue, isActiveProvider, saveConfig, setActiveModel } = input;
+  const { locale, providerDefinition, currentModel, modelEditorValue, isActiveProvider, saveConfig, setActiveModel } = input;
   const setProviderModel = (model: string): void => {
     if (isActiveProvider) {
       setActiveModel(model);
@@ -173,6 +173,8 @@ const renderProviderModelConfig = (input: {
     <>
       <ProviderField label={locale === 'zh' ? '已保存模型（每行一个）' : 'Saved models (one per line)'}>
         <textarea
+          className="model-list-textarea"
+          wrap="off"
           rows={4}
           value={modelEditorValue}
           placeholder={locale === 'zh' ? '例如：\ngpt-4.1\ngpt-5.4' : 'For example:\ngpt-4.1\ngpt-5.4'}
@@ -197,20 +199,12 @@ const renderProviderModelConfig = (input: {
           </select>
         ) : null}
         <input
-          list={providerDefinition.modelSuggestions.length > 0 ? `${providerId}-model-list` : undefined}
           value={currentModel}
           placeholder={locale === 'zh' ? '输入要使用的模型名' : 'Enter the model name to use'}
           onChange={(event) => {
             setProviderModel(event.target.value);
           }}
         />
-        {providerDefinition.modelSuggestions.length > 0 ? (
-          <datalist id={`${providerId}-model-list`}>
-            {providerDefinition.modelSuggestions.map((model) => (
-              <option key={model} value={model} />
-            ))}
-          </datalist>
-        ) : null}
       </ProviderField>
 
       {providerDefinition.modelSuggestions.length > 0 ? (
@@ -256,6 +250,7 @@ export function ProviderCardsPanel(props: ProviderCardsPanelProps): React.JSX.El
     default_model: '',
     enabled: true,
   });
+  const [expandedProviderIds, setExpandedProviderIds] = useState<Set<string>>(() => new Set());
 
   const customProviderCount = useMemo(
     () => Object.keys(draftConfig.providers).filter((providerId) => isCustomProviderId(providerId)).length,
@@ -296,92 +291,114 @@ export function ProviderCardsPanel(props: ProviderCardsPanelProps): React.JSX.El
         const saveConfig = (updates: Partial<AiProviderConfig>): void => {
           saveProviderConfig(providerId, updates);
         };
+        const isExpanded = expandedProviderIds.has(providerId);
+        const toggleExpanded = (): void => {
+          setExpandedProviderIds((current) => {
+            const next = new Set(current);
+            if (next.has(providerId)) {
+              next.delete(providerId);
+            } else {
+              next.add(providerId);
+            }
+            return next;
+          });
+        };
 
         return (
-          <article id={`config-provider-${providerId}`} key={providerId} className={`section-panel inlay-card provider-card ${draftConfig.active_provider === providerId ? 'is-active' : ''}`}>
+          <article id={`config-provider-${providerId}`} key={providerId} className={`section-panel inlay-card provider-card provider-card-collapsible ${draftConfig.active_provider === providerId ? 'is-active' : ''} ${isExpanded ? 'is-expanded' : 'is-collapsed'}`}>
             <div className="section-heading provider-card-heading">
               <div>
                 <p className="section-label">{providerLabel}</p>
                 <h3>{getProviderDescription(providerId, providerDefinition.description, locale)}</h3>
               </div>
-              <span className={`state-badge provider-state provider-state-${providerStateBadge.tone}`}>{providerStateBadge.label}</span>
+              <div className="provider-card-heading-actions">
+                <span className={`state-badge provider-state provider-state-${providerStateBadge.tone}`}>{providerStateBadge.label}</span>
+                {draftConfig.active_provider === providerId ? <span className="status-pill">{locale === 'zh' ? '当前' : 'Active'}</span> : null}
+                <button type="button" className="secondary-button secondary-button-compact" onClick={toggleExpanded}>
+                  {isExpanded ? (locale === 'zh' ? '收起' : 'Collapse') : locale === 'zh' ? '展开' : 'Expand'}
+                </button>
+              </div>
             </div>
 
-            {isCustom ? renderProviderIdentityConfig(locale, providerConfig, saveConfig) : null}
+            {isExpanded ? (
+              <>
+                {isCustom ? renderProviderIdentityConfig(locale, providerConfig, saveConfig) : null}
 
-            {renderProviderConnectionConfig({
-              locale,
-              providerId,
-              providerConfig,
-              providerDefinition,
-              showSecrets,
-              toggleProviderSecretVisibility,
-              saveConfig,
-            })}
+                {renderProviderConnectionConfig({
+                  locale,
+                  providerId,
+                  providerConfig,
+                  providerDefinition,
+                  showSecrets,
+                  toggleProviderSecretVisibility,
+                  saveConfig,
+                })}
 
-            {renderProviderModelConfig({
-              locale,
-              providerId,
-              providerDefinition,
-              currentModel,
-              modelEditorValue,
-              isActiveProvider: draftConfig.active_provider === providerId,
-              saveConfig,
-              setActiveModel,
-            })}
+                {renderProviderModelConfig({
+                  locale,
+                  providerId,
+                  providerDefinition,
+                  currentModel,
+                  modelEditorValue,
+                  isActiveProvider: draftConfig.active_provider === providerId,
+                  saveConfig,
+                  setActiveModel,
+                })}
 
-            <label className="toggle-field provider-toggle-row">
-              <input
-                type="checkbox"
+                <label className="toggle-field provider-toggle-row">
+                  <input
+                    type="checkbox"
                   checked={providerConfig.enabled}
                   onChange={(event) => {
                     saveConfig({ enabled: event.target.checked });
                   }}
-              />
-              <span>{providerConfig.enabled ? (locale === 'zh' ? '已启用' : 'Enabled') : locale === 'zh' ? '已禁用' : 'Disabled'}</span>
-            </label>
+                  />
+                  <span>{providerConfig.enabled ? (locale === 'zh' ? '已启用' : 'Enabled') : locale === 'zh' ? '已禁用' : 'Disabled'}</span>
+                </label>
 
-            <div className="card-actions provider-card-actions">
-              <button
-                type="button"
-                className="secondary-button"
-                onClick={() => {
-                  setActiveProvider(providerId);
-                }}
-              >
-                {draftConfig.active_provider === providerId ? (locale === 'zh' ? '当前使用中' : 'Active now') : locale === 'zh' ? '设为当前' : 'Set active'}
-              </button>
+                <div className="card-actions provider-card-actions">
+                  <button
+                    type="button"
+                    className="secondary-button"
+                    onClick={() => {
+                      setActiveProvider(providerId);
+                    }}
+                  >
+                    {draftConfig.active_provider === providerId ? (locale === 'zh' ? '当前使用中' : 'Active now') : locale === 'zh' ? '设为当前' : 'Set active'}
+                  </button>
 
-              <button
-                type="button"
-                className="primary-button"
-                onClick={() => {
-                  void handleTestProvider(providerId);
-                }}
-              >
-                {locale === 'zh' ? '测试连接' : 'Test'}
-              </button>
+                  <button
+                    type="button"
+                    className="primary-button"
+                    onClick={() => {
+                      void handleTestProvider(providerId);
+                    }}
+                  >
+                    {locale === 'zh' ? '测试连接' : 'Test'}
+                  </button>
 
-              {isCustom ? (
-                <button
-                  type="button"
-                  className="secondary-button"
-                  onClick={() => {
-                    const confirmed = window.confirm(locale === 'zh' ? '确认删除这个自定义服务？' : 'Delete this custom provider?');
-                    if (confirmed) {
-                      removeCustomProvider(providerId);
-                    }
-                  }}
-                >
-                  {locale === 'zh' ? '删除' : 'Delete'}
-                </button>
-              ) : null}
-            </div>
+                  {isCustom ? (
+                    <button
+                      type="button"
+                      className="secondary-button"
+                      onClick={() => {
+                        const confirmed = window.confirm(locale === 'zh' ? '确认删除这个自定义服务？' : 'Delete this custom provider?');
+                        if (confirmed) {
+                          removeCustomProvider(providerId);
+                        }
+                      }}
+                    >
+                      {locale === 'zh' ? '删除' : 'Delete'}
+                    </button>
+                  ) : null}
+                </div>
 
-            {providerStatus ? (
-              <div className={`status-banner status-${providerStatus.tone}`}>
-                <p>{providerStatus.message}</p>
-              </div>
+                {providerStatus ? (
+                  <div className={`status-banner status-${providerStatus.tone}`}>
+                    <p>{providerStatus.message}</p>
+                  </div>
+                ) : null}
+              </>
             ) : null}
           </article>
         );

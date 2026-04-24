@@ -178,20 +178,12 @@ export function WorkbenchControlPanel(props: WorkbenchControlPanelProps): React.
               </select>
             ) : null}
             <input
-              list={targetModelOptions.length > 0 ? 'workbench-target-model-list' : undefined}
               value={targetModel}
               placeholder={locale === 'zh' ? '为当前目标指定模型' : 'Set the model for the current target'}
               onChange={(event) => {
                 onTargetModelChange(event.target.value);
               }}
             />
-            {targetModelOptions.length > 0 ? (
-              <datalist id="workbench-target-model-list">
-                {targetModelOptions.map((model) => (
-                  <option key={model} value={model} />
-                ))}
-              </datalist>
-            ) : null}
           </label>
         </div>
       ) : null}

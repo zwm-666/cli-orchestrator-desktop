@@ -54,7 +54,6 @@ export function ActiveProviderPanel({ locale, draftConfig, activeProviderDefinit
             </select>
           ) : null}
           <input
-            list={activeProviderDefinition ? `${activeProviderDefinition.id}-model-list` : undefined}
             value={draftConfig.active_model}
             placeholder={locale === 'zh' ? '工作台默认使用的模型，可手输新模型' : 'Model used by the Work page, or type a new one'}
             disabled={!draftConfig.active_provider}
@@ -62,13 +61,6 @@ export function ActiveProviderPanel({ locale, draftConfig, activeProviderDefinit
               setActiveModel(event.target.value);
             }}
           />
-          {activeProviderDefinition ? (
-            <datalist id={`${activeProviderDefinition.id}-model-list`}>
-              {activeProviderDefinition.modelSuggestions.map((model) => (
-                <option key={model} value={model} />
-              ))}
-            </datalist>
-          ) : null}
         </label>
       </div>
 
