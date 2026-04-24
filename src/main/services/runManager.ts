@@ -214,7 +214,7 @@ export class RunManager {
     }
 
     const timeoutMs = normalizeTimeoutMs(input.timeoutMs ?? adapterConfig.defaultTimeoutMs, 'Run timeoutMs');
-    const conversation = this.resolveConversation(input, title, prompt);
+    const { conversation, isExistingConversation } = this.resolveConversation(input, title, prompt);
     const createdAt = new Date().toISOString();
     const taskId = createId('task');
     const runId = createId('run');
@@ -267,7 +267,20 @@ export class RunManager {
       ...currentState,
       tasks: [task, ...currentState.tasks],
       runs: [run, ...currentState.runs],
-      conversations: currentState.conversations.map((entry) => (entry.id !== conversation.id ? entry : { ...entry, updatedAt: createdAt, draftInput: prompt })),
+      conversations: currentState.conversations.map((entry) => {
+        if (entry.id !== conversation.id) {
+          return entry;
+        }
+
+        return {
+          ...entry,
+          updatedAt: createdAt,
+          draftInput: prompt,
+          messages: isExistingConversation
+            ? [...entry.messages, { id: createId('msg'), role: 'customer' as const, content: prompt, createdAt }]
+            : entry.messages,
+        };
+      }),
     }));
 
     this.appendRunEvent(runId, 'info', `Starting ${adapter.displayName}.`);
@@ -311,15 +324,15 @@ export class RunManager {
     };
   }
 
-  private resolveConversation(input: StartRunInput, title: string, prompt: string): Conversation {
+  private resolveConversation(input: StartRunInput, title: string, prompt: string): { conversation: Conversation; isExistingConversation: boolean } {
     if (input.conversationId) {
       const existing = this.stateManager.getState().conversations.find((entry) => entry.id === input.conversationId);
-      if (existing) return existing;
+      if (existing) return { conversation: existing, isExistingConversation: true };
     }
 
     const conversation = this.buildConversation({ title, message: prompt });
     this.stateManager.updateState((currentState) => ({ ...currentState, conversations: [conversation, ...currentState.conversations] }));
-    return conversation;
+    return { conversation, isExistingConversation: false };
   }
 
   private buildConversation(input: CreateDraftConversationInput): Conversation {

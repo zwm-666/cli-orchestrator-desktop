@@ -641,6 +641,46 @@ void test('OrchestratorService records a persisted transcript for each run lifec
   }
 });
 
+void test('OrchestratorService appends follow-up prompts to an existing conversation for thread continuation', async () => {
+  const rootDir = createRootDir('orchestrator-service-conversation-continuation');
+
+  try {
+    writeAdaptersConfig(rootDir);
+    const persistenceStore = new LocalPersistenceStore(rootDir);
+    const service = new OrchestratorService(rootDir, persistenceStore);
+    const first = service.startRun({
+      title: 'Initial continuation run',
+      prompt: 'first request',
+      adapterId: 'node-success',
+      workbenchThreadId: 'thread-continue',
+    });
+
+    await waitForRunToFinish(service, first.run.id);
+
+    const followUp = service.startRun({
+      title: 'Follow-up continuation run',
+      prompt: 'second request',
+      adapterId: 'node-success',
+      workbenchThreadId: 'thread-continue',
+      conversationId: first.run.activeConversationId,
+    });
+
+    await waitForRunToFinish(service, followUp.run.id);
+
+    const state = service.getAppState();
+    const conversation = state.conversations.find((entry) => entry.id === first.run.activeConversationId);
+    const completedFollowUp = state.runs.find((run) => run.id === followUp.run.id);
+
+    assert.ok(conversation);
+    assert.ok(completedFollowUp);
+    assert.equal(completedFollowUp.activeConversationId, first.run.activeConversationId);
+    assert.equal(completedFollowUp.workbenchThreadId, 'thread-continue');
+    assert.deepEqual(conversation.messages.map((message) => message.content), ['first request', 'second request']);
+  } finally {
+    rmSync(rootDir, { recursive: true, force: true });
+  }
+});
+
 void test('OrchestratorService derives adapter readiness from availability and recent run outcomes', () => {
   const rootDir = createRootDir('orchestrator-service-readiness');
   const previousPath = process.env.PATH;
