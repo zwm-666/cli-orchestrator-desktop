@@ -1,6 +1,7 @@
 import type { AppState, Locale, RoutingSettings, SkillDefinition, WorkbenchState } from '../../../shared/domain.js';
 import type { PromptBuilderConfig } from '../../../shared/promptBuilder.js';
 import type { AiConfig } from '../aiConfig.js';
+import { AgentProfilesConfigSection } from '../components/AgentProfilesConfigSection.js';
 import { ConfigIndexRail } from '../components/ConfigIndexRail.js';
 import { ConfigSaveActionsSection } from '../components/ConfigSaveActionsSection.js';
 import { LocalToolsSection } from '../components/LocalToolsSection.js';
@@ -66,6 +67,13 @@ export function ConfigPage(props: ConfigPageProps): React.JSX.Element {
             userFacingAdapters={controller.userFacingAdapters}
             draftRoutingSettings={controller.draftRoutingSettings}
             updateAdapterSetting={controller.updateAdapterSetting}
+          />
+
+          <AgentProfilesConfigSection
+            locale={locale}
+            agentProfiles={appState.agentProfiles}
+            adapters={appState.adapters}
+            onSaveAgentProfile={controller.handleSaveAgentProfile}
           />
 
           <SkillBindingsSection

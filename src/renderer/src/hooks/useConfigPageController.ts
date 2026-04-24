@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import type {
   AppState,
+  AgentProfile,
   Locale,
   RoutingSettings,
   SkillDefinition,
@@ -80,10 +81,76 @@ export interface UseConfigPageControllerResult {
   handleTestActiveProvider: () => Promise<void>;
   handleRefreshAdapters: () => Promise<void>;
   handleSaveSkill: (skill: SkillDefinition) => void;
+  handleSaveAgentProfile: (profile: AgentProfile) => void;
 }
 
 const omitRecordKey = <TValue,>(record: Record<string, TValue>, keyToOmit: string): Record<string, TValue> => {
   return Object.fromEntries(Object.entries(record).filter(([key]) => key !== keyToOmit));
+};
+
+export const applyProviderConfigUpdate = (current: AiConfig, providerId: string, updates: Partial<AiProviderConfig>): AiConfig => {
+  const currentProvider = current.providers[providerId];
+  if (!currentProvider) {
+    return current;
+  }
+
+  const nextProvider: AiProviderConfig = {
+    ...currentProvider,
+    ...updates,
+  };
+
+  if ('models' in updates) {
+    nextProvider.models = mergeProviderModelLists(updates.models);
+  } else {
+    nextProvider.models = mergeProviderModelLists(nextProvider.models);
+  }
+
+  if (typeof nextProvider.default_model === 'string' && nextProvider.default_model.trim().length === 0) {
+    nextProvider.default_model = nextProvider.models[0] ?? '';
+  }
+
+  if (
+    (typeof updates.api_key === 'string' && updates.api_key.trim().length > 0) ||
+    (typeof updates.base_url === 'string' && updates.base_url.trim().length > 0)
+  ) {
+    nextProvider.enabled = true;
+  }
+
+  return {
+    ...current,
+    active_model:
+      current.active_provider === providerId && typeof updates.default_model === 'string'
+        ? nextProvider.default_model ?? updates.default_model
+        : current.active_model,
+    providers: {
+      ...current.providers,
+      [providerId]: nextProvider,
+    },
+  };
+};
+
+export const applyActiveProviderModel = (current: AiConfig, model: string): AiConfig => {
+  if (!current.active_provider) {
+    return { ...current, active_model: model };
+  }
+
+  const activeProviderConfig = current.providers[current.active_provider];
+  if (!activeProviderConfig) {
+    return { ...current, active_model: model };
+  }
+
+  return {
+    ...current,
+    active_model: model,
+    providers: {
+      ...current.providers,
+      [current.active_provider]: {
+        ...activeProviderConfig,
+        default_model: model,
+        models: mergeProviderModelLists(activeProviderConfig.models),
+      },
+    },
+  };
 };
 
 export function useConfigPageController(input: UseConfigPageControllerInput): UseConfigPageControllerResult {
@@ -140,48 +207,7 @@ export function useConfigPageController(input: UseConfigPageControllerInput): Us
   };
 
   const updateProvider = (providerId: string, updates: Partial<AiProviderConfig>): void => {
-    setDraftConfig((current) => {
-      const currentProvider = current.providers[providerId];
-      if (!currentProvider) {
-        return current;
-      }
-
-      const nextProvider: AiProviderConfig = {
-        ...currentProvider,
-        ...updates,
-      };
-
-      const nextModels = 'models' in updates
-        ? mergeProviderModelLists(updates.models, nextProvider.default_model ? [nextProvider.default_model] : [])
-        : mergeProviderModelLists(nextProvider.models, typeof updates.default_model === 'string' ? [updates.default_model] : []);
-
-      if (nextModels.length > 0) {
-        nextProvider.models = nextModels;
-      }
-
-      if (typeof nextProvider.default_model === 'string' && nextProvider.default_model.trim().length === 0) {
-        nextProvider.default_model = nextModels[0] ?? '';
-      }
-
-      if (
-        (typeof updates.api_key === 'string' && updates.api_key.trim().length > 0) ||
-        (typeof updates.base_url === 'string' && updates.base_url.trim().length > 0)
-      ) {
-        nextProvider.enabled = true;
-      }
-
-      return {
-        ...current,
-        active_model:
-          current.active_provider === providerId && typeof updates.default_model === 'string'
-            ? nextProvider.default_model ?? updates.default_model
-            : current.active_model,
-        providers: {
-          ...current.providers,
-          [providerId]: nextProvider,
-        },
-      };
-    });
+    setDraftConfig((current) => applyProviderConfigUpdate(current, providerId, updates));
   };
 
   const toggleProviderSecretVisibility = (providerId: string): void => {
@@ -217,29 +243,7 @@ export function useConfigPageController(input: UseConfigPageControllerInput): Us
   };
 
   const setActiveModel = (model: string): void => {
-    setDraftConfig((current) => {
-      if (!current.active_provider) {
-        return { ...current, active_model: model };
-      }
-
-      const activeProviderConfig = current.providers[current.active_provider];
-      if (!activeProviderConfig) {
-        return { ...current, active_model: model };
-      }
-
-      return {
-        ...current,
-        active_model: model,
-        providers: {
-          ...current.providers,
-          [current.active_provider]: {
-            ...activeProviderConfig,
-            default_model: model,
-            models: mergeProviderModelLists(activeProviderConfig.models, model ? [model] : []),
-          },
-        },
-      };
-    });
+    setDraftConfig((current) => applyActiveProviderModel(current, model));
   };
 
   const addCustomProvider = (input: CustomProviderInput): void => {
@@ -412,6 +416,10 @@ export function useConfigPageController(input: UseConfigPageControllerInput): Us
     void onSaveSkill(skill);
   };
 
+  const handleSaveAgentProfile = (profile: AgentProfile): void => {
+    void window.desktopApi.saveAgentProfile({ profile });
+  };
+
   const handleRefreshAdapters = async (): Promise<void> => {
     setAdapterStatus(getAdapterRefreshLoadingStatus(locale));
 
@@ -458,5 +466,6 @@ export function useConfigPageController(input: UseConfigPageControllerInput): Us
     handleTestActiveProvider,
     handleRefreshAdapters,
     handleSaveSkill,
+    handleSaveAgentProfile,
   };
 }

@@ -1,4 +1,4 @@
-import { useEffect, useMemo } from 'react';
+import { useEffect, useMemo, useRef } from 'react';
 import type { Locale, OrchestrationRun, TaskThreadMessage } from '../../../shared/domain.js';
 import type { ComposerTargetOption } from '../hooks/useWorkbenchController.js';
 import type { WorkbenchOption } from '../hooks/workbenchControllerShared.js';
@@ -129,6 +129,7 @@ export function ChatPanel(props: ChatPanelProps): React.JSX.Element {
   } = props;
 
   const textareaRef = inputRef;
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     const textarea = textareaRef.current;
@@ -358,7 +359,19 @@ export function ChatPanel(props: ChatPanelProps): React.JSX.Element {
         ) : null}
 
         <div className="cursor-composer-control-row">
-          <button type="button" className="composer-plus-button" onClick={() => { textareaRef.current?.focus(); }} aria-label={locale === 'zh' ? '添加上下文' : 'Add context'} title={locale === 'zh' ? '拖入文件即可添加上下文' : 'Drop a file to add context'}>
+          <input
+            ref={fileInputRef}
+            type="file"
+            className="sr-only"
+            onChange={(event) => {
+              const [selectedFile] = Array.from(event.target.files ?? []) as (File & { path?: string })[];
+              if (typeof selectedFile?.path === 'string' && selectedFile.path.length > 0) {
+                onDropFile(selectedFile.path);
+              }
+              event.target.value = '';
+            }}
+          />
+          <button type="button" className="composer-plus-button" onClick={() => { fileInputRef.current?.click(); }} aria-label={locale === 'zh' ? '上传文件' : 'Upload file'} title={locale === 'zh' ? '上传文件作为上下文' : 'Upload a file as context'}>
             +
           </button>
 

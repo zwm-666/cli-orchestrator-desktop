@@ -246,8 +246,12 @@ export function useWorkbenchController(input: UseWorkbenchControllerInput): UseW
   useEffect(() => {
     if (!selectedAgentProfileId && agentProfileOptions[0]) {
       setSelectedAgentProfileId(agentProfileOptions[0].id);
+      const firstProfile = appState.agentProfiles.find((profile) => profile.id === agentProfileOptions[0]?.id) ?? null;
+      if (firstProfile?.model.trim()) {
+        setTargetModel(firstProfile.model);
+      }
     }
-  }, [agentProfileOptions, selectedAgentProfileId]);
+  }, [agentProfileOptions, appState.agentProfiles, selectedAgentProfileId]);
 
   useEffect(() => {
     if (selectedTargetKind === 'provider') {
@@ -412,6 +416,14 @@ export function useWorkbenchController(input: UseWorkbenchControllerInput): UseW
     }));
   };
 
+  const handleAgentProfileChange = (nextProfileId: string): void => {
+    setSelectedAgentProfileId(nextProfileId);
+    const nextProfile = appState.agentProfiles.find((profile) => profile.id === nextProfileId) ?? null;
+    if (nextProfile?.model.trim()) {
+      setTargetModel(nextProfile.model);
+    }
+  };
+
   const handleCreateThread = (): void => {
     void queueWorkbenchPersist((currentWorkbench) => {
       const nextThread = createTaskThread({ locale, objective: currentWorkbench.objective });
@@ -571,7 +583,7 @@ export function useWorkbenchController(input: UseWorkbenchControllerInput): UseW
     handleGenerateChecklist: taskBoard.handleGenerateChecklist,
     handleSaveObjective: taskBoard.handleSaveObjective,
     handleTargetOptionChange,
-    handleAgentProfileChange: setSelectedAgentProfileId,
+    handleAgentProfileChange,
     handleThreadChange,
     handleCreateThread,
     handleNewThread,

@@ -294,7 +294,7 @@ export function normalizeAiConfig(value: unknown): AiConfig | null {
   const defaults = createDefaultAiConfig();
   const providers = isRecord(value.providers) ? value.providers : {};
   const activeProvider = migrateLegacyActiveProvider(value);
-  const activeModel = migrateLegacyActiveModel(value, activeProvider);
+  const activeModel = migrateLegacyActiveModel(value, activeProvider).trim();
   const normalizedProviders: Record<string, AiProviderConfig> = {};
 
   for (const providerId of BUILTIN_PROVIDER_IDS) {

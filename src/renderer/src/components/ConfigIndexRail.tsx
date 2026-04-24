@@ -87,6 +87,7 @@ export function ConfigIndexRail({ locale, providerItems, adapterItems }: ConfigI
       <div className="config-index-group">
         <p className="mini-meta config-index-group-label">{copy.otherGroupLabel}</p>
         {[
+          { id: 'config-agents', label: locale === 'zh' ? 'Agent 配置' : 'Agent config' },
           { id: 'config-skills', label: copy.skillBindingsLabel },
           { id: 'config-prompt-builder', label: promptBuilderCopy.configSectionEyebrow },
           { id: 'config-actions', label: copy.actionsLabel },
