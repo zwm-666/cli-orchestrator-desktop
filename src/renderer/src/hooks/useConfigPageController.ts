@@ -65,7 +65,7 @@ export interface UseConfigPageControllerResult {
   providerOptions: { id: string; label: string }[];
   adapterOptions: { id: string; label: string }[];
   getTargetOptions: (targetKind: WorkbenchTargetKind) => { id: string; label: string }[];
-  updateProvider: (providerId: string, updates: Partial<AiProviderConfig>) => void;
+  saveProviderConfig: (providerKey: string, configData: Partial<AiProviderConfig>) => void;
   toggleProviderSecretVisibility: (providerId: string) => void;
   setActiveProvider: (providerId: string | null) => void;
   setActiveModel: (model: string) => void;
@@ -206,8 +206,8 @@ export function useConfigPageController(input: UseConfigPageControllerInput): Us
     return adapterOptions;
   };
 
-  const updateProvider = (providerId: string, updates: Partial<AiProviderConfig>): void => {
-    setDraftConfig((current) => applyProviderConfigUpdate(current, providerId, updates));
+  const saveProviderConfig = (providerKey: string, configData: Partial<AiProviderConfig>): void => {
+    setDraftConfig((current) => applyProviderConfigUpdate(current, providerKey, configData));
   };
 
   const toggleProviderSecretVisibility = (providerId: string): void => {
@@ -450,7 +450,7 @@ export function useConfigPageController(input: UseConfigPageControllerInput): Us
     providerOptions,
     adapterOptions,
     getTargetOptions,
-    updateProvider,
+    saveProviderConfig,
     toggleProviderSecretVisibility,
     setActiveProvider,
     setActiveModel,

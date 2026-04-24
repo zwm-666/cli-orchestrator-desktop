@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react';
 import type { Locale } from '../../../shared/domain.js';
-import type { AiConfig, AiProviderConfig, ProviderApiStyle } from '../aiConfig.js';
+import type { AiConfig, AiProviderConfig, AiProviderDefinition, ProviderApiStyle } from '../aiConfig.js';
 import { AI_PROVIDERS, getProviderDefinition, isCustomProviderId } from '../aiConfig.js';
 import type { ProviderStatusMap, VisibilityMap } from '../configPageShared.js';
 import { getProviderDescription } from '../configLocalization.js';
@@ -23,7 +23,7 @@ interface ProviderCardsPanelProps {
   draftConfig: AiConfig;
   providerStatuses: ProviderStatusMap;
   showSecrets: VisibilityMap;
-  updateProvider: (providerId: string, updates: Partial<AiProviderConfig>) => void;
+  saveProviderConfig: (providerKey: string, configData: Partial<AiProviderConfig>) => void;
   toggleProviderSecretVisibility: (providerId: string) => void;
   setActiveProvider: (providerId: string | null) => void;
   setActiveModel: (model: string) => void;
@@ -41,13 +41,205 @@ interface ProviderCardsPanelProps {
 
 const BUILTIN_PROVIDER_ORDER = new Map(AI_PROVIDERS.map((provider, index) => [provider.id, index]));
 
+const getProviderStateBadge = (locale: Locale, providerStatus: ProviderStatusMap[string], hasKey: boolean): { tone: string; label: string } => {
+  if (providerStatus?.tone === 'error') {
+    return { tone: 'error', label: locale === 'zh' ? '错误' : 'Error' };
+  }
+
+  if (providerStatus?.tone === 'success') {
+    return { tone: 'success', label: locale === 'zh' ? '已连接' : 'Connected' };
+  }
+
+  return hasKey
+    ? { tone: 'loading', label: locale === 'zh' ? '已保存密钥' : 'Key saved' }
+    : { tone: 'neutral', label: locale === 'zh' ? '未配置' : 'Not configured' };
+};
+
+interface ProviderFieldProps {
+  label: string;
+  children: React.ReactNode;
+}
+
+function ProviderField({ label, children }: ProviderFieldProps): React.JSX.Element {
+  return (
+    <label className="field">
+      <span>{label}</span>
+      {children}
+    </label>
+  );
+}
+
+const renderProviderIdentityConfig = (
+  locale: Locale,
+  providerConfig: AiProviderConfig,
+  saveConfig: (updates: Partial<AiProviderConfig>) => void,
+): React.JSX.Element => (
+  <>
+    <ProviderField label={locale === 'zh' ? '显示名称' : 'Display name'}>
+      <input
+        value={providerConfig.label ?? ''}
+        placeholder={locale === 'zh' ? '例如 OpenRouter / Ollama' : 'For example: OpenRouter / Ollama'}
+        onChange={(event) => {
+          saveConfig({ label: event.target.value });
+        }}
+      />
+    </ProviderField>
+
+    <ProviderField label={locale === 'zh' ? 'API 风格' : 'API style'}>
+      <select
+        value={providerConfig.api_style ?? 'openai'}
+        onChange={(event) => {
+          saveConfig({ api_style: event.target.value as ProviderApiStyle });
+        }}
+      >
+        <option value="openai">OpenAI</option>
+        <option value="anthropic">Anthropic</option>
+        <option value="gemini">Gemini</option>
+      </select>
+    </ProviderField>
+  </>
+);
+
+const renderProviderConnectionConfig = (input: {
+  locale: Locale;
+  providerId: string;
+  providerConfig: AiProviderConfig;
+  providerDefinition: AiProviderDefinition;
+  showSecrets: VisibilityMap;
+  toggleProviderSecretVisibility: (providerId: string) => void;
+  saveConfig: (updates: Partial<AiProviderConfig>) => void;
+}): React.JSX.Element => {
+  const { locale, providerId, providerConfig, providerDefinition, showSecrets, toggleProviderSecretVisibility, saveConfig } = input;
+
+  return (
+    <>
+      <label className="field provider-secret-field">
+        <span>{locale === 'zh' ? 'API 密钥' : 'API key'}</span>
+        <div className="provider-secret-row">
+          <input
+            type={showSecrets[providerId] ? 'text' : 'password'}
+            value={providerConfig.api_key}
+            placeholder={locale === 'zh' ? '填入当前模型服务的凭据' : 'Paste the credential used for this provider'}
+            onChange={(event) => {
+              saveConfig({ api_key: event.target.value });
+            }}
+          />
+          <button
+            type="button"
+            className="secondary-button secondary-button-compact"
+            onClick={() => {
+              toggleProviderSecretVisibility(providerId);
+            }}
+          >
+            {showSecrets[providerId] ? (locale === 'zh' ? '隐藏' : 'Hide') : locale === 'zh' ? '显示' : 'Show'}
+          </button>
+        </div>
+      </label>
+
+      <ProviderField label={locale === 'zh' ? '服务地址' : 'Base URL'}>
+        <input
+          value={providerConfig.base_url}
+          placeholder={providerDefinition.defaultBaseUrl || 'https://'}
+          onChange={(event) => {
+            saveConfig({ base_url: event.target.value });
+          }}
+        />
+      </ProviderField>
+    </>
+  );
+};
+
+const renderProviderModelConfig = (input: {
+  locale: Locale;
+  providerId: string;
+  providerDefinition: AiProviderDefinition;
+  currentModel: string;
+  modelEditorValue: string;
+  isActiveProvider: boolean;
+  saveConfig: (updates: Partial<AiProviderConfig>) => void;
+  setActiveModel: (model: string) => void;
+}): React.JSX.Element => {
+  const { locale, providerId, providerDefinition, currentModel, modelEditorValue, isActiveProvider, saveConfig, setActiveModel } = input;
+  const setProviderModel = (model: string): void => {
+    if (isActiveProvider) {
+      setActiveModel(model);
+      return;
+    }
+
+    saveConfig({ default_model: model });
+  };
+
+  return (
+    <>
+      <ProviderField label={locale === 'zh' ? '已保存模型（每行一个）' : 'Saved models (one per line)'}>
+        <textarea
+          rows={4}
+          value={modelEditorValue}
+          placeholder={locale === 'zh' ? '例如：\ngpt-4.1\ngpt-5.4' : 'For example:\ngpt-4.1\ngpt-5.4'}
+          onChange={(event) => {
+            saveConfig({ models: parseModelEditorValue(event.target.value) });
+          }}
+        />
+      </ProviderField>
+
+      <ProviderField label={locale === 'zh' ? '当前默认模型' : 'Current default model'}>
+        {providerDefinition.modelSuggestions.length > 0 ? (
+          <select
+            value={currentModel}
+            onChange={(event) => {
+              setProviderModel(event.target.value);
+            }}
+          >
+            <option value="">{locale === 'zh' ? '选择模型' : 'Choose a model'}</option>
+            {providerDefinition.modelSuggestions.map((model) => (
+              <option key={model} value={model}>{model}</option>
+            ))}
+          </select>
+        ) : null}
+        <input
+          list={providerDefinition.modelSuggestions.length > 0 ? `${providerId}-model-list` : undefined}
+          value={currentModel}
+          placeholder={locale === 'zh' ? '输入要使用的模型名' : 'Enter the model name to use'}
+          onChange={(event) => {
+            setProviderModel(event.target.value);
+          }}
+        />
+        {providerDefinition.modelSuggestions.length > 0 ? (
+          <datalist id={`${providerId}-model-list`}>
+            {providerDefinition.modelSuggestions.map((model) => (
+              <option key={model} value={model} />
+            ))}
+          </datalist>
+        ) : null}
+      </ProviderField>
+
+      {providerDefinition.modelSuggestions.length > 0 ? (
+        <div className="badge-pair">
+          {providerDefinition.modelSuggestions.map((model) => (
+            <button
+              key={model}
+              type="button"
+              className={`secondary-button secondary-button-compact ${currentModel === model ? 'is-active' : ''}`}
+              onClick={() => {
+                setProviderModel(model);
+              }}
+            >
+              {model}
+            </button>
+          ))}
+        </div>
+      ) : null}
+    </>
+  );
+};
+
 export function ProviderCardsPanel(props: ProviderCardsPanelProps): React.JSX.Element {
   const {
     locale,
     draftConfig,
     providerStatuses,
     showSecrets,
-    updateProvider,
+    saveProviderConfig,
     toggleProviderSecretVisibility,
     setActiveProvider,
     setActiveModel,
@@ -94,26 +286,16 @@ export function ProviderCardsPanel(props: ProviderCardsPanelProps): React.JSX.El
     <div className="provider-card-grid provider-card-grid-wide">
       {providerEntries.map(([providerId, providerConfig]) => {
         const providerDefinition = getProviderDefinition(providerId, providerConfig);
-        const providerStatus = providerStatuses[providerId];
+        const providerStatus = providerStatuses[providerId] ?? null;
         const providerLabel = providerConfig.label?.trim() || providerDefinition.label;
         const isCustom = isCustomProviderId(providerId);
         const hasKey = providerConfig.api_key.trim().length > 0;
-        const readinessTone = providerStatus?.tone === 'error'
-          ? 'error'
-          : providerStatus?.tone === 'success'
-            ? 'success'
-            : hasKey
-              ? 'loading'
-              : 'neutral';
-        const readinessLabel = providerStatus?.tone === 'error'
-          ? locale === 'zh' ? '错误' : 'Error'
-          : providerStatus?.tone === 'success'
-            ? locale === 'zh' ? '已连接' : 'Connected'
-            : hasKey
-              ? locale === 'zh' ? '已保存密钥' : 'Key saved'
-              : locale === 'zh' ? '未配置' : 'Not configured';
+        const providerStateBadge = getProviderStateBadge(locale, providerStatus, hasKey);
         const currentModel = draftConfig.active_provider === providerId ? draftConfig.active_model : (providerConfig.default_model ?? '');
         const modelEditorValue = (providerConfig.models ?? []).join('\n');
+        const saveConfig = (updates: Partial<AiProviderConfig>): void => {
+          saveProviderConfig(providerId, updates);
+        };
 
         return (
           <article id={`config-provider-${providerId}`} key={providerId} className={`section-panel inlay-card provider-card ${draftConfig.active_provider === providerId ? 'is-active' : ''}`}>
@@ -122,157 +304,39 @@ export function ProviderCardsPanel(props: ProviderCardsPanelProps): React.JSX.El
                 <p className="section-label">{providerLabel}</p>
                 <h3>{getProviderDescription(providerId, providerDefinition.description, locale)}</h3>
               </div>
-              <span className={`state-badge provider-state provider-state-${readinessTone}`}>{readinessLabel}</span>
+              <span className={`state-badge provider-state provider-state-${providerStateBadge.tone}`}>{providerStateBadge.label}</span>
             </div>
 
-            {isCustom ? (
-              <>
-                <label className="field">
-                  <span>{locale === 'zh' ? '显示名称' : 'Display name'}</span>
-                  <input
-                    value={providerConfig.label ?? ''}
-                    placeholder={locale === 'zh' ? '例如 OpenRouter / Ollama' : 'For example: OpenRouter / Ollama'}
-                    onChange={(event) => {
-                      updateProvider(providerId, { label: event.target.value });
-                    }}
-                  />
-                </label>
+            {isCustom ? renderProviderIdentityConfig(locale, providerConfig, saveConfig) : null}
 
-                <label className="field">
-                  <span>{locale === 'zh' ? 'API 风格' : 'API style'}</span>
-                  <select
-                    value={providerConfig.api_style ?? 'openai'}
-                    onChange={(event) => {
-                      updateProvider(providerId, { api_style: event.target.value as ProviderApiStyle });
-                    }}
-                  >
-                    <option value="openai">OpenAI</option>
-                    <option value="anthropic">Anthropic</option>
-                    <option value="gemini">Gemini</option>
-                  </select>
-                </label>
-              </>
-            ) : null}
+            {renderProviderConnectionConfig({
+              locale,
+              providerId,
+              providerConfig,
+              providerDefinition,
+              showSecrets,
+              toggleProviderSecretVisibility,
+              saveConfig,
+            })}
 
-            <label className="field provider-secret-field">
-              <span>{locale === 'zh' ? 'API 密钥' : 'API key'}</span>
-              <div className="provider-secret-row">
-                <input
-                  type={showSecrets[providerId] ? 'text' : 'password'}
-                  value={providerConfig.api_key}
-                  placeholder={locale === 'zh' ? '填入当前模型服务的凭据' : 'Paste the credential used for this provider'}
-                  onChange={(event) => {
-                    updateProvider(providerId, { api_key: event.target.value });
-                  }}
-                />
-                <button
-                  type="button"
-                  className="secondary-button secondary-button-compact"
-                  onClick={() => {
-                    toggleProviderSecretVisibility(providerId);
-                  }}
-                >
-                  {showSecrets[providerId] ? (locale === 'zh' ? '隐藏' : 'Hide') : locale === 'zh' ? '显示' : 'Show'}
-                </button>
-              </div>
-            </label>
-
-            <label className="field">
-              <span>{locale === 'zh' ? '服务地址' : 'Base URL'}</span>
-              <input
-                value={providerConfig.base_url}
-                placeholder={providerDefinition.defaultBaseUrl || 'https://'}
-                onChange={(event) => {
-                  updateProvider(providerId, { base_url: event.target.value });
-                }}
-              />
-            </label>
-
-            <label className="field">
-              <span>{locale === 'zh' ? '已保存模型（每行一个）' : 'Saved models (one per line)'}</span>
-              <textarea
-                rows={4}
-                value={modelEditorValue}
-                placeholder={locale === 'zh' ? '例如：\ngpt-4.1\ngpt-5.4' : 'For example:\ngpt-4.1\ngpt-5.4'}
-                onChange={(event) => {
-                  updateProvider(providerId, { models: parseModelEditorValue(event.target.value) });
-                }}
-              />
-            </label>
-
-            <label className="field">
-              <span>{locale === 'zh' ? '当前默认模型' : 'Current default model'}</span>
-              {providerDefinition.modelSuggestions.length > 0 ? (
-                <select
-                  value={currentModel}
-                  onChange={(event) => {
-                    if (draftConfig.active_provider === providerId) {
-                      setActiveModel(event.target.value);
-                      return;
-                    }
-
-                    updateProvider(providerId, { default_model: event.target.value });
-                  }}
-                >
-                  <option value="">{locale === 'zh' ? '选择模型' : 'Choose a model'}</option>
-                  {providerDefinition.modelSuggestions.map((model) => (
-                    <option key={model} value={model}>
-                      {model}
-                    </option>
-                  ))}
-                </select>
-              ) : null}
-              <input
-                list={providerDefinition.modelSuggestions.length > 0 ? `${providerId}-model-list` : undefined}
-                value={currentModel}
-                placeholder={locale === 'zh' ? '输入要使用的模型名' : 'Enter the model name to use'}
-                onChange={(event) => {
-                  if (draftConfig.active_provider === providerId) {
-                    setActiveModel(event.target.value);
-                    return;
-                  }
-
-                  updateProvider(providerId, { default_model: event.target.value });
-                }}
-              />
-              {providerDefinition.modelSuggestions.length > 0 ? (
-                <datalist id={`${providerId}-model-list`}>
-                  {providerDefinition.modelSuggestions.map((model) => (
-                    <option key={model} value={model} />
-                  ))}
-                </datalist>
-              ) : null}
-            </label>
-
-            {providerDefinition.modelSuggestions.length > 0 ? (
-              <div className="badge-pair">
-                {providerDefinition.modelSuggestions.map((model) => (
-                  <button
-                    key={model}
-                    type="button"
-                    className={`secondary-button secondary-button-compact ${currentModel === model ? 'is-active' : ''}`}
-                    onClick={() => {
-                      if (draftConfig.active_provider === providerId) {
-                        setActiveModel(model);
-                        return;
-                      }
-
-                      updateProvider(providerId, { default_model: model });
-                    }}
-                  >
-                    {model}
-                  </button>
-                ))}
-              </div>
-            ) : null}
+            {renderProviderModelConfig({
+              locale,
+              providerId,
+              providerDefinition,
+              currentModel,
+              modelEditorValue,
+              isActiveProvider: draftConfig.active_provider === providerId,
+              saveConfig,
+              setActiveModel,
+            })}
 
             <label className="toggle-field provider-toggle-row">
               <input
                 type="checkbox"
-                checked={providerConfig.enabled}
-                onChange={(event) => {
-                  updateProvider(providerId, { enabled: event.target.checked });
-                }}
+                  checked={providerConfig.enabled}
+                  onChange={(event) => {
+                    saveConfig({ enabled: event.target.checked });
+                  }}
               />
               <span>{providerConfig.enabled ? (locale === 'zh' ? '已启用' : 'Enabled') : locale === 'zh' ? '已禁用' : 'Disabled'}</span>
             </label>

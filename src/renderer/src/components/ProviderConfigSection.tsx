@@ -11,7 +11,7 @@ interface ProviderConfigSectionProps {
   providerStatuses: ProviderStatusMap;
   showSecrets: VisibilityMap;
   activeProviderDefinition: AiProviderDefinition | null;
-  updateProvider: (providerId: string, updates: Partial<AiProviderConfig>) => void;
+  saveProviderConfig: (providerKey: string, configData: Partial<AiProviderConfig>) => void;
   toggleProviderSecretVisibility: (providerId: string) => void;
   setActiveProvider: (providerId: string | null) => void;
   setActiveModel: (model: string) => void;
@@ -34,7 +34,7 @@ export function ProviderConfigSection(props: ProviderConfigSectionProps): React.
     providerStatuses,
     showSecrets,
     activeProviderDefinition,
-    updateProvider,
+    saveProviderConfig,
     toggleProviderSecretVisibility,
     setActiveProvider,
     setActiveModel,
@@ -60,7 +60,7 @@ export function ProviderConfigSection(props: ProviderConfigSectionProps): React.
         draftConfig={draftConfig}
         providerStatuses={providerStatuses}
         showSecrets={showSecrets}
-        updateProvider={updateProvider}
+        saveProviderConfig={saveProviderConfig}
         toggleProviderSecretVisibility={toggleProviderSecretVisibility}
         setActiveProvider={setActiveProvider}
         setActiveModel={setActiveModel}

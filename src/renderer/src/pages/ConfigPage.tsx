@@ -53,7 +53,7 @@ export function ConfigPage(props: ConfigPageProps): React.JSX.Element {
             providerStatuses={controller.providerStatuses}
             showSecrets={controller.showSecrets}
             activeProviderDefinition={controller.activeProviderDefinition}
-            updateProvider={controller.updateProvider}
+            saveProviderConfig={controller.saveProviderConfig}
             toggleProviderSecretVisibility={controller.toggleProviderSecretVisibility}
             setActiveProvider={controller.setActiveProvider}
             setActiveModel={controller.setActiveModel}
