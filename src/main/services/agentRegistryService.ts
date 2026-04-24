@@ -13,9 +13,23 @@
 import { existsSync, readFileSync } from 'node:fs';
 import { mkdir, writeFile } from 'node:fs/promises';
 import path from 'node:path';
+import { mergeDuplicateAgentProfiles } from '../../shared/agentProfiles.js';
 import type { AgentProfile, AgentRoleType } from '../../shared/domain.js';
 
 const CONFIG_FILENAME = 'agent-profiles.json';
+const LEGACY_BUILTIN_PROFILE_IDS = new Set([
+  'master-claude',
+  'coder-claude-opus',
+  'coder-claude-sonnet',
+  'coder-codex',
+  'coder-codex-o3',
+  'researcher-claude',
+  'researcher-openai',
+  'reviewer-claude',
+  'tester-claude',
+  'planner-claude',
+  'coder-opencode',
+]);
 
 export class AgentRegistryService {
   private profiles: AgentProfile[] = [];
@@ -39,9 +53,9 @@ export class AgentRegistryService {
         this.profiles = [];
         return [];
       }
-      this.profiles = (parsed as AgentProfile[]).filter(
+      this.profiles = mergeDuplicateAgentProfiles((parsed as AgentProfile[]).filter(
         (p) => typeof p.id === 'string' && p.id.trim().length > 0
-      );
+      ));
       return structuredClone(this.profiles);
     } catch {
       this.profiles = [];
@@ -54,6 +68,9 @@ export class AgentRegistryService {
     const byId = new Map(this.profiles.map((p) => [p.id, p]));
     for (const p of persisted) {
       if (!byId.has(p.id)) {
+        if (LEGACY_BUILTIN_PROFILE_IDS.has(p.id)) {
+          continue;
+        }
         // User-created profile not in config – keep it
         byId.set(p.id, p);
       } else {
@@ -73,7 +90,7 @@ export class AgentRegistryService {
         });
       }
     }
-    this.profiles = [...byId.values()];
+    this.profiles = mergeDuplicateAgentProfiles([...byId.values()]);
     return structuredClone(this.profiles);
   }
 

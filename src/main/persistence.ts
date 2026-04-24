@@ -650,6 +650,9 @@ const normalizeAgentProfile = (value: unknown): AgentProfile | null => {
     role,
     adapterId: typeof value.adapterId === 'string' ? value.adapterId : '',
     model: typeof value.model === 'string' ? value.model : '',
+    modelOptions: Array.isArray(value.modelOptions)
+      ? (value.modelOptions as string[]).filter((model) => typeof model === 'string' && model.trim().length > 0)
+      : [],
     systemPrompt: typeof value.systemPrompt === 'string' ? value.systemPrompt : '',
     enabledSkillIds: Array.isArray(value.enabledSkillIds)
       ? (value.enabledSkillIds as string[]).filter((s) => typeof s === 'string')
