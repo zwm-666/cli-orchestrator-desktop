@@ -463,6 +463,58 @@ void test('LocalPersistenceStore defaults thread fields for legacy workbench sta
   }
 });
 
+void test('LocalPersistenceStore preserves plan route and caps recent workspace roots', () => {
+  const rootDir = createRootDir('persistence-test-plan-route-recent-roots');
+
+  try {
+    const state = createState();
+    state.workbench = {
+      ...structuredClone(DEFAULT_WORKBENCH_STATE),
+      workspaceRoot: 'D:/projects/current',
+      recentWorkspaceRoots: [
+        'D:/projects/current',
+        'D:/projects/one',
+        'D:/projects/two',
+        'D:/projects/three',
+        'D:/projects/four',
+        'D:/projects/five',
+      ],
+      tasks: [
+        {
+          id: 'task-with-agent',
+          title: 'Agent task',
+          detail: 'Use a chosen profile',
+          status: 'pending',
+          source: 'planner',
+          agentProfileId: 'profile-code',
+          createdAt: '2026-03-20T10:00:00.000Z',
+          updatedAt: '2026-03-20T10:00:00.000Z',
+          completedAt: null,
+        },
+      ],
+    };
+    const store = new LocalPersistenceStore(rootDir);
+    store.saveAppState(state);
+    store.saveContinuityState({ ...createContinuity(), lastRoute: '/plan' });
+
+    const recovered = new LocalPersistenceStore(rootDir).load();
+
+    assert.equal(recovered.continuity.lastRoute, '/plan');
+    assert.deepEqual(recovered.appData?.workbench?.recentWorkspaceRoots, [
+      'D:/projects/current',
+      'D:/projects/one',
+      'D:/projects/two',
+      'D:/projects/three',
+      'D:/projects/four',
+    ]);
+    const recoveredTask = recovered.appData.workbench.tasks[0];
+    assert.ok(recoveredTask);
+    assert.equal(recoveredTask.agentProfileId, 'profile-code');
+  } finally {
+    rmSync(rootDir, { recursive: true, force: true });
+  }
+});
+
 void test('LocalPersistenceStore preserves adapterOverride and modelOverride on orchestration nodes', () => {
   const rootDir = createRootDir('persistence-test-node-overrides');
 

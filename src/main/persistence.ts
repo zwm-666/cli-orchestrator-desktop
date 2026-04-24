@@ -263,7 +263,7 @@ const normalizeContinuityState = (value: unknown): RendererContinuityState => {
     selectedRunId: normalizeNullableString(value.selectedRunId),
     selectedConversationId,
     locale: value.locale === 'zh' ? 'zh' : 'en',
-    lastRoute: value.lastRoute === '/work' || value.lastRoute === '/config' ? value.lastRoute : null,
+    lastRoute: value.lastRoute === '/plan' || value.lastRoute === '/work' || value.lastRoute === '/config' ? value.lastRoute : null,
   };
 };
 
@@ -281,6 +281,7 @@ const normalizeWorkbenchTaskItem = (value: unknown): WorkbenchTaskItem | null =>
     detail: typeof value.detail === 'string' ? value.detail : '',
     status,
     source,
+    agentProfileId: normalizeNullableString(value.agentProfileId),
     createdAt: typeof value.createdAt === 'string' ? value.createdAt : new Date().toISOString(),
     updatedAt: typeof value.updatedAt === 'string' ? value.updatedAt : new Date().toISOString(),
     completedAt: normalizeNullableString(value.completedAt),
@@ -420,6 +421,7 @@ const normalizeWorkbenchState = (value: unknown): WorkbenchState => {
     workspaceRoot: normalizeNullableString(value.workspaceRoot),
     recentWorkspaceRoots: Array.isArray(value.recentWorkspaceRoots)
       ? (value.recentWorkspaceRoots as string[]).filter((entry) => typeof entry === 'string' && entry.trim().length > 0)
+          .slice(0, 5)
       : [],
     tasks: Array.isArray(value.tasks)
       ? (value.tasks as unknown[]).map(normalizeWorkbenchTaskItem).filter((entry): entry is WorkbenchTaskItem => entry !== null)

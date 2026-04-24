@@ -4,14 +4,15 @@ import type { LocalPersistenceStore } from '../persistence.js';
 
 type StateListener = (state: AppState) => void;
 type RunEventListener = (event: RunEvent) => void;
+const RECENT_WORKSPACE_ROOT_LIMIT = 5;
 
 const normalizeRecentWorkspaceRoots = (roots: string[] | undefined, workspaceRoot: string | null): string[] => {
   const filtered = (roots ?? []).filter((entry) => typeof entry === 'string' && entry.trim().length > 0);
   if (!workspaceRoot) {
-    return filtered.slice(0, 8);
+    return filtered.slice(0, RECENT_WORKSPACE_ROOT_LIMIT);
   }
 
-  return [workspaceRoot, ...filtered.filter((entry) => entry !== workspaceRoot)].slice(0, 8);
+  return [workspaceRoot, ...filtered.filter((entry) => entry !== workspaceRoot)].slice(0, RECENT_WORKSPACE_ROOT_LIMIT);
 };
 
 export class StateManager {

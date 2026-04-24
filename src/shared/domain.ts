@@ -163,6 +163,7 @@ export interface WorkbenchTaskItem {
   detail: string;
   status: WorkbenchTaskStatus;
   source: WorkbenchTaskSource;
+  agentProfileId?: string | null;
   createdAt: string;
   updatedAt: string;
   completedAt: string | null;
@@ -286,7 +287,7 @@ export const DEFAULT_LAUNCH_FORM_DRAFT: LaunchFormDraft = {
 
 export type Locale = AppLocale;
 
-export type PersistedRoute = '/work' | '/config';
+export type PersistedRoute = '/plan' | '/work' | '/config';
 
 export interface RendererContinuityState {
   planDraft: PlanDraft | null;
@@ -813,6 +814,20 @@ export interface ApplyWorkspaceFileInput {
 }
 
 export interface ApplyWorkspaceFileResult {
+  rootLabel: string;
+  workspaceRoot: string;
+  relativePath: string;
+  bytesWritten: number;
+  savedAt: string;
+}
+
+export interface WriteWorkspaceFileInput {
+  relativePath: string;
+  content: string;
+  workspaceRoot?: string | null;
+}
+
+export interface WriteWorkspaceFileResult {
   rootLabel: string;
   workspaceRoot: string;
   relativePath: string;
