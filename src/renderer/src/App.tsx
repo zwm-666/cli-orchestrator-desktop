@@ -52,7 +52,7 @@ const DEFAULT_ROUTING_SETTINGS: RoutingSettings = {
 const THEME_STORAGE_KEY = 'cli-orchestrator-theme';
 
 const isThemeName = (value: string | null): value is ThemeName => {
-  return value === 'black' || value === 'oc2';
+  return value === 'black' || value === 'oc-2';
 };
 
 const normalizeThemeName = (value: string | null): ThemeName => {
@@ -64,16 +64,16 @@ const normalizeThemeName = (value: string | null): ThemeName => {
     return 'black';
   }
 
-  if (value === 'oc-2') {
-    return 'oc2';
+  if (value === 'oc2') {
+    return 'oc-2';
   }
 
-  return 'oc2';
+  return 'oc-2';
 };
 
 const loadInitialTheme = (): ThemeName => {
   if (typeof window === 'undefined') {
-    return 'oc2';
+    return 'oc-2';
   }
 
   const storedTheme = window.localStorage.getItem(THEME_STORAGE_KEY);

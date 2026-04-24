@@ -151,7 +151,7 @@ export function FileExplorer(props: FileExplorerProps): React.JSX.Element {
           <span className={`explorer-icon ${isDirectory ? 'is-directory' : 'is-file'}`}>{getFileIconLabel(entry, isExpanded)}</span>
           <span className="explorer-copy file-tree-label">
             <strong>{entry.name}</strong>
-            <span className="mini-meta">{entry.relativePath}</span>
+            {!isDirectory ? <span className="mini-meta">{entry.relativePath}</span> : null}
           </span>
           {loadingPath === entry.relativePath ? <span className="mini-meta">…</span> : null}
         </button>

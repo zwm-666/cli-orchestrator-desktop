@@ -1,20 +1,20 @@
 const THEME_STORAGE_KEY = 'cli-orchestrator-theme';
 
-type ThemeName = 'black' | 'oc2';
+type ThemeName = 'black' | 'oc-2';
 
 const themeAliases: Record<string, ThemeName> = {
   black: 'black',
   dark: 'black',
-  oc2: 'oc2',
-  'oc-2': 'oc2',
+  oc2: 'oc-2',
+  'oc-2': 'oc-2',
 };
 
 const normalizeThemeName = (value: string | null): ThemeName => {
   if (!value) {
-    return 'oc2';
+    return 'oc-2';
   }
 
-  return themeAliases[value] ?? 'oc2';
+  return themeAliases[value] ?? 'oc-2';
 };
 
 const initialTheme = normalizeThemeName(window.localStorage.getItem(THEME_STORAGE_KEY));

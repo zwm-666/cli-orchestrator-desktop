@@ -2,7 +2,7 @@ import { NavLink } from 'react-router-dom';
 import type { Locale } from '../../../shared/domain.js';
 import { LOCALE_NAMES } from '../copy.js';
 
-export type ThemeName = 'black' | 'oc2';
+export type ThemeName = 'black' | 'oc-2';
 
 interface TopNavProps {
   locale: Locale;
@@ -15,7 +15,7 @@ interface TopNavProps {
 
 const THEME_LABELS: Record<ThemeName, string> = {
   black: 'Black',
-  oc2: 'OC-2',
+  'oc-2': 'OC-2',
 };
 
 export function TopNav({ locale, workspaceLabel, theme, onSetLocale, onSetTheme, onSwitchProject }: TopNavProps): React.JSX.Element {
