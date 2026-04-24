@@ -204,9 +204,16 @@ export interface TaskThreadMessage {
   createdAt: string;
 }
 
+export interface TaskThreadContinuation {
+  conversationId: string;
+  lastRunId: string | null;
+  updatedAt: string;
+}
+
 export interface TaskThread {
   id: string;
   title: string;
+  continuation?: TaskThreadContinuation | null;
   messages: TaskThreadMessage[];
   activityLog: WorkbenchActivitySummary[];
   createdAt: string;

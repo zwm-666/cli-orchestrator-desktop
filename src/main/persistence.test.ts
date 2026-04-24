@@ -104,6 +104,25 @@ const createState = (): AppState => {
     mcpServers: [],
     orchestrationRuns: [],
     orchestrationNodes: [],
+    workbench: {
+      ...structuredClone(DEFAULT_WORKBENCH_STATE),
+      activeThreadId: 'thread-1',
+      threads: [
+        {
+          id: 'thread-1',
+          title: 'Continuation thread',
+          continuation: {
+            conversationId: 'conv-1',
+            lastRunId: 'run-running',
+            updatedAt: '2026-03-20T10:02:00.000Z',
+          },
+          messages: [],
+          activityLog: [],
+          createdAt: '2026-03-20T10:00:00.000Z',
+          updatedAt: '2026-03-20T10:02:00.000Z',
+        },
+      ],
+    },
   };
 };
 
@@ -174,10 +193,12 @@ void test('LocalPersistenceStore recovers stale runs and preserves continuity', 
     initialStore.saveContinuityState(createContinuity());
 
     const recovered = new LocalPersistenceStore(rootDir).load();
-    const pendingRun = recovered.appData?.runs.find((run) => run.id === 'run-pending');
-    const runningRun = recovered.appData?.runs.find((run) => run.id === 'run-running');
-    const pendingTask = recovered.appData?.tasks.find((task) => task.id === 'task-pending');
-    const runningTask = recovered.appData?.tasks.find((task) => task.id === 'task-running');
+    const recoveredAppData = recovered.appData;
+    assert.ok(recoveredAppData);
+    const pendingRun = recoveredAppData.runs.find((run) => run.id === 'run-pending');
+    const runningRun = recoveredAppData.runs.find((run) => run.id === 'run-running');
+    const pendingTask = recoveredAppData.tasks.find((task) => task.id === 'task-pending');
+    const runningTask = recoveredAppData.tasks.find((task) => task.id === 'task-running');
 
     assert.ok(pendingRun);
     assert.ok(runningRun);
@@ -193,6 +214,13 @@ void test('LocalPersistenceStore recovers stale runs and preserves continuity', 
     assert.equal(typeof runningRun.endedAt, 'string');
     assert.match(pendingRun.events.at(-1)?.message ?? '', /Restart recovery marked this pending run as interrupted/);
     assert.match(runningRun.events.at(-1)?.message ?? '', /Restart recovery marked this running run as interrupted/);
+    const recoveredWorkbench = recoveredAppData.workbench;
+    assert.ok(recoveredWorkbench);
+    const recoveredThread = recoveredWorkbench.threads[0];
+    assert.ok(recoveredThread);
+    assert.ok(recoveredThread.continuation);
+    assert.equal(recoveredThread.continuation.conversationId, 'conv-1');
+    assert.equal(recoveredThread.continuation.lastRunId, 'run-running');
     assert.deepEqual(recovered.continuity, createContinuity());
   } finally {
     rmSync(rootDir, { recursive: true, force: true });
@@ -422,10 +450,14 @@ void test('LocalPersistenceStore defaults thread fields for legacy workbench sta
     writeFileSync(primaryPath, JSON.stringify(envelope, null, 2), 'utf8');
 
     const recovered = new LocalPersistenceStore(rootDir).load();
+    const recoveredAppData = recovered.appData;
+    assert.ok(recoveredAppData);
 
-    assert.equal(recovered.appData?.workbench?.objective, 'Legacy workbench state');
-    assert.equal(recovered.appData?.workbench?.activeThreadId, null);
-    assert.deepEqual(recovered.appData?.workbench?.threads, []);
+    const recoveredWorkbench = recoveredAppData.workbench;
+    assert.ok(recoveredWorkbench);
+    assert.equal(recoveredWorkbench.objective, 'Legacy workbench state');
+    assert.equal(recoveredWorkbench.activeThreadId, null);
+    assert.deepEqual(recoveredWorkbench.threads, []);
   } finally {
     rmSync(rootDir, { recursive: true, force: true });
   }

@@ -25,6 +25,7 @@ import type {
   RunStatus,
   SkillDefinition,
   TaskThread,
+  TaskThreadContinuation,
   TaskThreadMessage,
   Task,
   TaskRoutingProfile,
@@ -357,6 +358,18 @@ const normalizeTaskThreadMessage = (value: unknown): TaskThreadMessage | null =>
   };
 };
 
+const normalizeTaskThreadContinuation = (value: unknown): TaskThreadContinuation | null => {
+  if (!isJsonObject(value) || typeof value.conversationId !== 'string' || value.conversationId.trim().length === 0) {
+    return null;
+  }
+
+  return {
+    conversationId: value.conversationId.trim(),
+    lastRunId: normalizeNullableString(value.lastRunId),
+    updatedAt: typeof value.updatedAt === 'string' ? value.updatedAt : new Date().toISOString(),
+  };
+};
+
 const normalizeWorkbenchOrchestrationBinding = (value: unknown): WorkbenchOrchestrationBinding | null => {
   if (!isJsonObject(value) || typeof value.orchestrationRunId !== 'string' || typeof value.threadId !== 'string') {
     return null;
@@ -383,6 +396,7 @@ const normalizeTaskThread = (value: unknown): TaskThread | null => {
   return {
     id: value.id.trim(),
     title: typeof value.title === 'string' && value.title.trim().length > 0 ? value.title.trim() : 'Thread',
+    continuation: normalizeTaskThreadContinuation(value.continuation),
     messages: Array.isArray(value.messages)
       ? (value.messages as unknown[]).map(normalizeTaskThreadMessage).filter((entry): entry is TaskThreadMessage => entry !== null)
       : [],
