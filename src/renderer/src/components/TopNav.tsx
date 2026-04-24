@@ -4,10 +4,12 @@ import { LOCALE_NAMES } from '../copy.js';
 
 interface TopNavProps {
   locale: Locale;
+  workspaceLabel?: string | null;
   onSetLocale: (locale: Locale) => void;
+  onSwitchProject: () => void;
 }
 
-export function TopNav({ locale, onSetLocale }: TopNavProps): React.JSX.Element {
+export function TopNav({ locale, workspaceLabel, onSetLocale, onSwitchProject }: TopNavProps): React.JSX.Element {
   return (
     <header className="top-nav card">
       <div className="top-nav-brand-block top-nav-brand-block-compact">
@@ -22,9 +24,16 @@ export function TopNav({ locale, onSetLocale }: TopNavProps): React.JSX.Element 
         <NavLink to="/work" className={({ isActive }) => `route-link ${isActive ? 'is-active' : ''}`}>
           {locale === 'zh' ? '工作台' : 'Work'}
         </NavLink>
+        <NavLink to="/config" className={({ isActive }) => `route-link ${isActive ? 'is-active' : ''}`}>
+          {locale === 'zh' ? '配置' : 'Config'}
+        </NavLink>
       </nav>
 
       <div className="locale-inline-group">
+        {workspaceLabel ? <span className="status-pill">{workspaceLabel}</span> : null}
+        <button type="button" className="secondary-button secondary-button-compact" onClick={onSwitchProject}>
+          {locale === 'zh' ? '切换项目' : 'Switch project'}
+        </button>
         {(['en', 'zh'] as const).map((entry) => (
           <button
             key={entry}

@@ -6,6 +6,7 @@ import { DEFAULT_PROMPT_BUILDER_CONFIG, type PromptBuilderConfig } from '../../s
 import { loadAiConfig, loadAiConfigFromPersistence, saveAiConfig, type AiConfig } from './aiConfig.js';
 import { TopNav } from './components/TopNav.js';
 import { ConfigPage } from './pages/ConfigPage.js';
+import { ProjectSelectPage } from './pages/ProjectSelectPage.js';
 import { WorkPage } from './pages/WorkPage.js';
 
 const DEFAULT_CONTINUITY: RendererContinuityState = {
@@ -141,6 +142,19 @@ export function App(): React.JSX.Element {
     setAppState({ ...nextAppState, workbench: nextAppState.workbench ?? DEFAULT_WORKBENCH_STATE });
   };
 
+  const handleSelectWorkspaceFolder = async (): Promise<void> => {
+    await window.desktopApi.selectWorkspaceFolder();
+    const nextAppState = await window.desktopApi.getAppState();
+    setAppState({ ...nextAppState, workbench: nextAppState.workbench ?? DEFAULT_WORKBENCH_STATE });
+  };
+
+  const handleOpenRecentWorkspace = async (workspaceRoot: string): Promise<void> => {
+    await handleSaveWorkbenchState({
+      ...(appState.workbench ?? DEFAULT_WORKBENCH_STATE),
+      workspaceRoot,
+    });
+  };
+
   const handleLocaleChange = async (nextLocale: Locale): Promise<void> => {
     const nextContinuityState = await window.desktopApi.saveContinuityState({ ...continuityState, locale: nextLocale });
     setContinuityState(nextContinuityState);
@@ -162,13 +176,32 @@ export function App(): React.JSX.Element {
     return <main className="app-loading-state">{locale === 'zh' ? '正在加载渲染层状态...' : 'Loading renderer state...'}</main>;
   }
 
+  if (!appState.workbench?.workspaceRoot) {
+    return (
+      <ProjectSelectPage
+        locale={locale}
+        recentWorkspaceRoots={appState.workbench?.recentWorkspaceRoots ?? []}
+        onOpenFolder={() => {
+          void handleSelectWorkspaceFolder();
+        }}
+        onOpenRecentWorkspace={(workspaceRoot) => {
+          void handleOpenRecentWorkspace(workspaceRoot);
+        }}
+      />
+    );
+  }
+
   return (
     <HashRouter>
       <div className="routed-shell">
         <TopNav
           locale={locale}
+          workspaceLabel={appState.workbench.workspaceRoot.split(/[/\\]/).filter(Boolean).at(-1) ?? null}
           onSetLocale={(nextLocale) => {
             void handleLocaleChange(nextLocale);
+          }}
+          onSwitchProject={() => {
+            void handleSelectWorkspaceFolder();
           }}
         />
 
