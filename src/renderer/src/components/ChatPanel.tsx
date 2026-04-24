@@ -29,6 +29,8 @@ interface ChatPanelProps {
   onThreadChange: (threadId: string) => void;
   onSubmit: () => void;
   onNewThread: () => void;
+  onStartDiscussion: () => void;
+  onStartOrchestration: () => void;
   onDropFile: (absolutePath: string) => void;
   onApplyCodeToFile: (code: string) => void;
   onRetryMessage: (message: TaskThreadMessage) => void;
@@ -123,6 +125,8 @@ export function ChatPanel(props: ChatPanelProps): React.JSX.Element {
     onThreadChange,
     onSubmit,
     onNewThread,
+    onStartDiscussion,
+    onStartOrchestration,
     onDropFile,
     onApplyCodeToFile,
     onRetryMessage,
@@ -179,13 +183,6 @@ export function ChatPanel(props: ChatPanelProps): React.JSX.Element {
         </div>
       </div>
 
-      <div className="cursor-chat-entry-banner">
-        <span>{locale === 'zh' ? '对话入口' : 'Chat entry'}</span>
-        <button type="button" onClick={() => { textareaRef.current?.focus(); }}>
-          {locale === 'zh' ? '点击这里开始对话' : 'Click here to start chatting'}
-        </button>
-      </div>
-
       {errorMessage ? <div className="status-banner status-error"><p>{errorMessage}</p></div> : null}
 
       {activeOrchestrationRun?.status === 'executing' ? (
@@ -205,7 +202,7 @@ export function ChatPanel(props: ChatPanelProps): React.JSX.Element {
       <div className="chat-thread cursor-chat-thread">
         {messages.length === 0 ? (
           <p className="empty-state tall">
-            {locale === 'zh' ? '从一个问题、实现请求或 /orchestrate 命令开始。' : 'Start with a question, implementation request, or /orchestrate command.'}
+            {locale === 'zh' ? '从一个问题、实现请求、讨论或编排开始。' : 'Start with a question, implementation request, discussion, or orchestration.'}
           </p>
         ) : (
           messages.map((message) => (
@@ -396,13 +393,21 @@ export function ChatPanel(props: ChatPanelProps): React.JSX.Element {
 
           <label className="composer-model-chip">
             <span className="sr-only">{locale === 'zh' ? '模型' : 'Model'}</span>
-            <input list="chat-model-options" value={targetModel} onChange={(event) => { onTargetModelChange(event.target.value); }} />
-            <datalist id="chat-model-options">
+            <select value={targetModel} onChange={(event) => { onTargetModelChange(event.target.value); }}>
+              <option value="">{locale === 'zh' ? '自动模型' : 'Auto model'}</option>
               {targetModelOptions.map((option) => (
-                <option key={option} value={option} />
+                <option key={option} value={option}>{option}</option>
               ))}
-            </datalist>
+            </select>
           </label>
+
+          <button type="button" className="secondary-button secondary-button-compact composer-action-button" onClick={onStartDiscussion}>
+            {locale === 'zh' ? '讨论' : 'Discuss'}
+          </button>
+
+          <button type="button" className="secondary-button secondary-button-compact composer-action-button" onClick={onStartOrchestration}>
+            {locale === 'zh' ? '编排' : 'Orchestrate'}
+          </button>
 
           <button type="button" className="chat-send-button cursor-send-button" disabled={!canSend || isSending} onClick={onSubmit} aria-label={isSending ? (locale === 'zh' ? '处理中' : 'Working') : locale === 'zh' ? '发送' : 'Send'}>
             {isSending ? '…' : '↑'}
