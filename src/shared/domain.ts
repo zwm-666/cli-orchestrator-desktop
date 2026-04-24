@@ -513,6 +513,7 @@ export interface AgentProfile {
   role: AgentRoleType;
   adapterId: string;
   model: string;
+  modelOptions?: string[];
   systemPrompt: string;
   enabledSkillIds: string[];
   enabledMcpServerIds: string[];
