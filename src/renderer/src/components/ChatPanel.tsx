@@ -11,6 +11,8 @@ interface ChatPanelProps {
   canSend: boolean;
   errorMessage: string | null;
   selectedFilePath: string | null;
+  activeThreadId: string | null;
+  threadOptions: WorkbenchOption[];
   selectedTargetOptionId: string;
   targetOptions: ComposerTargetOption[];
   selectedAgentProfileId: string;
@@ -24,6 +26,7 @@ interface ChatPanelProps {
   onTargetOptionChange: (value: string) => void;
   onAgentProfileChange: (value: string) => void;
   onTargetModelChange: (value: string) => void;
+  onThreadChange: (threadId: string) => void;
   onSubmit: () => void;
   onNewThread: () => void;
   onDropFile: (absolutePath: string) => void;
@@ -102,6 +105,8 @@ export function ChatPanel(props: ChatPanelProps): React.JSX.Element {
     canSend,
     errorMessage,
     selectedFilePath,
+    activeThreadId,
+    threadOptions,
     selectedTargetOptionId,
     targetOptions,
     selectedAgentProfileId,
@@ -115,6 +120,7 @@ export function ChatPanel(props: ChatPanelProps): React.JSX.Element {
     onTargetOptionChange,
     onAgentProfileChange,
     onTargetModelChange,
+    onThreadChange,
     onSubmit,
     onNewThread,
     onDropFile,
@@ -131,7 +137,7 @@ export function ChatPanel(props: ChatPanelProps): React.JSX.Element {
     }
 
     textarea.style.height = '0px';
-    textarea.style.height = `${Math.max(textarea.scrollHeight, 96)}px`;
+    textarea.style.height = `${Math.max(textarea.scrollHeight, 72)}px`;
   }, [inputValue, textareaRef]);
 
   const showCommandMenu = inputValue.trimStart().startsWith('/');
@@ -146,19 +152,37 @@ export function ChatPanel(props: ChatPanelProps): React.JSX.Element {
 
     return agentProfileOptions.filter((option) => option.label.toLowerCase().includes(activeMentionQuery));
   }, [activeMentionQuery, agentProfileOptions]);
+  const activeThreadLabel = threadOptions.find((option) => option.id === activeThreadId)?.label ?? (locale === 'zh' ? '当前对话' : 'Current chat');
 
   return (
     <section className="section-panel inlay-card chat-panel cursor-chat-panel">
-      <div className="section-heading workspace-pane-heading chat-panel-heading">
-        <div>
-          <p className="section-label">{locale === 'zh' ? '对话工作流' : 'Conversational workflow'}</p>
-          <h3>{locale === 'zh' ? '统一消息流' : 'Unified message stream'}</h3>
-        </div>
-        <div className="card-actions">
-          <button type="button" className="secondary-button secondary-button-compact" onClick={onNewThread}>
-            {locale === 'zh' ? '新对话' : 'New chat'}
+      <div className="cursor-chat-topbar" aria-label={locale === 'zh' ? '对话工具栏' : 'Chat toolbar'}>
+        <button type="button" className="chat-icon-button" onClick={() => { textareaRef.current?.focus(); }} aria-label={locale === 'zh' ? '聚焦对话输入框' : 'Focus chat input'} title={locale === 'zh' ? '聚焦对话输入框' : 'Focus chat input'}>
+          💬
+        </button>
+
+        <label className="chat-thread-picker">
+          <span className="sr-only">{locale === 'zh' ? '查看之前的对话' : 'View previous conversations'}</span>
+          <select value={activeThreadId ?? ''} onChange={(event) => { onThreadChange(event.target.value); }}>
+            {threadOptions.map((option) => (
+              <option key={option.id} value={option.id}>{option.label}</option>
+            ))}
+          </select>
+          <span className="chat-thread-title" aria-hidden="true">{activeThreadLabel}</span>
+        </label>
+
+        <div className="cursor-chat-topbar-actions">
+          <button type="button" className="chat-icon-button" onClick={onNewThread} aria-label={locale === 'zh' ? '创建新对话' : 'Create new chat'} title={locale === 'zh' ? '创建新对话' : 'Create new chat'}>
+            ✎
           </button>
         </div>
+      </div>
+
+      <div className="cursor-chat-entry-banner">
+        <span>{locale === 'zh' ? '对话入口' : 'Chat entry'}</span>
+        <button type="button" onClick={() => { textareaRef.current?.focus(); }}>
+          {locale === 'zh' ? '点击这里开始对话' : 'Click here to start chatting'}
+        </button>
       </div>
 
       {errorMessage ? <div className="status-banner status-error"><p>{errorMessage}</p></div> : null}
@@ -228,7 +252,16 @@ export function ChatPanel(props: ChatPanelProps): React.JSX.Element {
                   ) : (
                     <div key={`${message.id}-code-${index}`} className="chat-code-block">
                       <div className="chat-code-block-topline">
-                        <span className="status-pill">{chunk.language ?? 'code'}</span>
+                        <span className="status-pill">{chunk.language ?? 'text'}</span>
+                        <button
+                          type="button"
+                          className="secondary-button secondary-button-compact"
+                          onClick={() => {
+                            void navigator.clipboard.writeText(chunk.value);
+                          }}
+                        >
+                          ⧉
+                        </button>
                         <button
                           type="button"
                           className="secondary-button secondary-button-compact"
@@ -242,8 +275,8 @@ export function ChatPanel(props: ChatPanelProps): React.JSX.Element {
                               ? '写入中...'
                               : 'Applying...'
                             : locale === 'zh'
-                              ? 'Apply to file'
-                              : 'Apply to file'}
+                              ? '写入'
+                              : 'Apply'}
                         </button>
                       </div>
                       <pre className="preview-code"><code>{chunk.value}</code></pre>
@@ -257,44 +290,13 @@ export function ChatPanel(props: ChatPanelProps): React.JSX.Element {
       </div>
 
       <div className="chat-composer cursor-chat-composer">
-        <div className="chat-composer-toolbar">
-          <label className="field compact-field">
-            <span>{locale === 'zh' ? '目标' : 'Target'}</span>
-            <select value={selectedTargetOptionId} onChange={(event) => { onTargetOptionChange(event.target.value); }}>
-              {targetOptions.map((option) => (
-                <option key={option.id} value={option.id}>{option.label}</option>
-              ))}
-            </select>
-          </label>
-
-          <label className="field compact-field">
-            <span>{locale === 'zh' ? 'Agent' : 'Agent'}</span>
-            <select value={selectedAgentProfileId} onChange={(event) => { onAgentProfileChange(event.target.value); }}>
-              <option value="">{locale === 'zh' ? '默认' : 'Default'}</option>
-              {agentProfileOptions.map((option) => (
-                <option key={option.id} value={option.id}>{option.label}</option>
-              ))}
-            </select>
-          </label>
-
-          <label className="field compact-field">
-            <span>{locale === 'zh' ? '模型' : 'Model'}</span>
-            <input list="chat-model-options" value={targetModel} onChange={(event) => { onTargetModelChange(event.target.value); }} />
-            <datalist id="chat-model-options">
-              {targetModelOptions.map((option) => (
-                <option key={option} value={option} />
-              ))}
-            </datalist>
-          </label>
-        </div>
-
-        <label className="field chat-input-field">
-          <span>{locale === 'zh' ? '输入' : 'Prompt'}</span>
+        <label className="chat-input-field cursor-composer-input-shell">
+          <span className="sr-only">{locale === 'zh' ? '输入' : 'Prompt'}</span>
           <textarea
             ref={textareaRef}
             value={inputValue}
-            rows={4}
-            placeholder={locale === 'zh' ? '输入消息，或使用 /orchestrate、/discuss、/clear、/switchProvider。' : 'Type a message, or use /orchestrate, /discuss, /clear, /switchProvider.'}
+            rows={3}
+            placeholder={locale === 'zh' ? '在这里输入对话内容，按 Enter 发送' : 'Type your message here, press Enter to send'}
             onChange={(event) => {
               onInputChange(event.target.value);
             }}
@@ -355,6 +357,45 @@ export function ChatPanel(props: ChatPanelProps): React.JSX.Element {
           </div>
         ) : null}
 
+        <div className="cursor-composer-control-row">
+          <button type="button" className="composer-plus-button" onClick={() => { textareaRef.current?.focus(); }} aria-label={locale === 'zh' ? '添加上下文' : 'Add context'} title={locale === 'zh' ? '拖入文件即可添加上下文' : 'Drop a file to add context'}>
+            +
+          </button>
+
+          <label className="composer-control-chip">
+            <span className="sr-only">{locale === 'zh' ? '目标' : 'Target'}</span>
+            <select value={selectedTargetOptionId} onChange={(event) => { onTargetOptionChange(event.target.value); }}>
+              {targetOptions.map((option) => (
+                <option key={option.id} value={option.id}>{option.label}</option>
+              ))}
+            </select>
+          </label>
+
+          <label className="composer-control-chip">
+            <span className="sr-only">{locale === 'zh' ? 'Agent' : 'Agent'}</span>
+            <select value={selectedAgentProfileId} onChange={(event) => { onAgentProfileChange(event.target.value); }}>
+              <option value="">{locale === 'zh' ? '默认 Agent' : 'Default agent'}</option>
+              {agentProfileOptions.map((option) => (
+                <option key={option.id} value={option.id}>{option.label}</option>
+              ))}
+            </select>
+          </label>
+
+          <label className="composer-model-chip">
+            <span className="sr-only">{locale === 'zh' ? '模型' : 'Model'}</span>
+            <input list="chat-model-options" value={targetModel} onChange={(event) => { onTargetModelChange(event.target.value); }} />
+            <datalist id="chat-model-options">
+              {targetModelOptions.map((option) => (
+                <option key={option} value={option} />
+              ))}
+            </datalist>
+          </label>
+
+          <button type="button" className="chat-send-button cursor-send-button" disabled={!canSend || isSending} onClick={onSubmit} aria-label={isSending ? (locale === 'zh' ? '处理中' : 'Working') : locale === 'zh' ? '发送' : 'Send'}>
+            {isSending ? '…' : '↑'}
+          </button>
+        </div>
+
         <div className="chat-composer-footer">
           <span className="mini-meta">
             {selectedFilePath
@@ -366,9 +407,6 @@ export function ChatPanel(props: ChatPanelProps): React.JSX.Element {
                 : 'Drop a workspace file to load it into context.'}
           </span>
 
-          <button type="button" className="primary-button chat-send-button" disabled={!canSend || isSending} onClick={onSubmit}>
-            {isSending ? (locale === 'zh' ? '处理中...' : 'Working...') : locale === 'zh' ? '发送' : 'Send'}
-          </button>
         </div>
       </div>
     </section>
