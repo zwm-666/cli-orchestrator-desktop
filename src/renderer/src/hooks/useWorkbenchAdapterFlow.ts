@@ -1,9 +1,10 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import type { AppState, Locale, TaskThreadMessage, WorkbenchState } from '../../../shared/domain.js';
+import type { AppState, Locale, TaskThread, TaskThreadMessage, WorkbenchState } from '../../../shared/domain.js';
 import {
   appendActivityToThread,
   appendMessagesToThread,
   applyTaskUpdates,
+  bindContinuationToThread,
   collectRunOutputText,
   createAdapterActivitySummary,
   extractTaskUpdates,
@@ -15,6 +16,7 @@ interface UseWorkbenchAdapterFlowInput {
   appState: AppState;
   workbench: WorkbenchState;
   selectedAdapter: AppState['adapters'][number] | null;
+  activeThread: TaskThread | null;
   activeThreadId: string | null;
   targetPrompt: string;
   targetModel: string;
@@ -40,6 +42,7 @@ export function useWorkbenchAdapterFlow(input: UseWorkbenchAdapterFlowInput): Us
     appState,
     workbench,
     selectedAdapter,
+    activeThread,
     activeThreadId,
     targetPrompt,
     targetModel,
@@ -90,8 +93,6 @@ export function useWorkbenchAdapterFlow(input: UseWorkbenchAdapterFlowInput): Us
           const updates = extractTaskUpdates(outputText);
           const nextActivity = createAdapterActivitySummary(locale, run, cliAdapterById.get(run.adapterId)?.displayName ?? run.adapterId, outputText);
           const targetThreadId = run.workbenchThreadId ?? getLatestWorkbench().activeThreadId ?? activeThreadId;
-          let wasProcessed = false;
-
           await queueWorkbenchPersist((currentWorkbench) => {
             const processedIds = new Set(currentWorkbench.processedRunIds);
             if (processedIds.has(run.id)) {
@@ -139,11 +140,10 @@ export function useWorkbenchAdapterFlow(input: UseWorkbenchAdapterFlowInput): Us
               messages: [completionMessage],
             });
 
-            wasProcessed = true;
             return nextWorkbench;
           });
 
-          if (wasProcessed && updates) {
+          if (updates) {
             syncedCount += 1;
           }
         } finally {
@@ -221,14 +221,26 @@ export function useWorkbenchAdapterFlow(input: UseWorkbenchAdapterFlowInput): Us
         ? `${locale === 'zh' ? 'Agent 角色要求' : 'Agent persona requirements'}: ${selectedAgentLabel ?? 'Agent'}\n${selectedAgentPrompt}\n\n${trimmedPrompt}`
         : trimmedPrompt;
 
-      await window.desktopApi.startRun({
+      const fallbackConversationId = appState.runs
+        .filter((run) => run.workbenchThreadId === activeThreadId)
+        .sort((left, right) => right.startedAt.localeCompare(left.startedAt))[0]?.activeConversationId;
+      const continuationConversationId = activeThread?.continuation?.conversationId ?? fallbackConversationId;
+
+      const result = await window.desktopApi.startRun({
         title: runTitle.trim() || (locale === 'zh' ? '统一工作台任务' : 'Unified workbench task'),
         prompt: effectivePrompt,
         adapterId: selectedAdapter.id,
         model: targetModel || null,
         workbenchThreadId: activeThreadId,
+        ...(continuationConversationId ? { conversationId: continuationConversationId } : {}),
         taskType: 'code',
       });
+
+      await queueWorkbenchPersist((currentWorkbench) => bindContinuationToThread(currentWorkbench, activeThreadId, {
+        conversationId: result.run.activeConversationId,
+        lastRunId: result.run.id,
+        updatedAt: new Date().toISOString(),
+      }));
     } catch (error: unknown) {
       setRunError(toErrorMessage(error, locale === 'zh' ? '无法启动本地工具。' : 'Unable to start the local adapter run.'));
     } finally {

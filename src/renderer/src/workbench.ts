@@ -3,6 +3,7 @@ import type {
   RunSession,
   SkillDefinition,
   TaskThread,
+  TaskThreadContinuation,
   TaskThreadMessage,
   WorkbenchActivitySummary,
   WorkbenchOrchestrationBinding,
@@ -156,17 +157,19 @@ const updateThread = (
     return workbench;
   }
 
-  let changed = false;
-  const threads = workbench.threads.map((thread) => {
-    if (thread.id !== threadId) {
-      return thread;
-    }
+  const threadIndex = workbench.threads.findIndex((thread) => thread.id === threadId);
+  if (threadIndex < 0) {
+    return workbench;
+  }
 
-    changed = true;
-    return updater(thread);
-  });
+  const threads = [...workbench.threads];
+  const targetThread = threads[threadIndex];
+  if (!targetThread) {
+    return workbench;
+  }
 
-  return changed ? { ...workbench, threads } : workbench;
+  threads[threadIndex] = updater(targetThread);
+  return { ...workbench, threads };
 };
 
 const summarizeOverflowMessages = (locale: AppLocale, threadId: string, messages: TaskThreadMessage[]): WorkbenchActivitySummary => {
@@ -218,6 +221,7 @@ export const createTaskThread = (input: { locale: AppLocale; objective: string; 
   return {
     id: `wb-thread-${crypto.randomUUID()}`,
     title: buildThreadTitle(input.locale, input.objective, input.title),
+    continuation: null,
     messages: [],
     activityLog: [],
     createdAt: now,
@@ -289,6 +293,18 @@ export const upsertOrchestrationThreadBinding = (
       ...existingBindings.filter((entry) => entry.orchestrationRunId !== binding.orchestrationRunId),
     ],
   };
+};
+
+export const bindContinuationToThread = (
+  workbench: WorkbenchState,
+  threadId: string | null,
+  continuation: TaskThreadContinuation,
+): WorkbenchState => {
+  return updateThread(workbench, threadId, (thread) => ({
+    ...thread,
+    continuation,
+    updatedAt: continuation.updatedAt,
+  }));
 };
 
 export const getActiveTaskThread = (workbench: WorkbenchState): TaskThread | null => {
@@ -368,14 +384,14 @@ export const upsertMessagesToThread = (input: {
   return updateThread(workbench, threadId, (thread) => {
     const nextMessages = [...thread.messages];
     const indexById = new Map(nextMessages.map((message, index) => [message.id, index]));
-    let didChange = false;
+    const changedMessageIds = new Set<string>();
 
     messages.forEach((message) => {
       const existingIndex = indexById.get(message.id);
       if (existingIndex === undefined) {
         nextMessages.push(message);
         indexById.set(message.id, nextMessages.length - 1);
-        didChange = true;
+        changedMessageIds.add(message.id);
         return;
       }
 
@@ -385,10 +401,10 @@ export const upsertMessagesToThread = (input: {
       }
 
       nextMessages[existingIndex] = message;
-      didChange = true;
+      changedMessageIds.add(message.id);
     });
 
-    if (!didChange) {
+    if (changedMessageIds.size === 0) {
       return thread;
     }
 
