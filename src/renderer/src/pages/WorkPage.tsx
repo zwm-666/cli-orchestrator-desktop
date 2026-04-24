@@ -199,6 +199,8 @@ export function WorkPage({ locale, aiConfig, appState, promptBuilderConfig, onSa
               onThreadChange={controller.handleThreadChange}
               onSubmit={() => { void controller.handleSendEntry(); }}
               onNewThread={controller.handleNewThread}
+              onStartDiscussion={() => { controller.handleOpenOrchestrationPanel('discussion'); }}
+              onStartOrchestration={() => { controller.handleOpenOrchestrationPanel('standard'); }}
               onRetryMessage={(message) => {
                 controller.setUserInput(message.content);
               }}
@@ -251,7 +253,7 @@ export function WorkPage({ locale, aiConfig, appState, promptBuilderConfig, onSa
                   activityLog={threadActivityLog}
                 />
 
-                <AgentStatusPanel locale={locale} agentProfiles={appState.agentProfiles} />
+                <AgentStatusPanel locale={locale} agentProfiles={appState.agentProfiles} adapters={appState.adapters} aiConfig={aiConfig} />
               </div>
             </details>
           </aside>

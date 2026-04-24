@@ -73,6 +73,7 @@ export function ConfigPage(props: ConfigPageProps): React.JSX.Element {
             locale={locale}
             agentProfiles={appState.agentProfiles}
             adapters={appState.adapters}
+            aiConfig={controller.draftConfig}
             onSaveAgentProfile={controller.handleSaveAgentProfile}
           />
 

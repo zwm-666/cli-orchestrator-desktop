@@ -386,6 +386,7 @@ export interface UpdateUiContinuityInput {
 export interface AdapterRoutingSettings {
   enabled: boolean;
   defaultModel: string;
+  modelOptions?: string[];
   customCommand: string;
 }
 
@@ -505,12 +506,15 @@ export const DEFAULT_RETRY_POLICY: RetryPolicy = {
 
 /**
  * AgentProfile defines a reusable agent configuration that combines
- * an adapter with a role, skills, MCP bindings, and execution constraints.
+ * a provider or local adapter with a role, skills, MCP bindings, and execution constraints.
  */
 export interface AgentProfile {
   id: string;
   name: string;
   role: AgentRoleType;
+  targetKind?: WorkbenchTargetKind;
+  targetId?: string;
+  /** Legacy adapter target kept for existing persisted profiles and adapter orchestration. */
   adapterId: string;
   model: string;
   modelOptions?: string[];

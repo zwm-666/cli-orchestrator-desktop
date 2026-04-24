@@ -10,6 +10,7 @@ import type {
   WorkspaceEntry,
 } from '../../../shared/domain.js';
 import { DEFAULT_WORKBENCH_STATE } from '../../../shared/domain.js';
+import { getAgentProfileDisplayName, resolveAgentProfileModel, resolveAgentProfileModelOptions } from '../../../shared/agentProfiles.js';
 import type { PromptBuilderConfig } from '../../../shared/promptBuilder.js';
 import type { AiConfig, AiProviderConfig, AiProviderDefinition } from '../aiConfig.js';
 import { getProviderDefinition } from '../aiConfig.js';
@@ -152,6 +153,24 @@ const normalizeThreadedWorkbench = (workbench: WorkbenchState, locale: Locale, b
   };
 };
 
+const getProfileTarget = (profile: AppState['agentProfiles'][number] | null): { kind: WorkbenchTargetKind; id: string } => ({
+  kind: profile?.targetKind ?? 'adapter',
+  id: profile?.targetId ?? profile?.adapterId ?? '',
+});
+
+const getProviderModelSource = (providerId: string, aiConfig: AiConfig): { defaultModel: string | null; supportedModels: string[] } | null => {
+  const providerConfig = aiConfig.providers[providerId];
+  if (!providerConfig) {
+    return null;
+  }
+  const providerDefinition = getProviderDefinition(providerId, providerConfig);
+  const supportedModels = [...new Set([providerConfig.default_model ?? '', ...(providerConfig.models ?? []), ...providerDefinition.modelSuggestions].map((model) => model.trim()).filter((model) => model.length > 0))];
+  return {
+    defaultModel: providerConfig.default_model?.trim() || supportedModels[0] || null,
+    supportedModels,
+  };
+};
+
 export function useWorkbenchController(input: UseWorkbenchControllerInput): UseWorkbenchControllerResult {
   const { locale, aiConfig, appState, promptBuilderConfig, onSaveWorkbenchState } = input;
   const persistedWorkbench = appState.workbench ?? DEFAULT_WORKBENCH_STATE;
@@ -230,7 +249,7 @@ export function useWorkbenchController(input: UseWorkbenchControllerInput): UseW
     [availableAdapters],
   );
   const agentProfileOptions = useMemo<WorkbenchOption[]>(
-    () => appState.agentProfiles.filter((profile) => profile.enabled).map((profile) => ({ id: profile.id, label: profile.name })),
+    () => appState.agentProfiles.filter((profile) => profile.enabled).map((profile) => ({ id: profile.id, label: getAgentProfileDisplayName(profile) })),
     [appState.agentProfiles],
   );
 
@@ -247,11 +266,23 @@ export function useWorkbenchController(input: UseWorkbenchControllerInput): UseW
     if (!selectedAgentProfileId && agentProfileOptions[0]) {
       setSelectedAgentProfileId(agentProfileOptions[0].id);
       const firstProfile = appState.agentProfiles.find((profile) => profile.id === agentProfileOptions[0]?.id) ?? null;
-      if (firstProfile?.model.trim()) {
-        setTargetModel(firstProfile.model);
+      const firstProfileTarget = getProfileTarget(firstProfile);
+      const firstProfileAdapter = firstProfileTarget.kind === 'adapter' ? appState.adapters.find((adapter) => adapter.id === firstProfileTarget.id) ?? null : null;
+      const firstProfileProvider = firstProfileTarget.kind === 'provider' ? getProviderModelSource(firstProfileTarget.id, aiConfig) : null;
+      const firstProfileModel = firstProfile ? resolveAgentProfileModel(firstProfile, firstProfileAdapter ?? firstProfileProvider) : '';
+      if (firstProfileTarget.id) {
+        setSelectedTargetKind(firstProfileTarget.kind);
+        if (firstProfileTarget.kind === 'provider') {
+          setSelectedProviderId(firstProfileTarget.id);
+        } else {
+          setSelectedAdapterId(firstProfileTarget.id);
+        }
+      }
+      if (firstProfileModel) {
+        setTargetModel(firstProfileModel);
       }
     }
-  }, [agentProfileOptions, appState.agentProfiles, selectedAgentProfileId]);
+  }, [agentProfileOptions, aiConfig, appState.adapters, appState.agentProfiles, selectedAgentProfileId]);
 
   const selectedProviderDefinition = useMemo(
     () => (selectedProviderId ? getProviderDefinition(selectedProviderId, aiConfig.providers[selectedProviderId]) : null),
@@ -273,6 +304,14 @@ export function useWorkbenchController(input: UseWorkbenchControllerInput): UseW
 
   const targetModelOptions = useMemo(() => {
     const models = new Set<string>();
+    if (selectedAgentProfile) {
+      const profileTarget = getProfileTarget(selectedAgentProfile);
+      const profileAdapter = profileTarget.kind === 'adapter' ? appState.adapters.find((adapter) => adapter.id === profileTarget.id) ?? null : null;
+      const profileProvider = profileTarget.kind === 'provider' ? getProviderModelSource(profileTarget.id, aiConfig) : null;
+      resolveAgentProfileModelOptions(selectedAgentProfile, profileAdapter ?? profileProvider).forEach((model) => {
+        if (model.trim()) models.add(model.trim());
+      });
+    }
     if (selectedTargetKind === 'provider') {
       (selectedProviderDefinition?.modelSuggestions ?? []).forEach((model) => {
         if (model.trim()) models.add(model.trim());
@@ -286,7 +325,7 @@ export function useWorkbenchController(input: UseWorkbenchControllerInput): UseW
     }
     if (targetModel.trim()) models.add(targetModel.trim());
     return [...models];
-  }, [selectedAdapter, selectedProviderDefinition, selectedTargetKind, targetModel]);
+  }, [aiConfig, appState.adapters, selectedAdapter, selectedAgentProfile, selectedProviderDefinition, selectedTargetKind, targetModel]);
 
   const boundSkills = useMemo(() => {
     const targetId = selectedTargetKind === 'provider' ? selectedProviderId : selectedAdapterId;
@@ -346,7 +385,7 @@ export function useWorkbenchController(input: UseWorkbenchControllerInput): UseW
     setUserInput,
     boundSkills,
     selectedFile: workspace.selectedFile,
-    selectedAgentLabel: selectedAgentProfile?.name ?? null,
+    selectedAgentLabel: selectedAgentProfile ? getAgentProfileDisplayName(selectedAgentProfile) : null,
     selectedAgentPrompt: selectedAgentProfile?.systemPrompt ?? null,
     getLatestWorkbench,
     queueWorkbenchPersist,
@@ -362,7 +401,7 @@ export function useWorkbenchController(input: UseWorkbenchControllerInput): UseW
     targetPrompt: userInput,
     targetModel,
     setTaskStatusMessage: taskBoard.setTaskStatusMessage,
-    selectedAgentLabel: selectedAgentProfile?.name ?? null,
+    selectedAgentLabel: selectedAgentProfile ? getAgentProfileDisplayName(selectedAgentProfile) : null,
     selectedAgentPrompt: selectedAgentProfile?.systemPrompt ?? null,
     getLatestWorkbench,
     queueWorkbenchPersist,
@@ -404,8 +443,20 @@ export function useWorkbenchController(input: UseWorkbenchControllerInput): UseW
   const handleAgentProfileChange = (nextProfileId: string): void => {
     setSelectedAgentProfileId(nextProfileId);
     const nextProfile = appState.agentProfiles.find((profile) => profile.id === nextProfileId) ?? null;
-    if (nextProfile?.model.trim()) {
-      setTargetModel(nextProfile.model);
+    const nextProfileTarget = getProfileTarget(nextProfile);
+    const nextProfileAdapter = nextProfileTarget.kind === 'adapter' ? appState.adapters.find((adapter) => adapter.id === nextProfileTarget.id) ?? null : null;
+    const nextProfileProvider = nextProfileTarget.kind === 'provider' ? getProviderModelSource(nextProfileTarget.id, aiConfig) : null;
+    const nextProfileModel = nextProfile ? resolveAgentProfileModel(nextProfile, nextProfileAdapter ?? nextProfileProvider) : '';
+    if (nextProfileTarget.id) {
+      setSelectedTargetKind(nextProfileTarget.kind);
+      if (nextProfileTarget.kind === 'provider') {
+        setSelectedProviderId(nextProfileTarget.id);
+      } else {
+        setSelectedAdapterId(nextProfileTarget.id);
+      }
+    }
+    if (nextProfileModel) {
+      setTargetModel(nextProfileModel);
     }
   };
 

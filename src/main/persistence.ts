@@ -178,12 +178,16 @@ const normalizeAdapterRoutingSettings = (value: unknown): AdapterRoutingSettings
     return {
       enabled: true,
       defaultModel: '',
+      modelOptions: [],
       customCommand: '',
     };
   }
   return {
     enabled: typeof value.enabled === 'boolean' ? value.enabled : true,
     defaultModel: typeof value.defaultModel === 'string' ? value.defaultModel : '',
+    modelOptions: Array.isArray(value.modelOptions)
+      ? (value.modelOptions as unknown[]).filter((model): model is string => typeof model === 'string' && model.trim().length > 0)
+      : [],
     customCommand: typeof value.customCommand === 'string' ? value.customCommand : '',
   };
 };
@@ -644,11 +648,16 @@ const normalizeAgentProfile = (value: unknown): AgentProfile | null => {
     typeof value.role === 'string' && VALID_AGENT_ROLES.includes(value.role as AgentRoleType)
       ? (value.role as AgentRoleType)
       : 'custom';
+  const adapterId = typeof value.adapterId === 'string' ? value.adapterId : '';
+  const targetKind = value.targetKind === 'provider' || value.targetKind === 'adapter' ? value.targetKind : 'adapter';
+  const targetId = typeof value.targetId === 'string' && value.targetId.trim().length > 0 ? value.targetId : adapterId;
   return {
     id: value.id.trim(),
     name: typeof value.name === 'string' ? value.name : value.id.trim(),
     role,
-    adapterId: typeof value.adapterId === 'string' ? value.adapterId : '',
+    targetKind,
+    targetId,
+    adapterId,
     model: typeof value.model === 'string' ? value.model : '',
     modelOptions: Array.isArray(value.modelOptions)
       ? (value.modelOptions as string[]).filter((model) => typeof model === 'string' && model.trim().length > 0)

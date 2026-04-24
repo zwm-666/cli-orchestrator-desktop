@@ -1,6 +1,6 @@
 import type { AgentProfile, CliAdapter } from './domain.js';
 
-type AdapterModelSource = Pick<CliAdapter, 'defaultModel' | 'supportedModels'>;
+type ModelSource = Pick<CliAdapter, 'defaultModel' | 'supportedModels'>;
 
 const normalizeModel = (model: string | null | undefined): string => model?.trim() ?? '';
 
@@ -17,27 +17,27 @@ export const getAgentProfileDisplayName = (profile: Pick<AgentProfile, 'name'>):
 
 export const resolveAgentProfileModelOptions = (
   profile: Pick<AgentProfile, 'model' | 'modelOptions'>,
-  adapter: AdapterModelSource | null | undefined,
+  source: ModelSource | null | undefined,
 ): string[] => {
   const options: string[] = [];
-  appendUniqueModel(options, adapter?.defaultModel ?? null);
+  appendUniqueModel(options, source?.defaultModel ?? null);
   (profile.modelOptions ?? []).forEach((model) => { appendUniqueModel(options, model); });
   appendUniqueModel(options, profile.model);
-  (adapter?.supportedModels ?? []).forEach((model) => { appendUniqueModel(options, model); });
+  (source?.supportedModels ?? []).forEach((model) => { appendUniqueModel(options, model); });
   return options;
 };
 
 export const resolveAgentProfileModel = (
   profile: Pick<AgentProfile, 'model' | 'modelOptions'>,
-  adapter: AdapterModelSource | null | undefined,
+  source: ModelSource | null | undefined,
 ): string => {
   const requestedModel = normalizeModel(profile.model);
-  const supportedModels = adapter?.supportedModels.filter((model) => model.trim().length > 0) ?? [];
+  const supportedModels = source?.supportedModels.filter((model) => model.trim().length > 0) ?? [];
   if (requestedModel && (supportedModels.length === 0 || supportedModels.includes(requestedModel))) {
     return requestedModel;
   }
 
-  const options = resolveAgentProfileModelOptions(profile, adapter);
+  const options = resolveAgentProfileModelOptions(profile, source);
   if (supportedModels.length === 0) {
     return options[0] ?? '';
   }
@@ -55,6 +55,8 @@ const mergeStringLists = (left: readonly string[], right: readonly string[]): st
 const getProfileMergeKey = (profile: AgentProfile): string => JSON.stringify({
   name: getAgentProfileDisplayName(profile).toLowerCase(),
   role: profile.role,
+  targetKind: profile.targetKind ?? 'adapter',
+  targetId: profile.targetId ?? profile.adapterId,
   adapterId: profile.adapterId,
   systemPrompt: profile.systemPrompt,
   enabledSkillIds: [...profile.enabledSkillIds].sort(),
