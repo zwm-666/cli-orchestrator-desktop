@@ -4,7 +4,7 @@ import type { AppState, Locale, RendererContinuityState, RoutingSettings, SaveSk
 import { DEFAULT_WORKBENCH_STATE } from '../../shared/domain.js';
 import { DEFAULT_PROMPT_BUILDER_CONFIG, type PromptBuilderConfig } from '../../shared/promptBuilder.js';
 import { loadAiConfig, loadAiConfigFromPersistence, saveAiConfig, type AiConfig } from './aiConfig.js';
-import { TopNav } from './components/TopNav.js';
+import { TopNav, type ThemeName } from './components/TopNav.js';
 import { ConfigPage } from './pages/ConfigPage.js';
 import { FolderSelectPage } from './pages/FolderSelectPage.js';
 import { PlanPage } from './pages/PlanPage.js';
@@ -49,6 +49,37 @@ const DEFAULT_ROUTING_SETTINGS: RoutingSettings = {
   taskProfiles: [],
 };
 
+const THEME_STORAGE_KEY = 'cli-orchestrator-theme';
+
+const isThemeName = (value: string | null): value is ThemeName => {
+  return value === 'black' || value === 'oc2';
+};
+
+const normalizeThemeName = (value: string | null): ThemeName => {
+  if (isThemeName(value)) {
+    return value;
+  }
+
+  if (value === 'dark') {
+    return 'black';
+  }
+
+  if (value === 'oc-2') {
+    return 'oc2';
+  }
+
+  return 'oc2';
+};
+
+const loadInitialTheme = (): ThemeName => {
+  if (typeof window === 'undefined') {
+    return 'oc2';
+  }
+
+  const storedTheme = window.localStorage.getItem(THEME_STORAGE_KEY);
+  return normalizeThemeName(storedTheme);
+};
+
 interface RoutePersistenceProps {
   continuityState: RendererContinuityState;
   onSaveContinuityState: (state: RendererContinuityState) => Promise<void>;
@@ -77,6 +108,7 @@ function RoutePersistence({ continuityState, onSaveContinuityState }: RoutePersi
 
 interface RoutedAppContentProps {
   locale: Locale;
+  theme: ThemeName;
   aiConfig: AiConfig;
   appState: AppState;
   routingSettings: RoutingSettings;
@@ -87,6 +119,7 @@ interface RoutedAppContentProps {
   onOpenRecentWorkspace: (workspaceRoot: string) => Promise<void>;
   onRemoveRecentWorkspace: (workspaceRoot: string) => Promise<void>;
   onSetLocale: (locale: Locale) => void;
+  onSetTheme: (theme: ThemeName) => void;
   onSaveAiConfig: (nextConfig: AiConfig) => Promise<void>;
   onSaveRoutingSettings: (nextSettings: RoutingSettings) => Promise<void>;
   onSaveWorkbenchState: (nextWorkbenchState: WorkbenchState) => Promise<void>;
@@ -102,6 +135,7 @@ const hasPlanSeed = (workbench: WorkbenchState | undefined): boolean => {
 function RoutedAppContent(props: RoutedAppContentProps): React.JSX.Element {
   const {
     locale,
+    theme,
     aiConfig,
     appState,
     routingSettings,
@@ -112,6 +146,7 @@ function RoutedAppContent(props: RoutedAppContentProps): React.JSX.Element {
     onOpenRecentWorkspace,
     onRemoveRecentWorkspace,
     onSetLocale,
+    onSetTheme,
     onSaveAiConfig,
     onSaveRoutingSettings,
     onSaveWorkbenchState,
@@ -148,7 +183,9 @@ function RoutedAppContent(props: RoutedAppContentProps): React.JSX.Element {
         <TopNav
           locale={locale}
           workspaceLabel={workbench.workspaceRoot?.split(/[/\\]/).filter(Boolean).at(-1) ?? null}
+          theme={theme}
           onSetLocale={onSetLocale}
+          onSetTheme={onSetTheme}
           onSwitchProject={() => {
             void navigate('/');
           }}
@@ -241,7 +278,13 @@ export function App(): React.JSX.Element {
   const [promptBuilderConfig, setPromptBuilderConfig] = useState(DEFAULT_PROMPT_BUILDER_CONFIG);
   const [isBootstrapping, setIsBootstrapping] = useState(true);
   const [isSelectingProjectFolder, setIsSelectingProjectFolder] = useState(false);
+  const [theme, setTheme] = useState<ThemeName>(() => loadInitialTheme());
   const locale: Locale = continuityState.locale;
+
+  useEffect(() => {
+    document.documentElement.setAttribute('data-theme', theme);
+    window.localStorage.setItem(THEME_STORAGE_KEY, theme);
+  }, [theme]);
 
   useEffect(() => {
     let isActive = true;
@@ -358,6 +401,7 @@ export function App(): React.JSX.Element {
     <HashRouter>
       <RoutedAppContent
         locale={locale}
+        theme={theme}
         aiConfig={aiConfig}
         appState={appState}
         routingSettings={routingSettings}
@@ -370,6 +414,7 @@ export function App(): React.JSX.Element {
         onSetLocale={(nextLocale) => {
           void handleLocaleChange(nextLocale);
         }}
+        onSetTheme={setTheme}
         onSaveAiConfig={handleSaveAiConfig}
         onSaveRoutingSettings={handleSaveRoutingSettings}
         onSaveWorkbenchState={handleSaveWorkbenchState}

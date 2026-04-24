@@ -2,14 +2,23 @@ import { NavLink } from 'react-router-dom';
 import type { Locale } from '../../../shared/domain.js';
 import { LOCALE_NAMES } from '../copy.js';
 
+export type ThemeName = 'black' | 'oc2';
+
 interface TopNavProps {
   locale: Locale;
   workspaceLabel?: string | null;
+  theme: ThemeName;
   onSetLocale: (locale: Locale) => void;
+  onSetTheme: (theme: ThemeName) => void;
   onSwitchProject: () => void;
 }
 
-export function TopNav({ locale, workspaceLabel, onSetLocale, onSwitchProject }: TopNavProps): React.JSX.Element {
+const THEME_LABELS: Record<ThemeName, string> = {
+  black: 'Black',
+  oc2: 'OC-2',
+};
+
+export function TopNav({ locale, workspaceLabel, theme, onSetLocale, onSetTheme, onSwitchProject }: TopNavProps): React.JSX.Element {
   return (
     <header className="top-nav card">
       <div className="top-nav-brand-block top-nav-brand-block-compact">
@@ -37,6 +46,18 @@ export function TopNav({ locale, workspaceLabel, onSetLocale, onSwitchProject }:
         <button type="button" className="secondary-button secondary-button-compact" onClick={onSwitchProject}>
           {locale === 'zh' ? '更换文件夹' : 'Change folder'}
         </button>
+        {(Object.keys(THEME_LABELS) as ThemeName[]).map((entry) => (
+          <button
+            key={entry}
+            type="button"
+            className={`locale-button ${theme === entry ? 'is-active' : ''}`}
+            onClick={() => {
+              onSetTheme(entry);
+            }}
+          >
+            {THEME_LABELS[entry]}
+          </button>
+        ))}
         {(['en', 'zh'] as const).map((entry) => (
           <button
             key={entry}
