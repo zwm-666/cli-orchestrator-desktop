@@ -12,6 +12,7 @@ interface ActiveProviderPanelProps {
 
 export function ActiveProviderPanel({ locale, draftConfig, activeProviderDefinition, setActiveProvider, setActiveModel }: ActiveProviderPanelProps): React.JSX.Element {
   const activeProviderConfig = draftConfig.active_provider ? draftConfig.providers[draftConfig.active_provider] : null;
+  const modelOptions = activeProviderDefinition?.modelSuggestions ?? [];
 
   return (
     <div className="config-provider-summary subdued-row">
@@ -36,10 +37,26 @@ export function ActiveProviderPanel({ locale, draftConfig, activeProviderDefinit
 
         <label className="field">
           <span>{locale === 'zh' ? '默认模型' : 'Active model'}</span>
+          {modelOptions.length > 0 ? (
+            <select
+              value={draftConfig.active_model}
+              disabled={!draftConfig.active_provider}
+              onChange={(event) => {
+                setActiveModel(event.target.value);
+              }}
+            >
+              <option value="">{locale === 'zh' ? '选择已保存模型' : 'Choose a saved model'}</option>
+              {modelOptions.map((model) => (
+                <option key={model} value={model}>
+                  {model}
+                </option>
+              ))}
+            </select>
+          ) : null}
           <input
             list={activeProviderDefinition ? `${activeProviderDefinition.id}-model-list` : undefined}
             value={draftConfig.active_model}
-            placeholder={locale === 'zh' ? '工作台默认使用的模型' : 'Model used by the Work page'}
+            placeholder={locale === 'zh' ? '工作台默认使用的模型，可手输新模型' : 'Model used by the Work page, or type a new one'}
             disabled={!draftConfig.active_provider}
             onChange={(event) => {
               setActiveModel(event.target.value);

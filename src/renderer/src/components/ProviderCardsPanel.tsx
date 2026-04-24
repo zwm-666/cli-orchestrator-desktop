@@ -5,6 +5,19 @@ import { AI_PROVIDERS, getProviderDefinition, isCustomProviderId } from '../aiCo
 import type { ProviderStatusMap, VisibilityMap } from '../configPageShared.js';
 import { getProviderDescription } from '../configLocalization.js';
 
+const parseModelEditorValue = (value: string): string[] => {
+  const uniqueModels = new Set<string>();
+  value
+    .split(/\r?\n|,/) 
+    .map((entry) => entry.trim())
+    .filter((entry) => entry.length > 0)
+    .forEach((entry) => {
+      uniqueModels.add(entry);
+    });
+
+  return [...uniqueModels];
+};
+
 interface ProviderCardsPanelProps {
   locale: Locale;
   draftConfig: AiConfig;
@@ -99,8 +112,8 @@ export function ProviderCardsPanel(props: ProviderCardsPanelProps): React.JSX.El
             : hasKey
               ? locale === 'zh' ? '已保存密钥' : 'Key saved'
               : locale === 'zh' ? '未配置' : 'Not configured';
-        const showModelInput = isCustom || draftConfig.active_provider === providerId;
         const currentModel = draftConfig.active_provider === providerId ? draftConfig.active_model : (providerConfig.default_model ?? '');
+        const modelEditorValue = (providerConfig.models ?? []).join('\n');
 
         return (
           <article id={`config-provider-${providerId}`} key={providerId} className={`section-panel inlay-card provider-card ${draftConfig.active_provider === providerId ? 'is-active' : ''}`}>
@@ -175,13 +188,23 @@ export function ProviderCardsPanel(props: ProviderCardsPanelProps): React.JSX.El
               />
             </label>
 
-            {showModelInput ? (
-              <label className="field">
-                <span>{locale === 'zh' ? '默认模型' : 'Default model'}</span>
-                <input
-                  list={!isCustom && providerDefinition.modelSuggestions.length > 0 ? `${providerId}-model-list` : undefined}
+            <label className="field">
+              <span>{locale === 'zh' ? '已保存模型（每行一个）' : 'Saved models (one per line)'}</span>
+              <textarea
+                rows={4}
+                value={modelEditorValue}
+                placeholder={locale === 'zh' ? '例如：\ngpt-4.1\ngpt-5.4' : 'For example:\ngpt-4.1\ngpt-5.4'}
+                onChange={(event) => {
+                  updateProvider(providerId, { models: parseModelEditorValue(event.target.value) });
+                }}
+              />
+            </label>
+
+            <label className="field">
+              <span>{locale === 'zh' ? '当前默认模型' : 'Current default model'}</span>
+              {providerDefinition.modelSuggestions.length > 0 ? (
+                <select
                   value={currentModel}
-                  placeholder={locale === 'zh' ? '输入要使用的模型名' : 'Enter the model name to use'}
                   onChange={(event) => {
                     if (draftConfig.active_provider === providerId) {
                       setActiveModel(event.target.value);
@@ -190,15 +213,57 @@ export function ProviderCardsPanel(props: ProviderCardsPanelProps): React.JSX.El
 
                     updateProvider(providerId, { default_model: event.target.value });
                   }}
-                />
-                {!isCustom && providerDefinition.modelSuggestions.length > 0 ? (
-                  <datalist id={`${providerId}-model-list`}>
-                    {providerDefinition.modelSuggestions.map((model) => (
-                      <option key={model} value={model} />
-                    ))}
-                  </datalist>
-                ) : null}
-              </label>
+                >
+                  <option value="">{locale === 'zh' ? '选择模型' : 'Choose a model'}</option>
+                  {providerDefinition.modelSuggestions.map((model) => (
+                    <option key={model} value={model}>
+                      {model}
+                    </option>
+                  ))}
+                </select>
+              ) : null}
+              <input
+                list={providerDefinition.modelSuggestions.length > 0 ? `${providerId}-model-list` : undefined}
+                value={currentModel}
+                placeholder={locale === 'zh' ? '输入要使用的模型名' : 'Enter the model name to use'}
+                onChange={(event) => {
+                  if (draftConfig.active_provider === providerId) {
+                    setActiveModel(event.target.value);
+                    return;
+                  }
+
+                  updateProvider(providerId, { default_model: event.target.value });
+                }}
+              />
+              {providerDefinition.modelSuggestions.length > 0 ? (
+                <datalist id={`${providerId}-model-list`}>
+                  {providerDefinition.modelSuggestions.map((model) => (
+                    <option key={model} value={model} />
+                  ))}
+                </datalist>
+              ) : null}
+            </label>
+
+            {providerDefinition.modelSuggestions.length > 0 ? (
+              <div className="badge-pair">
+                {providerDefinition.modelSuggestions.map((model) => (
+                  <button
+                    key={model}
+                    type="button"
+                    className={`secondary-button secondary-button-compact ${currentModel === model ? 'is-active' : ''}`}
+                    onClick={() => {
+                      if (draftConfig.active_provider === providerId) {
+                        setActiveModel(model);
+                        return;
+                      }
+
+                      updateProvider(providerId, { default_model: model });
+                    }}
+                  >
+                    {model}
+                  </button>
+                ))}
+              </div>
             ) : null}
 
             <label className="toggle-field provider-toggle-row">

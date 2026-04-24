@@ -10,7 +10,7 @@ import type {
 } from '../../../shared/domain.js';
 import { DEFAULT_WORKBENCH_STATE } from '../../../shared/domain.js';
 import type { AiConfig, AiProviderConfig, ProviderApiStyle } from '../aiConfig.js';
-import { AI_CONFIG_STORAGE_KEY, getProviderDefinition, isCustomProviderId } from '../aiConfig.js';
+import { AI_CONFIG_STORAGE_KEY, getProviderDefinition, isCustomProviderId, mergeProviderModelLists } from '../aiConfig.js';
 import { localizeProviderRuntimeMessage } from '../providerRuntimeLocalization.js';
 import { testProviderConnection } from '../providerApi.js';
 import {
@@ -147,6 +147,18 @@ export function useConfigPageController(input: UseConfigPageControllerInput): Us
         ...updates,
       };
 
+      const nextModels = 'models' in updates
+        ? mergeProviderModelLists(updates.models, nextProvider.default_model ? [nextProvider.default_model] : [])
+        : mergeProviderModelLists(nextProvider.models, typeof updates.default_model === 'string' ? [updates.default_model] : []);
+
+      if (nextModels.length > 0) {
+        nextProvider.models = nextModels;
+      }
+
+      if (typeof nextProvider.default_model === 'string' && nextProvider.default_model.trim().length === 0) {
+        nextProvider.default_model = nextModels[0] ?? '';
+      }
+
       if (
         (typeof updates.api_key === 'string' && updates.api_key.trim().length > 0) ||
         (typeof updates.base_url === 'string' && updates.base_url.trim().length > 0)
@@ -158,7 +170,7 @@ export function useConfigPageController(input: UseConfigPageControllerInput): Us
         ...current,
         active_model:
           current.active_provider === providerId && typeof updates.default_model === 'string'
-            ? updates.default_model
+            ? nextProvider.default_model ?? updates.default_model
             : current.active_model,
         providers: {
           ...current.providers,
@@ -219,6 +231,7 @@ export function useConfigPageController(input: UseConfigPageControllerInput): Us
           [current.active_provider]: {
             ...activeProviderConfig,
             default_model: model,
+            models: mergeProviderModelLists(activeProviderConfig.models, model ? [model] : []),
           },
         },
       };
@@ -243,6 +256,7 @@ export function useConfigPageController(input: UseConfigPageControllerInput): Us
             base_url: input.base_url,
             label: input.label,
             default_model: input.default_model,
+            models: input.default_model ? [input.default_model] : [],
             api_style: input.api_style,
           },
         },
