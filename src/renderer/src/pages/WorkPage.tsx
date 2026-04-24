@@ -6,6 +6,7 @@ import { AgentStatusPanel } from '../components/AgentStatusPanel.js';
 import { ChatPanel } from '../components/ChatPanel.js';
 import { FileExplorer } from '../components/FileExplorer.js';
 import { FilePreview } from '../components/FilePreview.js';
+import { LocalRunProgressPanel } from '../components/LocalRunProgressPanel.js';
 import { OrchestrationPanel } from '../components/OrchestrationPanel.js';
 import { OrchestrationProgressPanel } from '../components/OrchestrationProgressPanel.js';
 import { WorkbenchActivityPanel } from '../components/WorkbenchActivityPanel.js';
@@ -228,6 +229,8 @@ export function WorkPage({ locale, aiConfig, appState, promptBuilderConfig, onSa
               onSelectRun={(runId) => { void controller.handleSetActiveOrchestrationRunId(runId); }}
               onJumpToNode={handleJumpToNode}
             />
+
+            <LocalRunProgressPanel locale={locale} runs={controller.activeThreadRuns} />
 
             <WorkbenchActivityPanel
               locale={locale}
