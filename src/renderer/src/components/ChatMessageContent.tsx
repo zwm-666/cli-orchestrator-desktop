@@ -19,7 +19,7 @@ const parseSegments = (content: string): ChatSegment[] => {
   let lastIndex = 0;
 
   for (const match of content.matchAll(CODE_BLOCK_PATTERN)) {
-    const startIndex = match.index ?? 0;
+    const startIndex = match.index;
     if (startIndex > lastIndex) {
       segments.push({
         type: 'text',
@@ -31,9 +31,9 @@ const parseSegments = (content: string): ChatSegment[] => {
     segments.push({
       type: 'code',
       value: match[2] ?? '',
-      language: match[1] ?? null,
+      language: match[1] || null,
     });
-    lastIndex = startIndex + (match[0]?.length ?? 0);
+    lastIndex = startIndex + match[0].length;
   }
 
   if (lastIndex < content.length) {
