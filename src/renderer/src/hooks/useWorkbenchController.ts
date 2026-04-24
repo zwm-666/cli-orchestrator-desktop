@@ -1,19 +1,28 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import type { AppState, Locale, TaskThread, WorkbenchState, WorkbenchTargetKind, WorkspaceEntry } from '../../../shared/domain.js';
+import type {
+  AppState,
+  DiscussionAutomationConfigInput,
+  Locale,
+  OrchestrationExecutionStyle,
+  TaskThread,
+  WorkbenchState,
+  WorkbenchTargetKind,
+  WorkspaceEntry,
+} from '../../../shared/domain.js';
 import { DEFAULT_WORKBENCH_STATE } from '../../../shared/domain.js';
 import type { PromptBuilderConfig } from '../../../shared/promptBuilder.js';
 import type { AiConfig, AiProviderConfig, AiProviderDefinition } from '../aiConfig.js';
-import { getProviderDefinition } from '../aiConfig.js';
+import { getProviderDefinition, isProviderReady } from '../aiConfig.js';
 import {
   buildContinuityPrompt,
   createTaskThread,
-  formatWorkbenchActivitySummary,
   getActiveTaskThread,
   resolveBoundSkills,
 } from '../workbench.js';
 import { useWorkbenchAdapterFlow } from './useWorkbenchAdapterFlow.js';
-import { type WorkbenchOption } from './workbenchControllerShared.js';
-import { FILE_CONTEXT_LIMIT } from './workbenchControllerShared.js';
+import { useQueuedWorkbenchPersist } from './useQueuedWorkbenchPersist.js';
+import { type WorkbenchOption, FILE_CONTEXT_LIMIT, resolveWorkbenchEntryCommand } from './workbenchControllerShared.js';
+import { useWorkbenchOrchestrationFlow } from './useWorkbenchOrchestrationFlow.js';
 import { useWorkbenchProviderFlow } from './useWorkbenchProviderFlow.js';
 import { useWorkbenchTaskBoard } from './useWorkbenchTaskBoard.js';
 import { useWorkbenchWorkspace } from './useWorkbenchWorkspace.js';
@@ -26,77 +35,115 @@ interface UseWorkbenchControllerInput {
   onSaveWorkbenchState: (state: WorkbenchState) => void | Promise<void>;
 }
 
+export interface ComposerTargetOption extends WorkbenchOption {
+  kind: WorkbenchTargetKind;
+  meta: string;
+}
+
 export interface UseWorkbenchControllerResult {
   workbench: WorkbenchState;
   activeThread: TaskThread | null;
   chatMessages: TaskThread['messages'];
   threadOptions: WorkbenchOption[];
+  targetOptions: ComposerTargetOption[];
+  providerOptions: WorkbenchOption[];
+  adapterOptions: WorkbenchOption[];
+  agentProfileOptions: WorkbenchOption[];
   browseResult: ReturnType<typeof useWorkbenchWorkspace>['browseResult'];
   browseError: string | null;
   isBrowsing: boolean;
+  workspaceRoot: string | null;
+  workspaceLabel: string | null;
+  workspaceStatusMessage: string | null;
   selectedFile: ReturnType<typeof useWorkbenchWorkspace>['selectedFile'];
   previewError: string | null;
   isPreviewLoading: boolean;
+  isApplyingFile: boolean;
   chatError: string | null;
   isSending: boolean;
+  canSend: boolean;
   selectedTargetKind: WorkbenchTargetKind;
   selectedProviderId: string;
   selectedAdapterId: string;
+  selectedTargetOptionId: string;
+  selectedAgentProfileId: string;
   targetModel: string;
+  targetModelOptions: string[];
   targetPrompt: string;
   runTitle: string;
-  runError: string | null;
-  isStartingRun: boolean;
   newTaskTitle: string;
   newTaskDetail: string;
   isGeneratingTasks: boolean;
   taskStatusMessage: string | null;
-  promptBuilderCommand: string | null;
-  providerOptions: WorkbenchOption[];
-  adapterOptions: WorkbenchOption[];
   selectedProviderDefinition: AiProviderDefinition | null;
   selectedProviderConfig: AiProviderConfig | null;
   selectedAdapter: AppState['adapters'][number] | null;
   boundSkills: AppState['skills'];
   recentAdapterRuns: AppState['runs'];
+  isOrchestrationPanelOpen: boolean;
+  orchestrationMode: 'standard' | 'discussion';
+  orchestrationExecutionStyle: OrchestrationExecutionStyle;
+  orchestrationPrompt: string;
+  selectedOrchestrationParticipantIds: string[];
+  activeOrchestrationRun: ReturnType<typeof useWorkbenchOrchestrationFlow>['activeOrchestrationRun'];
+  activeOrchestrationNodes: ReturnType<typeof useWorkbenchOrchestrationFlow>['activeOrchestrationNodes'];
+  orchestrationError: string | null;
+  isStartingOrchestration: boolean;
   handleGenerateChecklist: () => Promise<void>;
   handleSaveObjective: (objective: string) => void;
-  handleTargetKindChange: (nextKind: WorkbenchTargetKind) => void;
-  handleProviderChange: (nextProviderId: string) => void;
-  handleAdapterChange: (nextAdapterId: string) => void;
+  handleTargetOptionChange: (nextTargetOptionId: string) => void;
+  handleAgentProfileChange: (nextProfileId: string) => void;
   handleThreadChange: (nextThreadId: string) => void;
   handleCreateThread: () => void;
+  handleNewThread: () => void;
   handleToggleTask: (taskId: string) => void;
   handleAddTask: () => void;
-  handleProviderSend: () => Promise<void>;
-  handleStartAdapterRun: () => Promise<void>;
-  handleApplyPromptBuilderCommand: (command: string) => void;
-  handleClearPromptBuilderCommand: () => void;
+  handleSendEntry: () => Promise<void>;
+  handleOpenOrchestrationPanel: (mode: 'standard' | 'discussion', prompt?: string) => void;
+  handleCloseOrchestrationPanel: () => void;
+  handleStartOrchestration: (discussionConfig?: DiscussionAutomationConfigInput | null) => Promise<void>;
+  handleSetActiveOrchestrationRunId: (runId: string | null) => Promise<void>;
   setTargetModel: (value: string) => void;
   setTargetPrompt: (value: string) => void;
   setRunTitle: (value: string) => void;
   setNewTaskTitle: (value: string) => void;
   setNewTaskDetail: (value: string) => void;
+  setOrchestrationMode: (value: 'standard' | 'discussion') => void;
+  setOrchestrationExecutionStyle: (value: OrchestrationExecutionStyle) => void;
+  setOrchestrationPrompt: (value: string) => void;
+  setSelectedOrchestrationParticipantIds: (value: string[]) => void;
+  selectWorkspaceFolder: () => Promise<void>;
   loadDirectory: (relativePath: string | null) => Promise<void>;
   loadFilePreview: (entry: WorkspaceEntry) => Promise<void>;
+  loadFilePreviewByPath: (relativePath: string) => Promise<void>;
+  applyToSelectedFile: (content: string) => Promise<void>;
 }
 
 const normalizeThreadedWorkbench = (workbench: WorkbenchState, locale: Locale, bootstrapThread: TaskThread): WorkbenchState => {
-  if (workbench.threads.length === 0) {
+  const nextWorkbench = {
+    ...DEFAULT_WORKBENCH_STATE,
+    ...workbench,
+    recentWorkspaceRoots: workbench.recentWorkspaceRoots ?? [],
+    processedOrchestrationNodeIds: workbench.processedOrchestrationNodeIds ?? [],
+    orchestrationThreadBindings: workbench.orchestrationThreadBindings ?? [],
+    activeOrchestrationRunId: workbench.activeOrchestrationRunId ?? null,
+  };
+
+  if (nextWorkbench.threads.length === 0) {
     return {
-      ...workbench,
+      ...nextWorkbench,
       activeThreadId: bootstrapThread.id,
       threads: [bootstrapThread],
     };
   }
 
-  if (workbench.activeThreadId && workbench.threads.some((thread) => thread.id === workbench.activeThreadId)) {
-    return workbench;
+  if (nextWorkbench.activeThreadId && nextWorkbench.threads.some((thread) => thread.id === nextWorkbench.activeThreadId)) {
+    return nextWorkbench;
   }
 
   return {
-    ...workbench,
-    activeThreadId: workbench.threads[0]?.id ?? null,
+    ...nextWorkbench,
+    activeThreadId: nextWorkbench.threads[0]?.id ?? null,
   };
 };
 
@@ -108,8 +155,14 @@ export function useWorkbenchController(input: UseWorkbenchControllerInput): UseW
   const [selectedTargetKind, setSelectedTargetKind] = useState<WorkbenchTargetKind>('provider');
   const [selectedProviderId, setSelectedProviderId] = useState(aiConfig.active_provider ?? '');
   const [selectedAdapterId, setSelectedAdapterId] = useState('');
+  const [selectedAgentProfileId, setSelectedAgentProfileId] = useState('');
   const [targetModel, setTargetModel] = useState(aiConfig.active_model);
   const [targetPrompt, setTargetPrompt] = useState('');
+  const [isOrchestrationPanelOpen, setIsOrchestrationPanelOpen] = useState(false);
+  const [orchestrationMode, setOrchestrationMode] = useState<'standard' | 'discussion'>('standard');
+  const [orchestrationExecutionStyle, setOrchestrationExecutionStyle] = useState<OrchestrationExecutionStyle>('parallel');
+  const [orchestrationPrompt, setOrchestrationPrompt] = useState('');
+  const [selectedOrchestrationParticipantIds, setSelectedOrchestrationParticipantIds] = useState<string[]>([]);
 
   if (!bootstrapThreadRef.current) {
     bootstrapThreadRef.current = createTaskThread({ locale, objective: persistedWorkbench.objective });
@@ -122,15 +175,30 @@ export function useWorkbenchController(input: UseWorkbenchControllerInput): UseW
   const activeThread = useMemo(() => getActiveTaskThread(workbench), [workbench]);
   const threadOptions = useMemo<WorkbenchOption[]>(() => workbench.threads.map((thread) => ({ id: thread.id, label: thread.title })), [workbench.threads]);
 
-  const workspace = useWorkbenchWorkspace({ locale });
-
   const persistWorkbench = async (nextWorkbench: WorkbenchState): Promise<void> => {
-    const normalized = normalizeThreadedWorkbench(nextWorkbench, locale, bootstrapThreadRef.current ?? createTaskThread({ locale, objective: nextWorkbench.objective }));
     await onSaveWorkbenchState({
-      ...normalized,
+      ...normalizeThreadedWorkbench(nextWorkbench, locale, bootstrapThreadRef.current ?? createTaskThread({ locale, objective: nextWorkbench.objective })),
       updatedAt: new Date().toISOString(),
     });
   };
+
+  const { getLatestWorkbench, queueWorkbenchPersist } = useQueuedWorkbenchPersist({
+    workbench,
+    persistWorkbench,
+  });
+
+  const handleWorkspaceRootChange = async (workspaceRoot: string | null): Promise<void> => {
+    await queueWorkbenchPersist((currentWorkbench) => ({
+      ...currentWorkbench,
+      workspaceRoot,
+    }));
+  };
+
+  const workspace = useWorkbenchWorkspace({
+    locale,
+    workspaceRoot: workbench.workspaceRoot,
+    onWorkspaceRootChange: handleWorkspaceRootChange,
+  });
 
   useEffect(() => {
     const persistedActiveThreadId = persistedWorkbench.activeThreadId;
@@ -146,6 +214,7 @@ export function useWorkbenchController(input: UseWorkbenchControllerInput): UseW
     () => appState.adapters.filter((adapter) => adapter.visibility === 'user' && adapter.enabled && adapter.availability === 'available'),
     [appState.adapters],
   );
+
   const providerOptions = useMemo<WorkbenchOption[]>(
     () =>
       Object.entries(aiConfig.providers).map(([providerId, providerConfig]) => ({
@@ -158,13 +227,25 @@ export function useWorkbenchController(input: UseWorkbenchControllerInput): UseW
     () => availableAdapters.map((adapter) => ({ id: adapter.id, label: adapter.displayName })),
     [availableAdapters],
   );
+  const agentProfileOptions = useMemo<WorkbenchOption[]>(
+    () => appState.agentProfiles.filter((profile) => profile.enabled).map((profile) => ({ id: profile.id, label: profile.name })),
+    [appState.agentProfiles],
+  );
 
   useEffect(() => {
     if (!selectedAdapterId && availableAdapters[0]) {
       setSelectedAdapterId(availableAdapters[0].id);
-      setTargetModel(availableAdapters[0].defaultModel ?? '');
+      if (selectedTargetKind === 'adapter') {
+        setTargetModel(availableAdapters[0].defaultModel ?? '');
+      }
     }
-  }, [availableAdapters, selectedAdapterId]);
+  }, [availableAdapters, selectedAdapterId, selectedTargetKind]);
+
+  useEffect(() => {
+    if (!selectedAgentProfileId && agentProfileOptions[0]) {
+      setSelectedAgentProfileId(agentProfileOptions[0].id);
+    }
+  }, [agentProfileOptions, selectedAgentProfileId]);
 
   useEffect(() => {
     if (selectedTargetKind === 'provider') {
@@ -179,6 +260,34 @@ export function useWorkbenchController(input: UseWorkbenchControllerInput): UseW
   );
   const selectedProviderConfig = selectedProviderId ? aiConfig.providers[selectedProviderId] ?? null : null;
   const selectedAdapter = availableAdapters.find((adapter) => adapter.id === selectedAdapterId) ?? null;
+  const selectedAgentProfile = appState.agentProfiles.find((profile) => profile.id === selectedAgentProfileId) ?? null;
+
+  const targetOptions = useMemo<ComposerTargetOption[]>(
+    () => [
+      ...providerOptions.map((option) => ({ id: `provider:${option.id}`, label: option.label, kind: 'provider' as const, meta: locale === 'zh' ? 'Provider' : 'Provider' })),
+      ...adapterOptions.map((option) => ({ id: `adapter:${option.id}`, label: option.label, kind: 'adapter' as const, meta: locale === 'zh' ? 'Adapter' : 'Adapter' })),
+    ],
+    [adapterOptions, locale, providerOptions],
+  );
+
+  const selectedTargetOptionId = selectedTargetKind === 'provider' ? `provider:${selectedProviderId}` : `adapter:${selectedAdapterId}`;
+
+  const targetModelOptions = useMemo(() => {
+    const models = new Set<string>();
+    if (selectedTargetKind === 'provider') {
+      (selectedProviderDefinition?.modelSuggestions ?? []).forEach((model) => {
+        if (model.trim()) models.add(model.trim());
+      });
+    } else {
+      (selectedAdapter?.supportedModels ?? []).forEach((model) => {
+        if (model.trim()) models.add(model.trim());
+      });
+      const defaultAdapterModel = selectedAdapter?.defaultModel?.trim();
+      if (defaultAdapterModel) models.add(defaultAdapterModel);
+    }
+    if (targetModel.trim()) models.add(targetModel.trim());
+    return [...models];
+  }, [selectedAdapter, selectedProviderDefinition, selectedTargetKind, targetModel]);
 
   const boundSkills = useMemo(() => {
     const targetId = selectedTargetKind === 'provider' ? selectedProviderId : selectedAdapterId;
@@ -190,23 +299,6 @@ export function useWorkbenchController(input: UseWorkbenchControllerInput): UseW
     workbench,
     persistWorkbench,
   });
-
-  const latestProviderActivity = useMemo(
-    () => [...(activeThread?.activityLog ?? [])].reverse().find((activity) => activity.sourceKind === 'provider') ?? workbench.latestProviderActivity,
-    [activeThread?.activityLog, workbench.latestProviderActivity],
-  );
-  const latestAdapterActivity = useMemo(
-    () => [...(activeThread?.activityLog ?? [])].reverse().find((activity) => activity.sourceKind === 'adapter') ?? workbench.latestAdapterActivity,
-    [activeThread?.activityLog, workbench.latestAdapterActivity],
-  );
-  const recentProviderSummary = useMemo(
-    () => (latestProviderActivity ? formatWorkbenchActivitySummary(locale, latestProviderActivity) : null),
-    [latestProviderActivity, locale],
-  );
-  const recentLocalRunSummary = useMemo(
-    () => (latestAdapterActivity ? formatWorkbenchActivitySummary(locale, latestAdapterActivity) : null),
-    [latestAdapterActivity, locale],
-  );
 
   const continuityTemplate = locale === 'zh' ? promptBuilderConfig.continuityTemplates?.zh ?? '' : promptBuilderConfig.continuityTemplates?.en ?? '';
   const continuityPrompt = useMemo(
@@ -223,8 +315,8 @@ export function useWorkbenchController(input: UseWorkbenchControllerInput): UseW
         projectContextSummary: appState.projectContext.summary,
         providerDefinition: selectedProviderDefinition,
         boundSkills,
-        recentProviderSummary,
-        recentLocalRunSummary,
+        recentProviderSummary: null,
+        recentLocalRunSummary: null,
         continuityTemplate,
       }),
     [
@@ -233,8 +325,6 @@ export function useWorkbenchController(input: UseWorkbenchControllerInput): UseW
       boundSkills,
       continuityTemplate,
       locale,
-      recentLocalRunSummary,
-      recentProviderSummary,
       selectedAdapter?.displayName,
       selectedProviderDefinition,
       selectedTargetKind,
@@ -252,14 +342,11 @@ export function useWorkbenchController(input: UseWorkbenchControllerInput): UseW
     if (threadChanged || (activeThread?.messages.length ?? 0) === 0) {
       setTargetPrompt(continuityPrompt);
     }
-  }, [continuityPrompt, activeThread?.id, activeThread?.messages.length]);
+  }, [activeThread?.id, activeThread?.messages.length, continuityPrompt]);
 
   const providerFlow = useWorkbenchProviderFlow({
     locale,
-    workbench,
-    persistWorkbench,
     activeThreadId: activeThread?.id ?? null,
-    threadMessages: activeThread?.messages ?? [],
     selectedProviderId,
     selectedProviderDefinition,
     selectedProviderConfig,
@@ -267,6 +354,10 @@ export function useWorkbenchController(input: UseWorkbenchControllerInput): UseW
     targetPrompt,
     boundSkills,
     selectedFile: workspace.selectedFile,
+    selectedAgentLabel: selectedAgentProfile?.name ?? null,
+    selectedAgentPrompt: selectedAgentProfile?.systemPrompt ?? null,
+    getLatestWorkbench,
+    queueWorkbenchPersist,
   });
 
   const adapterFlow = useWorkbenchAdapterFlow({
@@ -277,123 +368,213 @@ export function useWorkbenchController(input: UseWorkbenchControllerInput): UseW
     activeThreadId: activeThread?.id ?? null,
     targetPrompt,
     targetModel,
-    persistWorkbench,
     setTaskStatusMessage: taskBoard.setTaskStatusMessage,
+    selectedAgentLabel: selectedAgentProfile?.name ?? null,
+    selectedAgentPrompt: selectedAgentProfile?.systemPrompt ?? null,
+    getLatestWorkbench,
+    queueWorkbenchPersist,
   });
 
-  const handleTargetKindChange = (nextKind: WorkbenchTargetKind): void => {
-    setSelectedTargetKind(nextKind);
-    if (nextKind === 'provider') {
-      setSelectedProviderId(aiConfig.active_provider ?? selectedProviderId);
-      setTargetModel(aiConfig.active_model);
+  const orchestrationFlow = useWorkbenchOrchestrationFlow({
+    locale,
+    appState,
+    workbench,
+    activeThreadId: activeThread?.id ?? null,
+    queueWorkbenchPersist,
+  });
+
+  const handleTargetOptionChange = (nextTargetOptionId: string): void => {
+    if (nextTargetOptionId.startsWith('provider:')) {
+      const providerId = nextTargetOptionId.replace(/^provider:/, '');
+      const providerConfig = aiConfig.providers[providerId];
+      const providerDefinition = providerConfig ? getProviderDefinition(providerId, providerConfig) : null;
+      setSelectedTargetKind('provider');
+      setSelectedProviderId(providerId);
+      setTargetModel(providerConfig?.default_model?.trim() || aiConfig.active_model || providerDefinition?.modelSuggestions[0] || '');
       return;
     }
 
-    if (availableAdapters[0]) {
-      setSelectedAdapterId((current) => current || availableAdapters[0]?.id || '');
-      setTargetModel(selectedAdapter?.defaultModel ?? availableAdapters[0].defaultModel ?? '');
-    }
-  };
-
-  const handleProviderChange = (nextProviderId: string): void => {
-    const providerConfig = aiConfig.providers[nextProviderId];
-    const providerDefinition = providerConfig ? getProviderDefinition(nextProviderId, providerConfig) : null;
-    setSelectedProviderId(nextProviderId);
-    setTargetModel(
-      nextProviderId
-        ? providerConfig?.default_model?.trim() || aiConfig.active_model || providerDefinition?.modelSuggestions[0] || ''
-        : '',
-    );
-  };
-
-  const handleAdapterChange = (nextAdapterId: string): void => {
-    const nextAdapter = availableAdapters.find((adapter) => adapter.id === nextAdapterId) ?? null;
-    setSelectedAdapterId(nextAdapterId);
+    const adapterId = nextTargetOptionId.replace(/^adapter:/, '');
+    const nextAdapter = availableAdapters.find((adapter) => adapter.id === adapterId) ?? null;
+    setSelectedTargetKind('adapter');
+    setSelectedAdapterId(adapterId);
     setTargetModel(nextAdapter?.defaultModel ?? '');
   };
 
   const handleThreadChange = (nextThreadId: string): void => {
-    void persistWorkbench({
-      ...workbench,
+    void queueWorkbenchPersist((currentWorkbench) => ({
+      ...currentWorkbench,
       activeThreadId: nextThreadId,
-    });
+    }));
   };
 
   const handleCreateThread = (): void => {
-    const nextThread = createTaskThread({ locale, objective: workbench.objective });
-    void persistWorkbench({
-      ...workbench,
-      activeThreadId: nextThread.id,
-      threads: [...workbench.threads, nextThread],
+    void queueWorkbenchPersist((currentWorkbench) => {
+      const nextThread = createTaskThread({ locale, objective: currentWorkbench.objective });
+      return {
+        ...currentWorkbench,
+        activeThreadId: nextThread.id,
+        threads: [...currentWorkbench.threads, nextThread],
+      };
     });
   };
 
-  const handleApplyPromptBuilderCommand = (command: string): void => {
-    void persistWorkbench({
-      ...workbench,
-      promptBuilderCommand: command.trim() || null,
-    });
+  const handleNewThread = (): void => {
+    handleCreateThread();
   };
 
-  const handleClearPromptBuilderCommand = (): void => {
-    void persistWorkbench({
-      ...workbench,
-      promptBuilderCommand: null,
-    });
+  const handleOpenOrchestrationPanel = (mode: 'standard' | 'discussion', prompt?: string): void => {
+    setOrchestrationMode(mode);
+    setOrchestrationExecutionStyle(mode === 'discussion' ? 'sequential' : 'parallel');
+    setOrchestrationPrompt(prompt?.trim() || targetPrompt.trim());
+    setSelectedOrchestrationParticipantIds((current) => current.length > 0 ? current : agentProfileOptions.slice(0, mode === 'discussion' ? 2 : 3).map((option) => option.id));
+    setIsOrchestrationPanelOpen(true);
   };
+
+  const handleCloseOrchestrationPanel = (): void => {
+    setIsOrchestrationPanelOpen(false);
+  };
+
+  const handleStartOrchestration = async (discussionConfig?: DiscussionAutomationConfigInput | null): Promise<void> => {
+    await orchestrationFlow.handleStartOrchestration({
+      prompt: orchestrationPrompt,
+      automationMode: orchestrationMode,
+      executionStyle: orchestrationMode === 'discussion' ? 'sequential' : orchestrationExecutionStyle,
+      participantProfileIds: selectedOrchestrationParticipantIds,
+      masterAgentProfileId: selectedAgentProfile?.id ?? null,
+      discussionConfig: orchestrationMode === 'discussion'
+        ? {
+            participantsPerRound: Math.max(selectedOrchestrationParticipantIds.length, discussionConfig?.participantsPerRound ?? 2),
+            participantProfileIds: selectedOrchestrationParticipantIds,
+            ...discussionConfig,
+          }
+        : null,
+    });
+    setIsOrchestrationPanelOpen(false);
+  };
+
+  const handleSendEntry = async (): Promise<void> => {
+    const trimmedPrompt = targetPrompt.trim();
+    if (!trimmedPrompt) {
+      return;
+    }
+
+    if (trimmedPrompt.startsWith('@multi')) {
+      const orchestrationPromptText = trimmedPrompt.replace(/^@multi\s*/, '').trim();
+      handleOpenOrchestrationPanel('standard', orchestrationPromptText);
+      return;
+    }
+
+    const parsedEntry = resolveWorkbenchEntryCommand(trimmedPrompt);
+    if (parsedEntry.command === 'clear') {
+      setTargetPrompt('');
+      return;
+    }
+    if (parsedEntry.command === 'switchProvider') {
+      const currentIndex = providerOptions.findIndex((option) => option.id === selectedProviderId);
+      const nextOption = providerOptions[(currentIndex + 1) % Math.max(providerOptions.length, 1)];
+      if (nextOption) {
+        handleTargetOptionChange(`provider:${nextOption.id}`);
+      }
+      return;
+    }
+    if (parsedEntry.command === 'orchestrate') {
+      handleOpenOrchestrationPanel('standard', parsedEntry.prompt || targetPrompt);
+      return;
+    }
+    if (parsedEntry.command === 'discuss') {
+      handleOpenOrchestrationPanel('discussion', parsedEntry.prompt || targetPrompt);
+      return;
+    }
+
+    if (selectedTargetKind === 'provider') {
+      await providerFlow.handleProviderSend(parsedEntry.prompt || targetPrompt);
+      return;
+    }
+
+    await adapterFlow.handleStartAdapterRun(parsedEntry.prompt || targetPrompt);
+  };
+
+  const canSend = selectedTargetKind === 'provider'
+    ? Boolean(selectedProviderId && selectedProviderConfig && isProviderReady(selectedProviderConfig, targetModel))
+    : Boolean(selectedAdapter);
 
   return {
     workbench,
     activeThread,
     chatMessages: activeThread?.messages ?? [],
     threadOptions,
+    targetOptions,
+    providerOptions,
+    adapterOptions,
+    agentProfileOptions,
     browseResult: workspace.browseResult,
     browseError: workspace.browseError,
     isBrowsing: workspace.isBrowsing,
+    workspaceRoot: workspace.workspaceRoot,
+    workspaceLabel: workspace.workspaceLabel,
+    workspaceStatusMessage: workspace.workspaceStatusMessage,
     selectedFile: workspace.selectedFile,
     previewError: workspace.previewError,
     isPreviewLoading: workspace.isPreviewLoading,
-    chatError: providerFlow.chatError,
-    isSending: providerFlow.isSending,
+    isApplyingFile: workspace.isApplyingFile,
+    chatError: selectedTargetKind === 'provider' ? providerFlow.chatError : adapterFlow.runError,
+    isSending: selectedTargetKind === 'provider' ? providerFlow.isSending : adapterFlow.isStartingRun,
+    canSend,
     selectedTargetKind,
     selectedProviderId,
     selectedAdapterId,
+    selectedTargetOptionId,
+    selectedAgentProfileId,
     targetModel,
+    targetModelOptions,
     targetPrompt,
     runTitle: adapterFlow.runTitle,
-    runError: adapterFlow.runError,
-    isStartingRun: adapterFlow.isStartingRun,
     newTaskTitle: taskBoard.newTaskTitle,
     newTaskDetail: taskBoard.newTaskDetail,
     isGeneratingTasks: taskBoard.isGeneratingTasks,
     taskStatusMessage: taskBoard.taskStatusMessage,
-    promptBuilderCommand: workbench.promptBuilderCommand,
-    providerOptions,
-    adapterOptions,
     selectedProviderDefinition,
     selectedProviderConfig,
     selectedAdapter,
     boundSkills,
     recentAdapterRuns: adapterFlow.recentAdapterRuns,
+    isOrchestrationPanelOpen,
+    orchestrationMode,
+    orchestrationExecutionStyle,
+    orchestrationPrompt,
+    selectedOrchestrationParticipantIds,
+    activeOrchestrationRun: orchestrationFlow.activeOrchestrationRun,
+    activeOrchestrationNodes: orchestrationFlow.activeOrchestrationNodes,
+    orchestrationError: orchestrationFlow.orchestrationError,
+    isStartingOrchestration: orchestrationFlow.isStartingOrchestration,
     handleGenerateChecklist: taskBoard.handleGenerateChecklist,
     handleSaveObjective: taskBoard.handleSaveObjective,
-    handleTargetKindChange,
-    handleProviderChange,
-    handleAdapterChange,
+    handleTargetOptionChange,
+    handleAgentProfileChange: setSelectedAgentProfileId,
     handleThreadChange,
     handleCreateThread,
+    handleNewThread,
     handleToggleTask: taskBoard.handleToggleTask,
     handleAddTask: taskBoard.handleAddTask,
-    handleProviderSend: providerFlow.handleProviderSend,
-    handleStartAdapterRun: adapterFlow.handleStartAdapterRun,
-    handleApplyPromptBuilderCommand,
-    handleClearPromptBuilderCommand,
+    handleSendEntry,
+    handleOpenOrchestrationPanel,
+    handleCloseOrchestrationPanel,
+    handleStartOrchestration,
+    handleSetActiveOrchestrationRunId: orchestrationFlow.setActiveOrchestrationRunId,
     setTargetModel,
     setTargetPrompt,
     setRunTitle: adapterFlow.setRunTitle,
     setNewTaskTitle: taskBoard.setNewTaskTitle,
     setNewTaskDetail: taskBoard.setNewTaskDetail,
+    setOrchestrationMode,
+    setOrchestrationExecutionStyle,
+    setOrchestrationPrompt,
+    setSelectedOrchestrationParticipantIds,
+    selectWorkspaceFolder: workspace.selectWorkspaceFolder,
     loadDirectory: workspace.loadDirectory,
     loadFilePreview: workspace.loadFilePreview,
+    loadFilePreviewByPath: workspace.loadFilePreviewByPath,
+    applyToSelectedFile: workspace.applyToSelectedFile,
   };
 }

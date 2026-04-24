@@ -5,6 +5,7 @@ import type {
   TaskThread,
   TaskThreadMessage,
   WorkbenchActivitySummary,
+  WorkbenchOrchestrationBinding,
   WorkbenchSkillBinding,
   WorkbenchState,
   WorkbenchTargetKind,
@@ -224,12 +225,86 @@ export const createTaskThread = (input: { locale: AppLocale; objective: string; 
   };
 };
 
+export const createTaskThreadMessage = (input: {
+  id?: string;
+  role: TaskThreadMessage['role'];
+  content: string;
+  messageKind?: TaskThreadMessage['messageKind'];
+  providerId?: string | null;
+  adapterId?: string | null;
+  sourceKind?: TaskThreadMessage['sourceKind'];
+  sourceLabel?: string | null;
+  modelLabel?: string | null;
+  agentLabel?: string | null;
+  orchestrationRunId?: string | null;
+  orchestrationNodeId?: string | null;
+  discussionRound?: number | null;
+  createdAt?: string;
+}): TaskThreadMessage => {
+  return {
+    id: input.id ?? crypto.randomUUID(),
+    role: input.role,
+    content: input.content,
+    messageKind: input.messageKind ?? 'default',
+    providerId: input.providerId ?? null,
+    adapterId: input.adapterId ?? null,
+    sourceKind: input.sourceKind ?? null,
+    sourceLabel: input.sourceLabel ?? null,
+    modelLabel: input.modelLabel ?? null,
+    agentLabel: input.agentLabel ?? null,
+    orchestrationRunId: input.orchestrationRunId ?? null,
+    orchestrationNodeId: input.orchestrationNodeId ?? null,
+    discussionRound: input.discussionRound ?? null,
+    createdAt: input.createdAt ?? new Date().toISOString(),
+  };
+};
+
+const areTaskThreadMessagesEqual = (left: TaskThreadMessage, right: TaskThreadMessage): boolean => {
+  return left.id === right.id
+    && left.role === right.role
+    && left.content === right.content
+    && left.messageKind === right.messageKind
+    && left.providerId === right.providerId
+    && left.adapterId === right.adapterId
+    && left.sourceKind === right.sourceKind
+    && left.sourceLabel === right.sourceLabel
+    && left.modelLabel === right.modelLabel
+    && left.agentLabel === right.agentLabel
+    && left.orchestrationRunId === right.orchestrationRunId
+    && left.orchestrationNodeId === right.orchestrationNodeId
+    && left.discussionRound === right.discussionRound
+    && left.createdAt === right.createdAt;
+};
+
+export const upsertOrchestrationThreadBinding = (
+  workbench: WorkbenchState,
+  binding: WorkbenchOrchestrationBinding,
+): WorkbenchState => {
+  const existingBindings = workbench.orchestrationThreadBindings ?? [];
+  return {
+    ...workbench,
+    activeOrchestrationRunId: binding.orchestrationRunId,
+    orchestrationThreadBindings: [
+      binding,
+      ...existingBindings.filter((entry) => entry.orchestrationRunId !== binding.orchestrationRunId),
+    ],
+  };
+};
+
 export const getActiveTaskThread = (workbench: WorkbenchState): TaskThread | null => {
   if (!workbench.activeThreadId) {
     return workbench.threads[0] ?? null;
   }
 
   return workbench.threads.find((thread) => thread.id === workbench.activeThreadId) ?? workbench.threads[0] ?? null;
+};
+
+export const getTaskThreadById = (workbench: WorkbenchState, threadId: string | null): TaskThread | null => {
+  if (!threadId) {
+    return null;
+  }
+
+  return workbench.threads.find((thread) => thread.id === threadId) ?? null;
 };
 
 export const appendActivityToThread = (
@@ -262,6 +337,66 @@ export const appendMessagesToThread = (input: {
         ...thread,
         messages: nextMessages,
         updatedAt: messages.at(-1)?.createdAt ?? new Date().toISOString(),
+      };
+    }
+
+    const overflowCount = nextMessages.length - MAX_TASK_THREAD_MESSAGES;
+    const overflowMessages = nextMessages.slice(0, overflowCount);
+    const retainedMessages = nextMessages.slice(-MAX_TASK_THREAD_MESSAGES);
+    const overflowSummary = summarizeOverflowMessages(locale, thread.id, overflowMessages);
+
+    return {
+      ...thread,
+      messages: retainedMessages,
+      activityLog: [...thread.activityLog, overflowSummary].slice(-THREAD_ACTIVITY_LOG_LIMIT),
+      updatedAt: retainedMessages.at(-1)?.createdAt ?? overflowSummary.recordedAt,
+    };
+  });
+};
+
+export const upsertMessagesToThread = (input: {
+  locale: AppLocale;
+  workbench: WorkbenchState;
+  threadId: string | null;
+  messages: TaskThreadMessage[];
+}): WorkbenchState => {
+  const { locale, workbench, threadId, messages } = input;
+  if (!threadId || messages.length === 0) {
+    return workbench;
+  }
+
+  return updateThread(workbench, threadId, (thread) => {
+    const nextMessages = [...thread.messages];
+    const indexById = new Map(nextMessages.map((message, index) => [message.id, index]));
+    let didChange = false;
+
+    messages.forEach((message) => {
+      const existingIndex = indexById.get(message.id);
+      if (existingIndex === undefined) {
+        nextMessages.push(message);
+        indexById.set(message.id, nextMessages.length - 1);
+        didChange = true;
+        return;
+      }
+
+      const existingMessage = nextMessages[existingIndex];
+      if (!existingMessage || areTaskThreadMessagesEqual(existingMessage, message)) {
+        return;
+      }
+
+      nextMessages[existingIndex] = message;
+      didChange = true;
+    });
+
+    if (!didChange) {
+      return thread;
+    }
+
+    if (nextMessages.length <= MAX_TASK_THREAD_MESSAGES) {
+      return {
+        ...thread,
+        messages: nextMessages,
+        updatedAt: messages.at(-1)?.createdAt ?? thread.updatedAt,
       };
     }
 
