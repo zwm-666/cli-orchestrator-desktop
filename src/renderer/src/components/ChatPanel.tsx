@@ -297,7 +297,7 @@ export function ChatPanel(props: ChatPanelProps): React.JSX.Element {
             ref={textareaRef}
             value={inputValue}
             rows={3}
-            placeholder={locale === 'zh' ? '在这里输入对话内容，按 Enter 发送' : 'Type your message here, press Enter to send'}
+            placeholder={locale === 'zh' ? '输入消息...' : 'Type a message...'}
             onChange={(event) => {
               onInputChange(event.target.value);
             }}

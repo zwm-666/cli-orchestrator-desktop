@@ -22,7 +22,9 @@ interface UseWorkbenchProviderFlowInput {
   selectedProviderDefinition: AiProviderDefinition | null;
   selectedProviderConfig: AiConfig['providers'][keyof AiConfig['providers']] | null;
   targetModel: string;
-  targetPrompt: string;
+  userInput: string;
+  continuityPrompt: string;
+  setUserInput: (value: string) => void;
   boundSkills: SkillDefinition[];
   selectedFile: ReadWorkspaceFileResult | null;
   selectedAgentLabel?: string | null;
@@ -45,7 +47,9 @@ export function useWorkbenchProviderFlow(input: UseWorkbenchProviderFlowInput): 
     selectedProviderDefinition,
     selectedProviderConfig,
     targetModel,
-    targetPrompt,
+    userInput,
+    continuityPrompt,
+    setUserInput,
     boundSkills,
     selectedFile,
     selectedAgentLabel,
@@ -57,7 +61,13 @@ export function useWorkbenchProviderFlow(input: UseWorkbenchProviderFlowInput): 
   const [isSending, setIsSending] = useState(false);
 
   const handleProviderSend = async (promptOverride?: string): Promise<void> => {
-    if (!selectedProviderId || !selectedProviderConfig || !selectedProviderDefinition || !activeThreadId) {
+    if (!selectedProviderId || !selectedProviderConfig || !selectedProviderDefinition) {
+      setChatError(locale === 'zh' ? '请先选择一个模型服务。' : 'Please select a provider first.');
+      return;
+    }
+
+    if (!activeThreadId) {
+      setChatError(locale === 'zh' ? '请先创建或选择一个对话。' : 'Please create or select a chat first.');
       return;
     }
 
@@ -66,9 +76,9 @@ export function useWorkbenchProviderFlow(input: UseWorkbenchProviderFlowInput): 
       return;
     }
 
-    const trimmedPrompt = (promptOverride ?? targetPrompt).trim();
+    const trimmedPrompt = (promptOverride ?? userInput).trim();
     if (!trimmedPrompt) {
-      setChatError(locale === 'zh' ? '请先生成或填写连续工作提示词。' : 'Generate or edit the continuity prompt before sending.');
+      setChatError(locale === 'zh' ? '请输入消息。' : 'Please enter a message.');
       return;
     }
 
@@ -91,6 +101,11 @@ export function useWorkbenchProviderFlow(input: UseWorkbenchProviderFlowInput): 
     setChatError(null);
 
     try {
+      const latestThread = getTaskThreadById(getLatestWorkbench(), activeThreadId);
+      const historyMessages = (latestThread?.messages ?? [])
+        .filter((message) => message.role === 'user' || message.role === 'assistant')
+        .map((message) => ({ role: message.role, content: message.content }));
+
       await queueWorkbenchPersist((currentWorkbench) => {
         return appendMessagesToThread({
           locale,
@@ -102,18 +117,24 @@ export function useWorkbenchProviderFlow(input: UseWorkbenchProviderFlowInput): 
 
       const skillPrompt = boundSkills.map((skill) => skill.promptTemplate.trim()).filter((entry) => entry.length > 0).join('\n\n');
       const selectedFileContext = selectedFile ? `\n\nSelected file: ${selectedFile.relativePath}\n${selectedFile.content.slice(0, FILE_CONTEXT_LIMIT)}` : '';
-      const latestThread = getTaskThreadById(getLatestWorkbench(), activeThreadId);
-      const historyMessages = (latestThread?.messages ?? [])
-        .filter((message) => message.role === 'user' || message.role === 'assistant')
-        .map((message) => ({ role: message.role, content: message.content }));
+      const systemContext = [
+        continuityPrompt,
+        selectedAgentPrompt
+          ? locale === 'zh'
+            ? `当前以 Agent 角色协作：${selectedAgentLabel ?? 'Agent'}\n${selectedAgentPrompt}`
+            : `Current agent persona: ${selectedAgentLabel ?? 'Agent'}\n${selectedAgentPrompt}`
+          : '',
+        skillPrompt
+          ? locale === 'zh'
+            ? `已绑定技能：\n${skillPrompt}`
+            : `Skills:\n${skillPrompt}`
+          : '',
+      ].filter((entry) => entry.trim().length > 0).join('\n\n');
 
       const response = await sendProviderChat(selectedProviderDefinition.id, selectedProviderConfig, targetModel, [
         {
           role: 'system',
-          content:
-            locale === 'zh'
-              ? `你正在一个统一工作台中协作，请沿用共享任务清单继续推进，不要从头开始。${selectedAgentPrompt ? `\n\n当前以 Agent 角色协作：${selectedAgentLabel ?? 'Agent'}\n${selectedAgentPrompt}` : ''}${skillPrompt ? `\n\n已绑定技能：\n${skillPrompt}` : ''}`
-              : `You are collaborating inside a unified workbench. Continue from the shared checklist instead of restarting analysis.${selectedAgentPrompt ? `\n\nCurrent agent persona: ${selectedAgentLabel ?? 'Agent'}\n${selectedAgentPrompt}` : ''}${skillPrompt ? `\n\nSkills:\n${skillPrompt}` : ''}`,
+          content: systemContext,
         },
         ...historyMessages,
         {
@@ -167,6 +188,7 @@ export function useWorkbenchProviderFlow(input: UseWorkbenchProviderFlowInput): 
 
         return nextWorkbench;
       });
+      setUserInput('');
     } catch (error: unknown) {
       const fallbackMessage = locale === 'zh' ? '模型服务请求失败。' : 'The provider request failed.';
       setChatError(localizeProviderRuntimeMessage(toErrorMessage(error, fallbackMessage), locale));

@@ -176,7 +176,7 @@ export function WorkPage({ locale, aiConfig, appState, promptBuilderConfig, onSa
             <ChatPanel
               locale={locale}
               messages={controller.chatMessages}
-              inputValue={controller.targetPrompt}
+              inputValue={controller.userInput}
               isSending={controller.isSending}
               canSend={controller.canSend}
               errorMessage={controller.chatError ?? controller.orchestrationError}
@@ -192,7 +192,7 @@ export function WorkPage({ locale, aiConfig, appState, promptBuilderConfig, onSa
               activeOrchestrationRun={controller.activeOrchestrationRun}
               isApplyingFile={controller.isApplyingFile}
               inputRef={inputRef}
-              onInputChange={controller.setTargetPrompt}
+              onInputChange={controller.setUserInput}
               onTargetOptionChange={controller.handleTargetOptionChange}
               onAgentProfileChange={controller.handleAgentProfileChange}
               onTargetModelChange={controller.setTargetModel}
@@ -200,7 +200,7 @@ export function WorkPage({ locale, aiConfig, appState, promptBuilderConfig, onSa
               onSubmit={() => { void controller.handleSendEntry(); }}
               onNewThread={controller.handleNewThread}
               onRetryMessage={(message) => {
-                controller.setTargetPrompt(message.content);
+                controller.setUserInput(message.content);
               }}
               onDropFile={(absolutePath) => {
                 const relativePath = resolveWorkspaceRelativePath(controller.workspaceRoot, absolutePath);
@@ -208,7 +208,7 @@ export function WorkPage({ locale, aiConfig, appState, promptBuilderConfig, onSa
                   return;
                 }
 
-                controller.setTargetPrompt(`${controller.targetPrompt}\n\n[File context] ${relativePath}`.trim());
+                controller.setUserInput(`${controller.userInput}\n\n[File context] ${relativePath}`.trim());
                 void controller.loadFilePreviewByPath(relativePath);
               }}
               onApplyCodeToFile={(content) => { void controller.applyToSelectedFile(content); }}

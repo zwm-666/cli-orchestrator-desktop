@@ -12,7 +12,7 @@ import type {
 import { DEFAULT_WORKBENCH_STATE } from '../../../shared/domain.js';
 import type { PromptBuilderConfig } from '../../../shared/promptBuilder.js';
 import type { AiConfig, AiProviderConfig, AiProviderDefinition } from '../aiConfig.js';
-import { getProviderDefinition, isProviderReady } from '../aiConfig.js';
+import { getProviderDefinition } from '../aiConfig.js';
 import {
   buildContinuityPrompt,
   createTaskThread,
@@ -70,7 +70,8 @@ export interface UseWorkbenchControllerResult {
   selectedAgentProfileId: string;
   targetModel: string;
   targetModelOptions: string[];
-  targetPrompt: string;
+  userInput: string;
+  continuityPrompt: string;
   runTitle: string;
   newTaskTitle: string;
   newTaskDetail: string;
@@ -106,7 +107,7 @@ export interface UseWorkbenchControllerResult {
   handleStartOrchestration: (discussionConfig?: DiscussionAutomationConfigInput | null) => Promise<void>;
   handleSetActiveOrchestrationRunId: (runId: string | null) => Promise<void>;
   setTargetModel: (value: string) => void;
-  setTargetPrompt: (value: string) => void;
+  setUserInput: (value: string) => void;
   setRunTitle: (value: string) => void;
   setNewTaskTitle: (value: string) => void;
   setNewTaskDetail: (value: string) => void;
@@ -155,13 +156,12 @@ export function useWorkbenchController(input: UseWorkbenchControllerInput): UseW
   const { locale, aiConfig, appState, promptBuilderConfig, onSaveWorkbenchState } = input;
   const persistedWorkbench = appState.workbench ?? DEFAULT_WORKBENCH_STATE;
   const bootstrapThreadRef = useRef<TaskThread | null>(null);
-  const activeThreadIdRef = useRef<string | null>(null);
   const [selectedTargetKind, setSelectedTargetKind] = useState<WorkbenchTargetKind>('provider');
   const [selectedProviderId, setSelectedProviderId] = useState(aiConfig.active_provider ?? '');
   const [selectedAdapterId, setSelectedAdapterId] = useState('');
   const [selectedAgentProfileId, setSelectedAgentProfileId] = useState('');
   const [targetModel, setTargetModel] = useState(aiConfig.active_model);
-  const [targetPrompt, setTargetPrompt] = useState('');
+  const [userInput, setUserInput] = useState('');
   const [isOrchestrationPanelOpen, setIsOrchestrationPanelOpen] = useState(false);
   const [orchestrationMode, setOrchestrationMode] = useState<'standard' | 'discussion'>('standard');
   const [orchestrationExecutionStyle, setOrchestrationExecutionStyle] = useState<OrchestrationExecutionStyle>('parallel');
@@ -253,13 +253,6 @@ export function useWorkbenchController(input: UseWorkbenchControllerInput): UseW
     }
   }, [agentProfileOptions, appState.agentProfiles, selectedAgentProfileId]);
 
-  useEffect(() => {
-    if (selectedTargetKind === 'provider') {
-      setSelectedProviderId(aiConfig.active_provider ?? selectedProviderId);
-      setTargetModel(aiConfig.active_model);
-    }
-  }, [aiConfig.active_model, aiConfig.active_provider, selectedProviderId, selectedTargetKind]);
-
   const selectedProviderDefinition = useMemo(
     () => (selectedProviderId ? getProviderDefinition(selectedProviderId, aiConfig.providers[selectedProviderId]) : null),
     [aiConfig.providers, selectedProviderId],
@@ -341,16 +334,6 @@ export function useWorkbenchController(input: UseWorkbenchControllerInput): UseW
     ],
   );
 
-  useEffect(() => {
-    const threadChanged = activeThreadIdRef.current !== activeThread?.id;
-    activeThreadIdRef.current = activeThread?.id ?? null;
-    const activeThreadMessageCount = activeThread ? activeThread.messages.length : 0;
-
-    if (threadChanged || activeThreadMessageCount === 0) {
-      setTargetPrompt(continuityPrompt);
-    }
-  }, [activeThread, continuityPrompt]);
-
   const providerFlow = useWorkbenchProviderFlow({
     locale,
     activeThreadId: activeThread?.id ?? null,
@@ -358,7 +341,9 @@ export function useWorkbenchController(input: UseWorkbenchControllerInput): UseW
     selectedProviderDefinition,
     selectedProviderConfig,
     targetModel,
-    targetPrompt,
+    userInput,
+    continuityPrompt,
+    setUserInput,
     boundSkills,
     selectedFile: workspace.selectedFile,
     selectedAgentLabel: selectedAgentProfile?.name ?? null,
@@ -374,7 +359,7 @@ export function useWorkbenchController(input: UseWorkbenchControllerInput): UseW
     selectedAdapter,
     activeThread,
     activeThreadId: activeThread?.id ?? null,
-    targetPrompt,
+    targetPrompt: userInput,
     targetModel,
     setTaskStatusMessage: taskBoard.setTaskStatusMessage,
     selectedAgentLabel: selectedAgentProfile?.name ?? null,
@@ -398,7 +383,7 @@ export function useWorkbenchController(input: UseWorkbenchControllerInput): UseW
       const providerDefinition = providerConfig ? getProviderDefinition(providerId, providerConfig) : null;
       setSelectedTargetKind('provider');
       setSelectedProviderId(providerId);
-      setTargetModel(providerConfig?.default_model?.trim() || aiConfig.active_model || providerDefinition?.modelSuggestions[0] || '');
+      setTargetModel(providerConfig?.default_model?.trim() || providerDefinition?.modelSuggestions[0] || '');
       return;
     }
 
@@ -442,7 +427,7 @@ export function useWorkbenchController(input: UseWorkbenchControllerInput): UseW
   const handleOpenOrchestrationPanel = (mode: 'standard' | 'discussion', prompt?: string): void => {
     setOrchestrationMode(mode);
     setOrchestrationExecutionStyle(mode === 'discussion' ? 'sequential' : 'parallel');
-    setOrchestrationPrompt(prompt?.trim() || targetPrompt.trim());
+    setOrchestrationPrompt(prompt?.trim() || userInput.trim());
     setSelectedOrchestrationParticipantIds((current) => current.length > 0 ? current : agentProfileOptions.slice(0, mode === 'discussion' ? 2 : 3).map((option) => option.id));
     setIsOrchestrationPanelOpen(true);
   };
@@ -470,7 +455,7 @@ export function useWorkbenchController(input: UseWorkbenchControllerInput): UseW
   };
 
   const handleSendEntry = async (): Promise<void> => {
-    const trimmedPrompt = targetPrompt.trim();
+    const trimmedPrompt = userInput.trim();
     if (!trimmedPrompt) {
       return;
     }
@@ -483,7 +468,7 @@ export function useWorkbenchController(input: UseWorkbenchControllerInput): UseW
 
     const parsedEntry = resolveWorkbenchEntryCommand(trimmedPrompt);
     if (parsedEntry.command === 'clear') {
-      setTargetPrompt('');
+      setUserInput('');
       return;
     }
     if (parsedEntry.command === 'switchProvider') {
@@ -495,26 +480,25 @@ export function useWorkbenchController(input: UseWorkbenchControllerInput): UseW
       return;
     }
     if (parsedEntry.command === 'orchestrate') {
-      handleOpenOrchestrationPanel('standard', parsedEntry.prompt || targetPrompt);
+      handleOpenOrchestrationPanel('standard', parsedEntry.prompt || userInput);
       return;
     }
     if (parsedEntry.command === 'discuss') {
-      handleOpenOrchestrationPanel('discussion', parsedEntry.prompt || targetPrompt);
+      handleOpenOrchestrationPanel('discussion', parsedEntry.prompt || userInput);
       return;
     }
 
     if (selectedTargetKind === 'provider') {
-      await providerFlow.handleProviderSend(parsedEntry.prompt || targetPrompt);
-      setTargetPrompt('');
+      await providerFlow.handleProviderSend(parsedEntry.prompt || userInput);
       return;
     }
 
-    await adapterFlow.handleStartAdapterRun(parsedEntry.prompt || targetPrompt);
-    setTargetPrompt('');
+    await adapterFlow.handleStartAdapterRun(parsedEntry.prompt || userInput);
+    setUserInput('');
   };
 
   const canSend = selectedTargetKind === 'provider'
-    ? Boolean(selectedProviderId && selectedProviderConfig && isProviderReady(selectedProviderConfig, targetModel))
+    ? Boolean(selectedProviderId && selectedProviderConfig)
     : Boolean(selectedAdapter);
 
   const activeThreadRuns = useMemo(() => {
@@ -559,7 +543,8 @@ export function useWorkbenchController(input: UseWorkbenchControllerInput): UseW
     selectedAgentProfileId,
     targetModel,
     targetModelOptions,
-    targetPrompt,
+    userInput,
+    continuityPrompt,
     runTitle: adapterFlow.runTitle,
     newTaskTitle: taskBoard.newTaskTitle,
     newTaskDetail: taskBoard.newTaskDetail,
@@ -595,7 +580,7 @@ export function useWorkbenchController(input: UseWorkbenchControllerInput): UseW
     handleStartOrchestration,
     handleSetActiveOrchestrationRunId: orchestrationFlow.setActiveOrchestrationRunId,
     setTargetModel,
-    setTargetPrompt,
+    setUserInput,
     setRunTitle: adapterFlow.setRunTitle,
     setNewTaskTitle: taskBoard.setNewTaskTitle,
     setNewTaskDetail: taskBoard.setNewTaskDetail,
