@@ -40,6 +40,8 @@ import type {
   StartRunResult,
   TaskType,
   UpdateRoutingSettingsInput,
+  WriteWorkspaceFileInput,
+  WriteWorkspaceFileResult,
 } from './domain.js';
 import type { PromptBuilderConfig, SavePromptBuilderConfigInput } from './promptBuilder.js';
 
@@ -91,8 +93,10 @@ export const IPC_CHANNELS = {
   saveMcpServer: 'mcp:save-server',
   deleteMcpServer: 'mcp:delete-server',
   browseWorkspace: 'workspace:browse',
+  selectProjectFolder: 'project:select-folder',
   selectWorkspaceFolder: 'workspace:select-folder',
   readWorkspaceFile: 'workspace:read-file',
+  writeWorkspaceFile: 'workspace:write-file',
   applyWorkspaceFile: 'workspace:apply-to-file',
 } as const;
 
@@ -140,8 +144,10 @@ export interface DesktopApi {
   saveMcpServer: (input: SaveMcpServerInput) => Promise<McpServerDefinition>;
   deleteMcpServer: (input: DeleteMcpServerInput) => Promise<void>;
   browseWorkspace: (input: BrowseWorkspaceInput) => Promise<BrowseWorkspaceResult>;
+  selectProjectFolder: () => Promise<SelectWorkspaceFolderResult>;
   selectWorkspaceFolder: () => Promise<SelectWorkspaceFolderResult>;
   readWorkspaceFile: (input: ReadWorkspaceFileInput) => Promise<ReadWorkspaceFileResult>;
+  writeWorkspaceFile: (input: WriteWorkspaceFileInput) => Promise<WriteWorkspaceFileResult>;
   applyWorkspaceFile: (input: ApplyWorkspaceFileInput) => Promise<ApplyWorkspaceFileResult>;
 }
 
@@ -186,8 +192,10 @@ export interface IpcRequestMap {
   [IPC_CHANNELS.saveMcpServer]: SaveMcpServerInput;
   [IPC_CHANNELS.deleteMcpServer]: DeleteMcpServerInput;
   [IPC_CHANNELS.browseWorkspace]: BrowseWorkspaceInput;
+  [IPC_CHANNELS.selectProjectFolder]: undefined;
   [IPC_CHANNELS.selectWorkspaceFolder]: undefined;
   [IPC_CHANNELS.readWorkspaceFile]: ReadWorkspaceFileInput;
+  [IPC_CHANNELS.writeWorkspaceFile]: WriteWorkspaceFileInput;
   [IPC_CHANNELS.applyWorkspaceFile]: ApplyWorkspaceFileInput;
 }
 
@@ -232,7 +240,9 @@ export interface IpcResponseMap {
   [IPC_CHANNELS.saveMcpServer]: McpServerDefinition;
   [IPC_CHANNELS.deleteMcpServer]: undefined;
   [IPC_CHANNELS.browseWorkspace]: BrowseWorkspaceResult;
+  [IPC_CHANNELS.selectProjectFolder]: SelectWorkspaceFolderResult;
   [IPC_CHANNELS.selectWorkspaceFolder]: SelectWorkspaceFolderResult;
   [IPC_CHANNELS.readWorkspaceFile]: ReadWorkspaceFileResult;
+  [IPC_CHANNELS.writeWorkspaceFile]: WriteWorkspaceFileResult;
   [IPC_CHANNELS.applyWorkspaceFile]: ApplyWorkspaceFileResult;
 }

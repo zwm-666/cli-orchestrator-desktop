@@ -14,6 +14,8 @@ import type {
   SaveAgentProfileInput,
   SaveMcpServerInput,
   SaveSkillInput,
+  WriteWorkspaceFileInput,
+  WriteWorkspaceFileResult,
 } from '../shared/domain.js';
 import { IPC_CHANNELS } from '../shared/ipc.js';
 import {
@@ -39,6 +41,7 @@ import {
   validateStartOrchestrationInput,
   validateStartRunInput,
   validateWorkbenchStateInput,
+  validateWriteWorkspaceFileInput,
 } from './ipcValidation.js';
 import { LocalPersistenceStore } from './persistence.js';
 import { OrchestratorService } from './orchestratorService.js';
@@ -51,6 +54,7 @@ const preloadPath = path.resolve(rootDir, 'dist/preload/preload.cjs');
 const rendererHtmlPath = path.resolve(rootDir, 'dist/renderer/index.html');
 const WORKSPACE_IGNORED_NAMES = new Set(['.cli-orchestrator', '.git', 'dist', 'node_modules', 'release']);
 const WORKSPACE_PREVIEW_BYTE_LIMIT = 256 * 1024;
+const WORKSPACE_WRITE_BYTE_LIMIT = 10 * 1024 * 1024;
 
 app.setPath('userData', electronDataDir);
 app.setPath('sessionData', path.resolve(electronDataDir, 'session'));
@@ -338,12 +342,20 @@ const selectWorkspaceFolder = async (): Promise<SelectWorkspaceFolderResult> => 
   };
 };
 
-const applyWorkspaceFile = async (input: ApplyWorkspaceFileInput): Promise<ApplyWorkspaceFileResult> => {
+const writeWorkspaceTextFile = async (
+  input: WriteWorkspaceFileInput & { createIfMissing?: boolean },
+  missingFileMessage: string,
+): Promise<WriteWorkspaceFileResult> => {
   const workspaceRoot = await getActiveWorkspaceRoot(input.workspaceRoot);
   const relativePath = normalizeWorkspaceRelativePath(input.relativePath);
 
   if (!relativePath) {
-    throw new Error('Select a file path inside the workspace root to apply content.');
+    throw new Error('Select a file path inside the workspace root to save content.');
+  }
+
+  const byteLength = Buffer.byteLength(input.content, 'utf8');
+  if (byteLength > WORKSPACE_WRITE_BYTE_LIMIT) {
+    throw new Error('Workspace file writes are limited to 10 MB.');
   }
 
   const absolutePath = resolveWorkspacePath(workspaceRoot, relativePath);
@@ -357,7 +369,7 @@ const applyWorkspaceFile = async (input: ApplyWorkspaceFileInput): Promise<Apply
     const code = (error as NodeJS.ErrnoException).code;
     if (code === 'ENOENT') {
       if (!input.createIfMissing) {
-        throw new Error('Target file does not exist. Enable createIfMissing to create it.');
+        throw new Error(missingFileMessage);
       }
       await mkdir(path.dirname(absolutePath), { recursive: true });
     } else {
@@ -366,7 +378,6 @@ const applyWorkspaceFile = async (input: ApplyWorkspaceFileInput): Promise<Apply
   }
 
   await writeFile(absolutePath, input.content, 'utf8');
-  const byteLength = Buffer.byteLength(input.content, 'utf8');
 
   return {
     rootLabel: path.basename(workspaceRoot),
@@ -375,6 +386,14 @@ const applyWorkspaceFile = async (input: ApplyWorkspaceFileInput): Promise<Apply
     bytesWritten: byteLength,
     savedAt: new Date().toISOString(),
   };
+};
+
+const writeWorkspaceFile = async (input: WriteWorkspaceFileInput): Promise<WriteWorkspaceFileResult> => {
+  return writeWorkspaceTextFile(input, 'Target file does not exist.');
+};
+
+const applyWorkspaceFile = async (input: ApplyWorkspaceFileInput): Promise<ApplyWorkspaceFileResult> => {
+  return writeWorkspaceTextFile(input, 'Target file does not exist. Enable createIfMissing to create it.');
 };
 
 const createMainWindow = async (): Promise<BrowserWindow> => {
@@ -551,12 +570,20 @@ const registerIpc = (): void => {
     return browseWorkspace(input);
   }));
 
+  ipcMain.handle(IPC_CHANNELS.selectProjectFolder, safeNoInputHandle(() => {
+    return selectWorkspaceFolder();
+  }));
+
   ipcMain.handle(IPC_CHANNELS.selectWorkspaceFolder, safeNoInputHandle(() => {
     return selectWorkspaceFolder();
   }));
 
   ipcMain.handle(IPC_CHANNELS.readWorkspaceFile, safeHandle(validateReadWorkspaceFileInput, (input) => {
     return readWorkspaceFile(input);
+  }));
+
+  ipcMain.handle(IPC_CHANNELS.writeWorkspaceFile, safeHandle(validateWriteWorkspaceFileInput, (input) => {
+    return writeWorkspaceFile(input);
   }));
 
   ipcMain.handle(IPC_CHANNELS.applyWorkspaceFile, safeHandle(validateApplyWorkspaceFileInput, (input) => {

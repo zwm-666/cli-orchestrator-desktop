@@ -37,6 +37,8 @@ import type {
   StartRunInput,
   TaskType,
   UpdateRoutingSettingsInput,
+  WriteWorkspaceFileInput,
+  WriteWorkspaceFileResult,
 } from '../shared/domain.js';
 import type { DesktopApi } from '../shared/ipc.js';
 import type { SaveAiConfigInput } from '../shared/ipc.js';
@@ -77,8 +79,10 @@ const IPC_CHANNELS = {
   saveMcpServer: 'mcp:save-server',
   deleteMcpServer: 'mcp:delete-server',
   browseWorkspace: 'workspace:browse',
+  selectProjectFolder: 'project:select-folder',
   selectWorkspaceFolder: 'workspace:select-folder',
   readWorkspaceFile: 'workspace:read-file',
+  writeWorkspaceFile: 'workspace:write-file',
   applyWorkspaceFile: 'workspace:apply-to-file',
 } as const;
 
@@ -140,8 +144,10 @@ const desktopApi: DesktopApi = {
   saveMcpServer: (input: SaveMcpServerInput): Promise<McpServerDefinition> => ipcRenderer.invoke(IPC_CHANNELS.saveMcpServer, input),
   deleteMcpServer: (input: DeleteMcpServerInput): Promise<void> => ipcRenderer.invoke(IPC_CHANNELS.deleteMcpServer, input),
   browseWorkspace: (input: BrowseWorkspaceInput): Promise<BrowseWorkspaceResult> => ipcRenderer.invoke(IPC_CHANNELS.browseWorkspace, input),
+  selectProjectFolder: (): Promise<SelectWorkspaceFolderResult> => ipcRenderer.invoke(IPC_CHANNELS.selectProjectFolder),
   selectWorkspaceFolder: (): Promise<SelectWorkspaceFolderResult> => ipcRenderer.invoke(IPC_CHANNELS.selectWorkspaceFolder),
   readWorkspaceFile: (input: ReadWorkspaceFileInput): Promise<ReadWorkspaceFileResult> => ipcRenderer.invoke(IPC_CHANNELS.readWorkspaceFile, input),
+  writeWorkspaceFile: (input: WriteWorkspaceFileInput): Promise<WriteWorkspaceFileResult> => ipcRenderer.invoke(IPC_CHANNELS.writeWorkspaceFile, input),
   applyWorkspaceFile: (input: ApplyWorkspaceFileInput): Promise<ApplyWorkspaceFileResult> =>
     ipcRenderer.invoke(IPC_CHANNELS.applyWorkspaceFile, input),
 };

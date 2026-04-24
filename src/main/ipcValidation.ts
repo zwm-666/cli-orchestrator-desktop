@@ -16,6 +16,7 @@ import type {
   StartOrchestrationInput,
   StartRunInput,
   UpdateRoutingSettingsInput,
+  WriteWorkspaceFileInput,
 } from '../shared/domain.js';
 import type { SavePromptBuilderConfigInput } from '../shared/promptBuilder.js';
 import type { SaveAiConfigInput } from '../shared/ipc.js';
@@ -269,6 +270,15 @@ export const validateReadWorkspaceFileInput = (value: unknown): ReadWorkspaceFil
   return {
     relativePath: assertString(input.relativePath, 'read workspace file input.relativePath'),
     workspaceRoot: assertOptionalString(input.workspaceRoot, 'read workspace file input.workspaceRoot'),
+  };
+};
+
+export const validateWriteWorkspaceFileInput = (value: unknown): WriteWorkspaceFileInput => {
+  const input = assertRecord(value, 'write workspace file input');
+  return {
+    relativePath: assertString(input.relativePath, 'write workspace file input.relativePath'),
+    content: assertString(input.content, 'write workspace file input.content'),
+    workspaceRoot: assertOptionalString(input.workspaceRoot, 'write workspace file input.workspaceRoot'),
   };
 };
 
