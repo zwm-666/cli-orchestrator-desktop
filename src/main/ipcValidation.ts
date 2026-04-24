@@ -1,5 +1,6 @@
 import type {
   BrowseWorkspaceInput,
+  ApplyWorkspaceFileInput,
   CancelOrchestrationInput,
   CancelRunInput,
   CreateDraftConversationInput,
@@ -63,6 +64,18 @@ const assertOptionalNumber = (value: unknown, label: string): number | null => {
 
   if (typeof value !== 'number' || Number.isNaN(value)) {
     throw new IpcValidationError(`${label} must be a number.`);
+  }
+
+  return value;
+};
+
+const assertOptionalBoolean = (value: unknown, label: string): boolean | null => {
+  if (value === undefined || value === null) {
+    return null;
+  }
+
+  if (typeof value !== 'boolean') {
+    throw new IpcValidationError(`${label} must be a boolean.`);
   }
 
   return value;
@@ -155,6 +168,56 @@ export const validateRecentRunsInput = (value: unknown): { taskType: string; lim
 export const validateStartOrchestrationInput = (value: unknown): StartOrchestrationInput => {
   const input = assertRecord(value, 'start orchestration input');
   assertString(input.prompt, 'start orchestration input.prompt');
+  if (input.automationMode !== undefined) {
+    const validModes = new Set(['standard', 'review_loop', 'discussion']);
+    if (typeof input.automationMode !== 'string' || !validModes.has(input.automationMode)) {
+      throw new IpcValidationError('start orchestration input.automationMode must be one of standard, review_loop, discussion.');
+    }
+  }
+
+  if (input.executionStyle !== undefined) {
+    const validExecutionStyles = new Set(['planner', 'sequential', 'parallel']);
+    if (typeof input.executionStyle !== 'string' || !validExecutionStyles.has(input.executionStyle)) {
+      throw new IpcValidationError('start orchestration input.executionStyle must be one of planner, sequential, parallel.');
+    }
+  }
+
+  if (input.participantProfileIds !== undefined) {
+    if (!Array.isArray(input.participantProfileIds) || input.participantProfileIds.some((entry) => typeof entry !== 'string')) {
+      throw new IpcValidationError('start orchestration input.participantProfileIds must be a string array.');
+    }
+  }
+
+  if (input.discussionConfig !== undefined && input.discussionConfig !== null) {
+    const discussionConfig = assertRecord(input.discussionConfig, 'start orchestration input.discussionConfig');
+    const maxRounds = assertOptionalNumber(discussionConfig.maxRounds, 'start orchestration input.discussionConfig.maxRounds');
+    if (maxRounds !== null && maxRounds < 1) {
+      throw new IpcValidationError('discussionConfig.maxRounds must be >= 1.');
+    }
+    const participantsPerRound = assertOptionalNumber(
+      discussionConfig.participantsPerRound,
+      'start orchestration input.discussionConfig.participantsPerRound',
+    );
+    if (participantsPerRound !== null && participantsPerRound < 1) {
+      throw new IpcValidationError('discussionConfig.participantsPerRound must be >= 1.');
+    }
+    if (discussionConfig.participantProfileIds !== undefined) {
+      if (!Array.isArray(discussionConfig.participantProfileIds) || discussionConfig.participantProfileIds.some((entry) => typeof entry !== 'string')) {
+        throw new IpcValidationError('discussionConfig.participantProfileIds must be a string array.');
+      }
+    }
+    if (discussionConfig.consensusStrategy !== undefined) {
+      const validStrategies = new Set(['keyword', 'summary_match']);
+      if (typeof discussionConfig.consensusStrategy !== 'string' || !validStrategies.has(discussionConfig.consensusStrategy)) {
+        throw new IpcValidationError('discussionConfig.consensusStrategy must be one of keyword, summary_match.');
+      }
+    }
+    assertOptionalString(discussionConfig.consensusKeyword, 'start orchestration input.discussionConfig.consensusKeyword');
+    assertOptionalBoolean(
+      discussionConfig.requireFinalSynthesis,
+      'start orchestration input.discussionConfig.requireFinalSynthesis',
+    );
+  }
   return input as unknown as StartOrchestrationInput;
 };
 
@@ -197,6 +260,7 @@ export const validateBrowseWorkspaceInput = (value: unknown): BrowseWorkspaceInp
   const input = value === undefined ? {} : assertRecord(value, 'browse workspace input');
   return {
     relativePath: assertOptionalString(input.relativePath, 'browse workspace input.relativePath'),
+    workspaceRoot: assertOptionalString(input.workspaceRoot, 'browse workspace input.workspaceRoot'),
   };
 };
 
@@ -204,6 +268,17 @@ export const validateReadWorkspaceFileInput = (value: unknown): ReadWorkspaceFil
   const input = assertRecord(value, 'read workspace file input');
   return {
     relativePath: assertString(input.relativePath, 'read workspace file input.relativePath'),
+    workspaceRoot: assertOptionalString(input.workspaceRoot, 'read workspace file input.workspaceRoot'),
+  };
+};
+
+export const validateApplyWorkspaceFileInput = (value: unknown): ApplyWorkspaceFileInput => {
+  const input = assertRecord(value, 'apply workspace file input');
+  return {
+    relativePath: assertString(input.relativePath, 'apply workspace file input.relativePath'),
+    content: assertString(input.content, 'apply workspace file input.content'),
+    workspaceRoot: assertOptionalString(input.workspaceRoot, 'apply workspace file input.workspaceRoot'),
+    createIfMissing: assertOptionalBoolean(input.createIfMissing, 'apply workspace file input.createIfMissing') ?? false,
   };
 };
 

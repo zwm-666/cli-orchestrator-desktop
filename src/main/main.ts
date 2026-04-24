@@ -3,11 +3,14 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { app, BrowserWindow, dialog, ipcMain } from 'electron';
 import type {
+  ApplyWorkspaceFileInput,
+  ApplyWorkspaceFileResult,
   BrowseWorkspaceInput,
   BrowseWorkspaceResult,
   GetNextClaudeTaskResult,
   ReadWorkspaceFileInput,
   ReadWorkspaceFileResult,
+  SelectWorkspaceFolderResult,
   SaveAgentProfileInput,
   SaveMcpServerInput,
   SaveSkillInput,
@@ -15,6 +18,7 @@ import type {
 import { IPC_CHANNELS } from '../shared/ipc.js';
 import {
   formatIpcErrorMessage,
+  validateApplyWorkspaceFileInput,
   validateBrowseWorkspaceInput,
   validateCancelOrchestrationInput,
   validateCancelRunInput,
@@ -168,21 +172,41 @@ const normalizeWorkspaceRelativePath = (relativePath: string | null | undefined)
   }
 
   if (normalizedPath === '..' || normalizedPath.startsWith('../')) {
-    throw new Error('Workspace browsing is restricted to the repository root.');
+    throw new Error('Workspace access is restricted to the selected workspace root.');
   }
 
   return normalizedPath;
 };
 
-const resolveWorkspacePath = (relativePath: string): string => {
+const resolveWorkspacePath = (workspaceRoot: string, relativePath: string): string => {
   const normalizedPath = normalizeWorkspaceRelativePath(relativePath);
-  const absolutePath = path.resolve(rootDir, normalizedPath);
+  const absolutePath = path.resolve(workspaceRoot, normalizedPath);
 
-  if (absolutePath !== rootDir && !absolutePath.startsWith(`${rootDir}${path.sep}`)) {
-    throw new Error('Workspace browsing is restricted to the repository root.');
+  if (absolutePath !== workspaceRoot && !absolutePath.startsWith(`${workspaceRoot}${path.sep}`)) {
+    throw new Error('Workspace access is restricted to the selected workspace root.');
   }
 
   return absolutePath;
+};
+
+const getActiveWorkspaceRoot = async (preferredRoot?: string | null): Promise<string> => {
+  const persistedRoot = preferredRoot?.trim() || orchestratorService.getWorkbenchWorkspaceRoot();
+  const candidateRoot = persistedRoot ?? rootDir;
+
+  try {
+    const candidateStats = await stat(candidateRoot);
+    if (candidateStats.isDirectory()) {
+      return candidateRoot;
+    }
+  } catch {
+    // fall through to rootDir fallback
+  }
+
+  if (persistedRoot) {
+    orchestratorService.setWorkbenchWorkspaceRoot(null);
+  }
+
+  return rootDir;
 };
 
 const getParentWorkspacePath = (relativePath: string): string | null => {
@@ -196,8 +220,9 @@ const getParentWorkspacePath = (relativePath: string): string | null => {
 };
 
 const browseWorkspace = async (input: BrowseWorkspaceInput): Promise<BrowseWorkspaceResult> => {
+  const workspaceRoot = await getActiveWorkspaceRoot(input.workspaceRoot);
   const currentPath = normalizeWorkspaceRelativePath(input.relativePath);
-  const absolutePath = resolveWorkspacePath(currentPath);
+  const absolutePath = resolveWorkspacePath(workspaceRoot, currentPath);
   const currentStats = await stat(absolutePath);
 
   if (!currentStats.isDirectory()) {
@@ -228,7 +253,8 @@ const browseWorkspace = async (input: BrowseWorkspaceInput): Promise<BrowseWorks
     });
 
   return {
-    rootLabel: path.basename(rootDir),
+    rootLabel: path.basename(workspaceRoot),
+    workspaceRoot,
     currentPath,
     parentPath: getParentWorkspacePath(currentPath),
     entries,
@@ -236,13 +262,14 @@ const browseWorkspace = async (input: BrowseWorkspaceInput): Promise<BrowseWorks
 };
 
 const readWorkspaceFile = async (input: ReadWorkspaceFileInput): Promise<ReadWorkspaceFileResult> => {
+  const workspaceRoot = await getActiveWorkspaceRoot(input.workspaceRoot);
   const relativePath = normalizeWorkspaceRelativePath(input.relativePath);
 
   if (!relativePath) {
-    throw new Error('Select a file inside the repository to preview it.');
+    throw new Error('Select a file inside the workspace root to preview it.');
   }
 
-  const absolutePath = resolveWorkspacePath(relativePath);
+  const absolutePath = resolveWorkspacePath(workspaceRoot, relativePath);
   const fileStats = await stat(absolutePath);
 
   if (!fileStats.isFile()) {
@@ -261,7 +288,8 @@ const readWorkspaceFile = async (input: ReadWorkspaceFileInput): Promise<ReadWor
     }
 
     return {
-      rootLabel: path.basename(rootDir),
+      rootLabel: path.basename(workspaceRoot),
+      workspaceRoot,
       relativePath,
       content: buffer.toString('utf8'),
       truncated: fileStats.size > WORKSPACE_PREVIEW_BYTE_LIMIT,
@@ -270,6 +298,83 @@ const readWorkspaceFile = async (input: ReadWorkspaceFileInput): Promise<ReadWor
   } finally {
     await fileHandle.close();
   }
+};
+
+const selectWorkspaceFolder = async (): Promise<SelectWorkspaceFolderResult> => {
+  const currentRoot = orchestratorService.getWorkbenchWorkspaceRoot();
+  const defaultPath = currentRoot ?? rootDir;
+  const selection = await dialog.showOpenDialog({
+    title: 'Select workspace root',
+    defaultPath,
+    properties: ['openDirectory'],
+  });
+
+  if (selection.canceled || selection.filePaths.length === 0) {
+    return {
+      workspaceRoot: currentRoot,
+      rootLabel: currentRoot ? path.basename(currentRoot) : null,
+      wasChanged: false,
+    };
+  }
+
+  const selectedPath = selection.filePaths[0] ?? null;
+  if (!selectedPath) {
+    return {
+      workspaceRoot: currentRoot,
+      rootLabel: currentRoot ? path.basename(currentRoot) : null,
+      wasChanged: false,
+    };
+  }
+
+  const wasChanged = selectedPath !== currentRoot;
+  if (wasChanged) {
+    orchestratorService.setWorkbenchWorkspaceRoot(selectedPath);
+  }
+
+  return {
+    workspaceRoot: selectedPath,
+    rootLabel: path.basename(selectedPath),
+    wasChanged,
+  };
+};
+
+const applyWorkspaceFile = async (input: ApplyWorkspaceFileInput): Promise<ApplyWorkspaceFileResult> => {
+  const workspaceRoot = await getActiveWorkspaceRoot(input.workspaceRoot);
+  const relativePath = normalizeWorkspaceRelativePath(input.relativePath);
+
+  if (!relativePath) {
+    throw new Error('Select a file path inside the workspace root to apply content.');
+  }
+
+  const absolutePath = resolveWorkspacePath(workspaceRoot, relativePath);
+
+  try {
+    const fileStats = await stat(absolutePath);
+    if (!fileStats.isFile()) {
+      throw new Error('Only files can be updated by workspace apply.');
+    }
+  } catch (error: unknown) {
+    const code = (error as NodeJS.ErrnoException).code;
+    if (code === 'ENOENT') {
+      if (!input.createIfMissing) {
+        throw new Error('Target file does not exist. Enable createIfMissing to create it.');
+      }
+      await mkdir(path.dirname(absolutePath), { recursive: true });
+    } else {
+      throw error;
+    }
+  }
+
+  await writeFile(absolutePath, input.content, 'utf8');
+  const byteLength = Buffer.byteLength(input.content, 'utf8');
+
+  return {
+    rootLabel: path.basename(workspaceRoot),
+    workspaceRoot,
+    relativePath,
+    bytesWritten: byteLength,
+    savedAt: new Date().toISOString(),
+  };
 };
 
 const createMainWindow = async (): Promise<BrowserWindow> => {
@@ -446,8 +551,16 @@ const registerIpc = (): void => {
     return browseWorkspace(input);
   }));
 
+  ipcMain.handle(IPC_CHANNELS.selectWorkspaceFolder, safeNoInputHandle(() => {
+    return selectWorkspaceFolder();
+  }));
+
   ipcMain.handle(IPC_CHANNELS.readWorkspaceFile, safeHandle(validateReadWorkspaceFileInput, (input) => {
     return readWorkspaceFile(input);
+  }));
+
+  ipcMain.handle(IPC_CHANNELS.applyWorkspaceFile, safeHandle(validateApplyWorkspaceFileInput, (input) => {
+    return applyWorkspaceFile(input);
   }));
 };
 

@@ -163,6 +163,7 @@ export class OrchestratorService {
         this.stateManager.updateState(updater);
       },
       this.skillRegistry,
+      () => this.stateManager.getAppState(),
     );
 
     this.stateManager.refreshDerivedState();
@@ -199,6 +200,14 @@ export class OrchestratorService {
     return this.stateManager.getNextClaudeTask();
   }
 
+  public getWorkbenchWorkspaceRoot(): string | null {
+    return this.stateManager.getWorkbenchWorkspaceRoot();
+  }
+
+  public setWorkbenchWorkspaceRoot(workspaceRoot: string | null): AppState {
+    return this.stateManager.setWorkbenchWorkspaceRoot(workspaceRoot);
+  }
+
   public updateRoutingSettings(settings: ReturnType<AdapterManager['getRoutingSettings']>): ReturnType<AdapterManager['getRoutingSettings']> {
     const nextSettings = this.adapterManager.updateRoutingSettings(settings);
     this.stateManager.refreshDerivedState();
@@ -230,6 +239,10 @@ export class OrchestratorService {
       input.masterAgentProfileId ?? null,
       input.automationMode ?? 'standard',
       this.stateManager.getState().projectContext.summary || null,
+      input.maxIterations ?? null,
+      input.discussionConfig ?? null,
+      input.executionStyle ?? 'planner',
+      input.participantProfileIds ?? [],
     );
 
     const hasAdapterOverride = input.adapterOverride != null;

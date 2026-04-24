@@ -2,6 +2,8 @@ const { contextBridge, ipcRenderer } = require('electron') as typeof import('ele
 
 import type {
   AgentProfile,
+  ApplyWorkspaceFileInput,
+  ApplyWorkspaceFileResult,
   AppState,
   BrowseWorkspaceInput,
   BrowseWorkspaceResult,
@@ -29,6 +31,7 @@ import type {
   SaveProjectContextInput,
   SaveSkillInput,
   SaveWorkbenchStateInput,
+  SelectWorkspaceFolderResult,
   SkillDefinition,
   StartOrchestrationInput,
   StartRunInput,
@@ -74,7 +77,9 @@ const IPC_CHANNELS = {
   saveMcpServer: 'mcp:save-server',
   deleteMcpServer: 'mcp:delete-server',
   browseWorkspace: 'workspace:browse',
+  selectWorkspaceFolder: 'workspace:select-folder',
   readWorkspaceFile: 'workspace:read-file',
+  applyWorkspaceFile: 'workspace:apply-to-file',
 } as const;
 
 const desktopApi: DesktopApi = {
@@ -135,7 +140,10 @@ const desktopApi: DesktopApi = {
   saveMcpServer: (input: SaveMcpServerInput): Promise<McpServerDefinition> => ipcRenderer.invoke(IPC_CHANNELS.saveMcpServer, input),
   deleteMcpServer: (input: DeleteMcpServerInput): Promise<void> => ipcRenderer.invoke(IPC_CHANNELS.deleteMcpServer, input),
   browseWorkspace: (input: BrowseWorkspaceInput): Promise<BrowseWorkspaceResult> => ipcRenderer.invoke(IPC_CHANNELS.browseWorkspace, input),
+  selectWorkspaceFolder: (): Promise<SelectWorkspaceFolderResult> => ipcRenderer.invoke(IPC_CHANNELS.selectWorkspaceFolder),
   readWorkspaceFile: (input: ReadWorkspaceFileInput): Promise<ReadWorkspaceFileResult> => ipcRenderer.invoke(IPC_CHANNELS.readWorkspaceFile, input),
+  applyWorkspaceFile: (input: ApplyWorkspaceFileInput): Promise<ApplyWorkspaceFileResult> =>
+    ipcRenderer.invoke(IPC_CHANNELS.applyWorkspaceFile, input),
 };
 
 contextBridge.exposeInMainWorld('desktopApi', desktopApi);
