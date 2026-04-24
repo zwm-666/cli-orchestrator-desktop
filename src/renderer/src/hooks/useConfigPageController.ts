@@ -302,11 +302,12 @@ export function useConfigPageController(input: UseConfigPageControllerInput): Us
     const adapter = userFacingAdapters.find((entry) => entry.id === adapterId);
     const fallback = adapter
       ? getDraftAdapterSetting(adapter, draftRoutingSettings.adapterSettings[adapterId])
-      : (draftRoutingSettings.adapterSettings[adapterId] ?? {
-          enabled: true,
-          defaultModel: '',
-          customCommand: '',
-        });
+        : (draftRoutingSettings.adapterSettings[adapterId] ?? {
+            enabled: true,
+            defaultModel: '',
+            modelOptions: [],
+            customCommand: '',
+          });
 
     setDraftRoutingSettings((current) => ({
       ...current,

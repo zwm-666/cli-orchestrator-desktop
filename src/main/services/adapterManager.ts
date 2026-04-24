@@ -402,8 +402,23 @@ const getAdapterSetting = (
   return {
     enabled: override?.enabled ?? adapterConfig.enabled,
     defaultModel: override?.defaultModel ?? adapterConfig.defaultModel ?? '',
+    modelOptions: override?.modelOptions ?? [],
     customCommand: customCommand ? validateCustomExecutableOverride(customCommand) : '',
   };
+};
+
+const mergeAdapterModels = (configModels: string[], overrideModels: string[] | undefined, defaultModel: string | null): string[] => {
+  const models: string[] = [];
+  const append = (model: string | null | undefined): void => {
+    const normalized = model?.trim() ?? '';
+    if (normalized && !models.includes(normalized)) {
+      models.push(normalized);
+    }
+  };
+  append(defaultModel);
+  (overrideModels ?? []).forEach(append);
+  configModels.forEach(append);
+  return models;
 };
 
 export class AdapterManager {
@@ -489,6 +504,8 @@ export class AdapterManager {
     const enabled = config.visibility === 'user' && availability === 'available' && routingOverride.enabled;
     const readiness = this.deriveAdapterReadiness(config.id, availability, discoveryReason);
 
+    const defaultModel = normalizeOptionalString(routingOverride.defaultModel) ?? config.defaultModel;
+
     return {
       id: config.id,
       displayName: config.displayName,
@@ -504,8 +521,8 @@ export class AdapterManager {
       discoveryReason,
       enabled,
       defaultTimeoutMs: config.defaultTimeoutMs,
-      defaultModel: normalizeOptionalString(routingOverride.defaultModel) ?? config.defaultModel,
-      supportedModels: config.supportedModels,
+      defaultModel,
+      supportedModels: mergeAdapterModels(config.supportedModels, routingOverride.modelOptions, defaultModel),
     };
   }
 

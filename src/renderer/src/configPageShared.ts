@@ -21,12 +21,20 @@ export const createSkillBinding = (): WorkbenchSkillBinding => ({
 });
 
 export const getDraftAdapterSetting = (
-  adapter: Pick<AppState['adapters'][number], 'defaultModel'>,
+  adapter: Pick<AppState['adapters'][number], 'defaultModel' | 'supportedModels'>,
   currentSetting: RoutingSettings['adapterSettings'][string] | undefined,
 ): RoutingSettings['adapterSettings'][string] => {
+  const modelOptions = [...new Set([
+    ...(currentSetting?.modelOptions ?? []),
+    currentSetting?.defaultModel ?? '',
+    adapter.defaultModel ?? '',
+    ...adapter.supportedModels,
+  ].map((model) => model.trim()).filter((model) => model.length > 0))];
+
   return {
     enabled: currentSetting?.enabled ?? true,
-    defaultModel: currentSetting?.defaultModel ?? adapter.defaultModel ?? '',
+    defaultModel: currentSetting?.defaultModel ?? adapter.defaultModel ?? modelOptions[0] ?? '',
+    modelOptions,
     customCommand: currentSetting?.customCommand ?? '',
   };
 };

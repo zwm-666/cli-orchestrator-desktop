@@ -151,6 +151,7 @@ const createRoutingSettings = (): RoutingSettings => {
       'adapter-1': {
         enabled: false,
         defaultModel: 'gpt-5.4',
+        modelOptions: [],
         customCommand: '',
       },
     },
