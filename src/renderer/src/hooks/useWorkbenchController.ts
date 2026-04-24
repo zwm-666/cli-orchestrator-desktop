@@ -493,10 +493,12 @@ export function useWorkbenchController(input: UseWorkbenchControllerInput): UseW
 
     if (selectedTargetKind === 'provider') {
       await providerFlow.handleProviderSend(parsedEntry.prompt || targetPrompt);
+      setTargetPrompt('');
       return;
     }
 
     await adapterFlow.handleStartAdapterRun(parsedEntry.prompt || targetPrompt);
+    setTargetPrompt('');
   };
 
   const canSend = selectedTargetKind === 'provider'
