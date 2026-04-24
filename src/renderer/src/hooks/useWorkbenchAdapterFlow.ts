@@ -1,7 +1,8 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import type { AppState, Locale, WorkbenchState } from '../../../shared/domain.js';
+import type { AppState, Locale, TaskThreadMessage, WorkbenchState } from '../../../shared/domain.js';
 import {
   appendActivityToThread,
+  appendMessagesToThread,
   applyTaskUpdates,
   collectRunOutputText,
   createAdapterActivitySummary,
@@ -17,8 +18,11 @@ interface UseWorkbenchAdapterFlowInput {
   activeThreadId: string | null;
   targetPrompt: string;
   targetModel: string;
-  persistWorkbench: (nextWorkbench: WorkbenchState) => Promise<void>;
   setTaskStatusMessage: (value: string | null) => void;
+  selectedAgentLabel?: string | null;
+  selectedAgentPrompt?: string | null;
+  getLatestWorkbench: () => WorkbenchState;
+  queueWorkbenchPersist: (updater: (currentWorkbench: WorkbenchState) => WorkbenchState) => Promise<WorkbenchState>;
 }
 
 interface UseWorkbenchAdapterFlowResult {
@@ -27,11 +31,24 @@ interface UseWorkbenchAdapterFlowResult {
   isStartingRun: boolean;
   recentAdapterRuns: AppState['runs'];
   setRunTitle: (value: string) => void;
-  handleStartAdapterRun: () => Promise<void>;
+  handleStartAdapterRun: (promptOverride?: string) => Promise<void>;
 }
 
 export function useWorkbenchAdapterFlow(input: UseWorkbenchAdapterFlowInput): UseWorkbenchAdapterFlowResult {
-  const { locale, appState, workbench, selectedAdapter, activeThreadId, targetPrompt, targetModel, persistWorkbench, setTaskStatusMessage } = input;
+  const {
+    locale,
+    appState,
+    workbench,
+    selectedAdapter,
+    activeThreadId,
+    targetPrompt,
+    targetModel,
+    setTaskStatusMessage,
+    selectedAgentLabel,
+    selectedAgentPrompt,
+    getLatestWorkbench,
+    queueWorkbenchPersist,
+  } = input;
   const [runTitle, setRunTitle] = useState('');
   const [runError, setRunError] = useState<string | null>(null);
   const [isStartingRun, setIsStartingRun] = useState(false);
@@ -60,9 +77,7 @@ export function useWorkbenchAdapterFlow(input: UseWorkbenchAdapterFlowInput): Us
     }
 
     const syncChecklistFromRuns = async (): Promise<void> => {
-      let nextWorkbench = workbench;
       let syncedCount = 0;
-      let touched = false;
 
       for (const run of candidateRuns) {
         if (processingRunIdsRef.current.has(run.id)) {
@@ -73,38 +88,69 @@ export function useWorkbenchAdapterFlow(input: UseWorkbenchAdapterFlowInput): Us
         try {
           const outputText = collectRunOutputText(run);
           const updates = extractTaskUpdates(outputText);
-          const processedIds = new Set(nextWorkbench.processedRunIds);
-          processedIds.add(run.id);
           const nextActivity = createAdapterActivitySummary(locale, run, cliAdapterById.get(run.adapterId)?.displayName ?? run.adapterId, outputText);
-          const targetThreadId = run.workbenchThreadId ?? activeThreadId;
+          const targetThreadId = run.workbenchThreadId ?? getLatestWorkbench().activeThreadId ?? activeThreadId;
+          let wasProcessed = false;
 
-          if (updates) {
-            nextWorkbench = appendActivityToThread({
-              ...nextWorkbench,
-              tasks: applyTaskUpdates(nextWorkbench.tasks, updates, 'assistant'),
-              processedRunIds: [...processedIds],
-              latestAdapterActivity: nextActivity,
-            }, targetThreadId, nextActivity);
+          await queueWorkbenchPersist((currentWorkbench) => {
+            const processedIds = new Set(currentWorkbench.processedRunIds);
+            if (processedIds.has(run.id)) {
+              return currentWorkbench;
+            }
+
+            processedIds.add(run.id);
+            let nextWorkbench = updates
+              ? appendActivityToThread({
+                  ...currentWorkbench,
+                  tasks: applyTaskUpdates(currentWorkbench.tasks, updates, 'assistant'),
+                  processedRunIds: [...processedIds],
+                  latestAdapterActivity: nextActivity,
+                }, targetThreadId, nextActivity)
+              : appendActivityToThread({
+                  ...currentWorkbench,
+                  processedRunIds: [...processedIds],
+                  latestAdapterActivity: nextActivity,
+                }, targetThreadId, nextActivity);
+
+            const completionMessage: TaskThreadMessage = {
+              id: crypto.randomUUID(),
+              role: 'system',
+              content:
+                run.status === 'succeeded'
+                  ? locale === 'zh'
+                    ? `本地工具 ${cliAdapterById.get(run.adapterId)?.displayName ?? run.adapterId} 已完成。`
+                    : `Local tool ${cliAdapterById.get(run.adapterId)?.displayName ?? run.adapterId} completed.`
+                  : locale === 'zh'
+                    ? `本地工具 ${cliAdapterById.get(run.adapterId)?.displayName ?? run.adapterId} 以 ${run.status} 结束。`
+                    : `Local tool ${cliAdapterById.get(run.adapterId)?.displayName ?? run.adapterId} finished with ${run.status}.`,
+              providerId: null,
+              adapterId: run.adapterId,
+              sourceKind: 'adapter',
+              sourceLabel: cliAdapterById.get(run.adapterId)?.displayName ?? run.adapterId,
+              modelLabel: run.model ?? null,
+              agentLabel: selectedAgentLabel ?? null,
+              orchestrationRunId: null,
+              createdAt: nextActivity.recordedAt,
+            };
+            nextWorkbench = appendMessagesToThread({
+              locale,
+              workbench: nextWorkbench,
+              threadId: targetThreadId,
+              messages: [completionMessage],
+            });
+
+            wasProcessed = true;
+            return nextWorkbench;
+          });
+
+          if (wasProcessed && updates) {
             syncedCount += 1;
-          } else {
-            nextWorkbench = appendActivityToThread({
-              ...nextWorkbench,
-              processedRunIds: [...processedIds],
-              latestAdapterActivity: nextActivity,
-            }, targetThreadId, nextActivity);
           }
-
-          touched = true;
         } finally {
           processingRunIdsRef.current.delete(run.id);
         }
       }
 
-      if (!touched) {
-        return;
-      }
-
-      await persistWorkbench(nextWorkbench);
       if (syncedCount > 0) {
         setTaskStatusMessage(
           locale === 'zh'
@@ -115,15 +161,17 @@ export function useWorkbenchAdapterFlow(input: UseWorkbenchAdapterFlowInput): Us
     };
 
     void syncChecklistFromRuns();
-  }, [activeThreadId, appState.adapters, appState.runs, locale, persistWorkbench, setTaskStatusMessage, workbench]);
+  }, [activeThreadId, appState.adapters, appState.runs, locale, queueWorkbenchPersist, setTaskStatusMessage, selectedAgentLabel, workbench]);
 
-  const handleStartAdapterRun = async (): Promise<void> => {
+  const handleStartAdapterRun = async (promptOverride?: string): Promise<void> => {
     if (!selectedAdapter) {
       setRunError(locale === 'zh' ? '请先选择一个本地工具。' : 'Choose a local adapter first.');
       return;
     }
 
-    if (!targetPrompt.trim()) {
+    const trimmedPrompt = (promptOverride ?? targetPrompt).trim();
+
+    if (!trimmedPrompt) {
       setRunError(locale === 'zh' ? '请先生成连续工作提示词。' : 'Generate the continuity prompt before starting a run.');
       return;
     }
@@ -132,9 +180,50 @@ export function useWorkbenchAdapterFlow(input: UseWorkbenchAdapterFlowInput): Us
     setRunError(null);
 
     try {
+      const createdAt = new Date().toISOString();
+      const requestMessage: TaskThreadMessage = {
+        id: crypto.randomUUID(),
+        role: 'user',
+        content: trimmedPrompt,
+        providerId: null,
+        adapterId: selectedAdapter.id,
+        sourceKind: 'adapter',
+        sourceLabel: selectedAdapter.displayName,
+        modelLabel: targetModel || null,
+        agentLabel: selectedAgentLabel ?? null,
+        orchestrationRunId: null,
+        createdAt,
+      };
+      const launchMessage: TaskThreadMessage = {
+        id: crypto.randomUUID(),
+        role: 'system',
+        content: locale === 'zh' ? `已启动本地工具 ${selectedAdapter.displayName}。` : `Started local tool ${selectedAdapter.displayName}.`,
+        providerId: null,
+        adapterId: selectedAdapter.id,
+        sourceKind: 'adapter',
+        sourceLabel: selectedAdapter.displayName,
+        modelLabel: targetModel || null,
+        agentLabel: selectedAgentLabel ?? null,
+        orchestrationRunId: null,
+        createdAt,
+      };
+
+      await queueWorkbenchPersist((currentWorkbench) => {
+        return appendMessagesToThread({
+          locale,
+          workbench: currentWorkbench,
+          threadId: activeThreadId,
+          messages: [requestMessage, launchMessage],
+        });
+      });
+
+      const effectivePrompt = selectedAgentPrompt
+        ? `${locale === 'zh' ? 'Agent 角色要求' : 'Agent persona requirements'}: ${selectedAgentLabel ?? 'Agent'}\n${selectedAgentPrompt}\n\n${trimmedPrompt}`
+        : trimmedPrompt;
+
       await window.desktopApi.startRun({
         title: runTitle.trim() || (locale === 'zh' ? '统一工作台任务' : 'Unified workbench task'),
-        prompt: targetPrompt,
+        prompt: effectivePrompt,
         adapterId: selectedAdapter.id,
         model: targetModel || null,
         workbenchThreadId: activeThreadId,

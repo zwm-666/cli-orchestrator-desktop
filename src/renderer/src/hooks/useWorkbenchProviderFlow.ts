@@ -10,16 +10,14 @@ import {
   applyTaskUpdates,
   createProviderActivitySummary,
   extractTaskUpdates,
+  getTaskThreadById,
   stripTaskUpdateBlock,
 } from '../workbench.js';
 import { FILE_CONTEXT_LIMIT, toErrorMessage } from './workbenchControllerShared.js';
 
 interface UseWorkbenchProviderFlowInput {
   locale: Locale;
-  workbench: WorkbenchState;
-  persistWorkbench: (nextWorkbench: WorkbenchState) => Promise<void>;
   activeThreadId: string | null;
-  threadMessages: TaskThreadMessage[];
   selectedProviderId: string;
   selectedProviderDefinition: AiProviderDefinition | null;
   selectedProviderConfig: AiConfig['providers'][keyof AiConfig['providers']] | null;
@@ -27,21 +25,22 @@ interface UseWorkbenchProviderFlowInput {
   targetPrompt: string;
   boundSkills: SkillDefinition[];
   selectedFile: ReadWorkspaceFileResult | null;
+  selectedAgentLabel?: string | null;
+  selectedAgentPrompt?: string | null;
+  getLatestWorkbench: () => WorkbenchState;
+  queueWorkbenchPersist: (updater: (currentWorkbench: WorkbenchState) => WorkbenchState) => Promise<WorkbenchState>;
 }
 
 interface UseWorkbenchProviderFlowResult {
   chatError: string | null;
   isSending: boolean;
-  handleProviderSend: () => Promise<void>;
+  handleProviderSend: (promptOverride?: string) => Promise<void>;
 }
 
 export function useWorkbenchProviderFlow(input: UseWorkbenchProviderFlowInput): UseWorkbenchProviderFlowResult {
   const {
     locale,
-    workbench,
-    persistWorkbench,
     activeThreadId,
-    threadMessages,
     selectedProviderId,
     selectedProviderDefinition,
     selectedProviderConfig,
@@ -49,11 +48,15 @@ export function useWorkbenchProviderFlow(input: UseWorkbenchProviderFlowInput): 
     targetPrompt,
     boundSkills,
     selectedFile,
+    selectedAgentLabel,
+    selectedAgentPrompt,
+    getLatestWorkbench,
+    queueWorkbenchPersist,
   } = input;
   const [chatError, setChatError] = useState<string | null>(null);
   const [isSending, setIsSending] = useState(false);
 
-  const handleProviderSend = async (): Promise<void> => {
+  const handleProviderSend = async (promptOverride?: string): Promise<void> => {
     if (!selectedProviderId || !selectedProviderConfig || !selectedProviderDefinition || !activeThreadId) {
       return;
     }
@@ -63,7 +66,7 @@ export function useWorkbenchProviderFlow(input: UseWorkbenchProviderFlowInput): 
       return;
     }
 
-    const trimmedPrompt = targetPrompt.trim();
+    const trimmedPrompt = (promptOverride ?? targetPrompt).trim();
     if (!trimmedPrompt) {
       setChatError(locale === 'zh' ? '请先生成或填写连续工作提示词。' : 'Generate or edit the continuity prompt before sending.');
       return;
@@ -74,27 +77,33 @@ export function useWorkbenchProviderFlow(input: UseWorkbenchProviderFlowInput): 
       id: crypto.randomUUID(),
       role: 'user',
       content: trimmedPrompt,
-      providerId: null,
+      providerId: selectedProviderDefinition.id,
       adapterId: null,
+      sourceKind: 'provider',
+      sourceLabel: selectedProviderDefinition.label,
+      modelLabel: targetModel || null,
+      agentLabel: selectedAgentLabel ?? null,
+      orchestrationRunId: null,
       createdAt,
     };
-
-    const nextWorkbenchWithUserMessage = appendMessagesToThread({
-      locale,
-      workbench,
-      threadId: activeThreadId,
-      messages: [userMessage],
-    });
 
     setIsSending(true);
     setChatError(null);
 
     try {
-      await persistWorkbench(nextWorkbenchWithUserMessage);
+      await queueWorkbenchPersist((currentWorkbench) => {
+        return appendMessagesToThread({
+          locale,
+          workbench: currentWorkbench,
+          threadId: activeThreadId,
+          messages: [userMessage],
+        });
+      });
 
       const skillPrompt = boundSkills.map((skill) => skill.promptTemplate.trim()).filter((entry) => entry.length > 0).join('\n\n');
       const selectedFileContext = selectedFile ? `\n\nSelected file: ${selectedFile.relativePath}\n${selectedFile.content.slice(0, FILE_CONTEXT_LIMIT)}` : '';
-      const historyMessages = threadMessages
+      const latestThread = getTaskThreadById(getLatestWorkbench(), activeThreadId);
+      const historyMessages = (latestThread?.messages ?? [])
         .filter((message) => message.role === 'user' || message.role === 'assistant')
         .map((message) => ({ role: message.role, content: message.content }));
 
@@ -103,8 +112,8 @@ export function useWorkbenchProviderFlow(input: UseWorkbenchProviderFlowInput): 
           role: 'system',
           content:
             locale === 'zh'
-              ? `你正在一个统一工作台中协作，请沿用共享任务清单继续推进，不要从头开始。${skillPrompt ? `\n\n已绑定技能：\n${skillPrompt}` : ''}`
-              : `You are collaborating inside a unified workbench. Continue from the shared checklist instead of restarting analysis.${skillPrompt ? `\n\nSkills:\n${skillPrompt}` : ''}`,
+              ? `你正在一个统一工作台中协作，请沿用共享任务清单继续推进，不要从头开始。${selectedAgentPrompt ? `\n\n当前以 Agent 角色协作：${selectedAgentLabel ?? 'Agent'}\n${selectedAgentPrompt}` : ''}${skillPrompt ? `\n\n已绑定技能：\n${skillPrompt}` : ''}`
+              : `You are collaborating inside a unified workbench. Continue from the shared checklist instead of restarting analysis.${selectedAgentPrompt ? `\n\nCurrent agent persona: ${selectedAgentLabel ?? 'Agent'}\n${selectedAgentPrompt}` : ''}${skillPrompt ? `\n\nSkills:\n${skillPrompt}` : ''}`,
         },
         ...historyMessages,
         {
@@ -128,29 +137,36 @@ export function useWorkbenchProviderFlow(input: UseWorkbenchProviderFlowInput): 
         content: cleanedResponse || response,
         providerId: selectedProviderDefinition.id,
         adapterId: null,
+        sourceKind: 'provider',
+        sourceLabel: selectedProviderDefinition.label,
+        modelLabel: targetModel || null,
+        agentLabel: selectedAgentLabel ?? null,
+        orchestrationRunId: null,
         createdAt: providerActivity.recordedAt,
       };
 
-      let nextWorkbench = appendMessagesToThread({
-        locale,
-        workbench: nextWorkbenchWithUserMessage,
-        threadId: activeThreadId,
-        messages: [assistantMessage],
-      });
-      nextWorkbench = appendActivityToThread(nextWorkbench, activeThreadId, providerActivity);
-      nextWorkbench = {
-        ...nextWorkbench,
-        latestProviderActivity: providerActivity,
-      };
-
-      if (updates) {
+      await queueWorkbenchPersist((currentWorkbench) => {
+        let nextWorkbench = appendMessagesToThread({
+          locale,
+          workbench: currentWorkbench,
+          threadId: activeThreadId,
+          messages: [assistantMessage],
+        });
+        nextWorkbench = appendActivityToThread(nextWorkbench, activeThreadId, providerActivity);
         nextWorkbench = {
           ...nextWorkbench,
-          tasks: applyTaskUpdates(nextWorkbench.tasks, updates, 'assistant'),
+          latestProviderActivity: providerActivity,
         };
-      }
 
-      await persistWorkbench(nextWorkbench);
+        if (updates) {
+          nextWorkbench = {
+            ...nextWorkbench,
+            tasks: applyTaskUpdates(nextWorkbench.tasks, updates, 'assistant'),
+          };
+        }
+
+        return nextWorkbench;
+      });
     } catch (error: unknown) {
       const fallbackMessage = locale === 'zh' ? '模型服务请求失败。' : 'The provider request failed.';
       setChatError(localizeProviderRuntimeMessage(toErrorMessage(error, fallbackMessage), locale));
