@@ -1642,12 +1642,35 @@ code {
 .explorer-row {
   width: 100%;
   display: grid;
-  grid-template-columns: auto minmax(0, 1fr);
+  grid-template-columns: 1rem auto minmax(0, 1fr) auto;
   align-items: center;
   gap: var(--space-2);
   padding: var(--space-2) var(--space-3);
   border: 1px solid transparent;
   border-radius: var(--radius-sm);
+  text-align: left;
+}
+
+.file-tree-node {
+  padding-left: calc(var(--space-3) + (var(--depth, 0) * 1rem));
+}
+
+.file-tree-toggle {
+  width: 1rem;
+  color: var(--text-soft);
+}
+
+.file-context-menu {
+  position: fixed;
+  z-index: 50;
+  display: grid;
+  gap: var(--space-1);
+  padding: var(--space-2);
+  box-shadow: var(--shadow-float);
+}
+
+.file-context-menu button,
+.project-select-recent-main {
   text-align: left;
 }
 
@@ -1692,8 +1715,56 @@ code {
 }
 
 .preview-panel,
+.file-editor-panel,
 .chat-panel {
   min-width: 0;
+}
+
+.file-editor-panel {
+  min-height: 0;
+  display: grid;
+  grid-template-rows: auto auto auto minmax(0, 1fr);
+}
+
+.file-editor-heading {
+  grid-template-columns: minmax(0, 1fr) max-content;
+}
+
+.file-editor-shell {
+  min-height: 34rem;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  border: 1px solid var(--border-soft);
+  border-radius: var(--radius-md);
+  overflow: hidden;
+  background: var(--code-surface);
+}
+
+.file-editor-line-numbers {
+  margin: 0;
+  padding: var(--space-3) var(--space-2);
+  border-right: 1px solid var(--border-soft);
+  color: var(--text-soft);
+  text-align: right;
+  user-select: none;
+}
+
+.file-editor-area {
+  width: 100%;
+  min-height: 100%;
+  padding: var(--space-3);
+  border: 0;
+  resize: none;
+  background: transparent;
+  color: var(--text-main);
+  font-family: "Cascadia Code", "Fira Code", Consolas, monospace;
+  font-size: 0.86rem;
+  line-height: 1.5;
+  tab-size: 2;
+}
+
+.file-editor-dirty-indicator {
+  color: var(--warning);
 }
 
 .preview-meta-row {
@@ -1731,9 +1802,23 @@ code {
 
 .chat-message-topline {
   display: flex;
-  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: var(--space-1);
+  justify-content: flex-start;
   align-items: center;
   margin-bottom: var(--space-2);
+}
+
+.chat-message-actions {
+  margin-left: auto;
+  display: flex;
+  gap: var(--space-1);
+  opacity: 0;
+}
+
+.chat-message:hover .chat-message-actions,
+.chat-message:focus-within .chat-message-actions {
+  opacity: 1;
 }
 
 .chat-message p {
@@ -2200,6 +2285,50 @@ code {
   transform: translateY(-1px);
   border-color: color-mix(in srgb, var(--accent-cool) 45%, var(--border-soft));
   box-shadow: var(--shadow-float);
+}
+
+.folder-select-recent-card {
+  grid-template-columns: minmax(0, 1fr) max-content;
+  align-items: center;
+}
+
+.project-select-recent-main {
+  display: grid;
+  gap: var(--space-1);
+  min-width: 0;
+}
+
+.plan-page {
+  max-width: 78rem;
+  margin-inline: auto;
+}
+
+.plan-page-hero,
+.plan-page-form,
+.plan-review-panel,
+.plan-task-card {
+  display: grid;
+  gap: var(--space-3);
+}
+
+.plan-page-hero {
+  grid-template-columns: minmax(0, 1fr) max-content;
+  align-items: start;
+}
+
+.plan-task-list {
+  display: grid;
+  gap: var(--space-3);
+}
+
+.plan-task-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1.5fr) minmax(8rem, 0.6fr) minmax(10rem, 0.8fr);
+  gap: var(--space-3);
+}
+
+.plan-enter-actions {
+  justify-content: flex-end;
 }
 
 .cursor-workspace-layout,
