@@ -30,6 +30,7 @@ import type {
   TaskRoutingProfile,
   TaskRoutingRule,
   TaskType,
+  WorkbenchOrchestrationBinding,
   WorkbenchSkillBinding,
   WorkbenchActivitySummary,
   WorkbenchState,
@@ -334,8 +335,42 @@ const normalizeTaskThreadMessage = (value: unknown): TaskThreadMessage | null =>
     id: value.id.trim(),
     role: value.role === 'assistant' || value.role === 'system' ? value.role : 'user',
     content: typeof value.content === 'string' ? value.content : '',
+    messageKind:
+      value.messageKind === 'orchestration_event'
+      || value.messageKind === 'orchestration_result'
+      || value.messageKind === 'discussion_final'
+        ? value.messageKind
+        : null,
     providerId: normalizeNullableString(value.providerId),
     adapterId: normalizeNullableString(value.adapterId),
+    sourceKind:
+      value.sourceKind === 'provider' || value.sourceKind === 'adapter' || value.sourceKind === 'orchestration'
+        ? value.sourceKind
+        : null,
+    sourceLabel: normalizeNullableString(value.sourceLabel),
+    modelLabel: normalizeNullableString(value.modelLabel),
+    agentLabel: normalizeNullableString(value.agentLabel),
+    orchestrationRunId: normalizeNullableString(value.orchestrationRunId),
+    orchestrationNodeId: normalizeNullableString(value.orchestrationNodeId),
+    discussionRound: typeof value.discussionRound === 'number' && value.discussionRound >= 1 ? value.discussionRound : null,
+    createdAt: typeof value.createdAt === 'string' ? value.createdAt : new Date().toISOString(),
+  };
+};
+
+const normalizeWorkbenchOrchestrationBinding = (value: unknown): WorkbenchOrchestrationBinding | null => {
+  if (!isJsonObject(value) || typeof value.orchestrationRunId !== 'string' || typeof value.threadId !== 'string') {
+    return null;
+  }
+
+  const orchestrationRunId = value.orchestrationRunId.trim();
+  const threadId = value.threadId.trim();
+  if (orchestrationRunId.length === 0 || threadId.length === 0) {
+    return null;
+  }
+
+  return {
+    orchestrationRunId,
+    threadId,
     createdAt: typeof value.createdAt === 'string' ? value.createdAt : new Date().toISOString(),
   };
 };
@@ -368,6 +403,10 @@ const normalizeWorkbenchState = (value: unknown): WorkbenchState => {
 
   return {
     objective: typeof value.objective === 'string' ? value.objective : '',
+    workspaceRoot: normalizeNullableString(value.workspaceRoot),
+    recentWorkspaceRoots: Array.isArray(value.recentWorkspaceRoots)
+      ? (value.recentWorkspaceRoots as string[]).filter((entry) => typeof entry === 'string' && entry.trim().length > 0)
+      : [],
     tasks: Array.isArray(value.tasks)
       ? (value.tasks as unknown[]).map(normalizeWorkbenchTaskItem).filter((entry): entry is WorkbenchTaskItem => entry !== null)
       : [],
@@ -380,6 +419,15 @@ const normalizeWorkbenchState = (value: unknown): WorkbenchState => {
     processedRunIds: Array.isArray(value.processedRunIds)
       ? (value.processedRunIds as string[]).filter((entry) => typeof entry === 'string')
       : [],
+    processedOrchestrationNodeIds: Array.isArray(value.processedOrchestrationNodeIds)
+      ? (value.processedOrchestrationNodeIds as string[]).filter((entry) => typeof entry === 'string')
+      : [],
+    orchestrationThreadBindings: Array.isArray(value.orchestrationThreadBindings)
+      ? (value.orchestrationThreadBindings as unknown[])
+          .map(normalizeWorkbenchOrchestrationBinding)
+          .filter((entry): entry is WorkbenchOrchestrationBinding => entry !== null)
+      : [],
+    activeOrchestrationRunId: normalizeNullableString(value.activeOrchestrationRunId),
     activeThreadId: normalizeNullableString(value.activeThreadId),
     threads: Array.isArray(value.threads)
       ? (value.threads as unknown[]).map(normalizeTaskThread).filter((entry): entry is TaskThread => entry !== null)
@@ -498,6 +546,26 @@ const VALID_ORCH_NODE_STATUSES: OrchestrationNodeStatus[] = [
   'skipped',
   'cancelled',
 ];
+
+const normalizeDiscussionConfig = (value: unknown): NonNullable<OrchestrationRun['discussionConfig']> | null => {
+  if (!isJsonObject(value)) {
+    return null;
+  }
+
+  return {
+    maxRounds: typeof value.maxRounds === 'number' && value.maxRounds >= 1 ? value.maxRounds : 3,
+    participantsPerRound:
+      typeof value.participantsPerRound === 'number' && value.participantsPerRound >= 1 ? value.participantsPerRound : 2,
+    participantProfileIds: Array.isArray(value.participantProfileIds)
+      ? (value.participantProfileIds as string[]).filter((entry) => typeof entry === 'string' && entry.trim().length > 0)
+      : [],
+    consensusStrategy: value.consensusStrategy === 'summary_match' ? 'summary_match' : 'keyword',
+    consensusKeyword: typeof value.consensusKeyword === 'string' && value.consensusKeyword.trim().length > 0
+      ? value.consensusKeyword
+      : '<CONSENSUS>',
+    requireFinalSynthesis: typeof value.requireFinalSynthesis === 'boolean' ? value.requireFinalSynthesis : true,
+  };
+};
 const VALID_RUN_STATUSES: RunStatus[] = [
   'pending',
   'running',
@@ -668,7 +736,19 @@ const normalizeOrchestrationRun = (value: unknown): OrchestrationRun | null => {
     createdAt: typeof value.createdAt === 'string' ? value.createdAt : new Date().toISOString(),
     updatedAt: typeof value.updatedAt === 'string' ? value.updatedAt : new Date().toISOString(),
     finalSummary: normalizeNullableString(value.finalSummary),
-    automationMode: value.automationMode === 'review_loop' ? ('review_loop' as const) : ('standard' as const),
+    automationMode:
+      value.automationMode === 'review_loop'
+        ? ('review_loop' as const)
+        : value.automationMode === 'discussion'
+          ? ('discussion' as const)
+          : ('standard' as const),
+    executionStyle:
+      value.executionStyle === 'sequential'
+        ? ('sequential' as const)
+        : value.executionStyle === 'parallel'
+          ? ('parallel' as const)
+          : ('planner' as const),
+    discussionConfig: normalizeDiscussionConfig(value.discussionConfig),
     projectContextSummary: normalizeNullableString(value.projectContextSummary),
     currentIteration:
       typeof value.currentIteration === 'number' && value.currentIteration >= 1 ? value.currentIteration : 1,
@@ -710,6 +790,12 @@ const normalizeOrchestrationNode = (value: unknown): OrchestrationNode | null =>
     retryCount: typeof value.retryCount === 'number' && value.retryCount >= 0 ? value.retryCount : 0,
     ...(typeof value.adapterOverride === 'string' ? { adapterOverride: value.adapterOverride } : {}),
     ...(typeof value.modelOverride === 'string' ? { modelOverride: value.modelOverride } : {}),
+    ...(typeof value.discussionRound === 'number' && value.discussionRound >= 1 ? { discussionRound: value.discussionRound } : {}),
+    ...(
+      value.discussionRole === 'speaker' || value.discussionRole === 'critic' || value.discussionRole === 'synthesizer'
+        ? { discussionRole: value.discussionRole }
+        : {}
+    ),
   };
 };
 // ---------------------------------------------------------------------------
