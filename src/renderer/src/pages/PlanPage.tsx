@@ -1,5 +1,6 @@
 import { useNavigate } from 'react-router-dom';
 import type { AppState, Locale, RendererContinuityState, WorkbenchState, WorkbenchTaskStatus } from '../../../shared/domain.js';
+import { getAgentProfileDisplayName } from '../../../shared/agentProfiles.js';
 import { usePlanPageController } from '../hooks/usePlanPageController.js';
 import { WORKBENCH_TASK_STATUS_LABELS } from '../workConfigCopy.js';
 
@@ -121,7 +122,7 @@ export function PlanPage(props: PlanPageProps): React.JSX.Element {
                     >
                       <option value="">{locale === 'zh' ? '自动分配' : 'Auto assign'}</option>
                       {appState.agentProfiles.filter((profile) => profile.enabled).map((profile) => (
-                        <option key={profile.id} value={profile.id}>{profile.name}</option>
+                        <option key={profile.id} value={profile.id}>{getAgentProfileDisplayName(profile)}</option>
                       ))}
                     </select>
                   </label>

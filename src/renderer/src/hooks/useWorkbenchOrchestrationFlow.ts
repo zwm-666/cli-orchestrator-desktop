@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
+import { getAgentProfileDisplayName } from '../../../shared/agentProfiles.js';
 import type {
   AppState,
   DiscussionAutomationConfigInput,
@@ -150,7 +151,7 @@ export function useWorkbenchOrchestrationFlow(input: UseWorkbenchOrchestrationFl
                     ? (locale === 'zh' ? '最终方案' : 'Final synthesis')
                     : node.title,
                   modelLabel: run?.model ?? null,
-                  agentLabel: profile?.name ?? null,
+        agentLabel: profile ? getAgentProfileDisplayName(profile) : null,
                   orchestrationRunId: node.orchestrationRunId,
                   orchestrationNodeId: node.id,
                   discussionRound: node.discussionRound ?? null,
@@ -204,7 +205,7 @@ export function useWorkbenchOrchestrationFlow(input: UseWorkbenchOrchestrationFl
               sourceKind: 'orchestration',
               sourceLabel: node.title,
               modelLabel: run?.model ?? null,
-              agentLabel: profile?.name ?? null,
+          agentLabel: profile ? getAgentProfileDisplayName(profile) : null,
               orchestrationRunId: node.orchestrationRunId,
               orchestrationNodeId: node.id,
               discussionRound: node.discussionRound ?? null,
@@ -247,14 +248,14 @@ export function useWorkbenchOrchestrationFlow(input: UseWorkbenchOrchestrationFl
               id: `orch-node-running-${node.id}`,
               role: 'system',
               content: locale === 'zh'
-                ? `${profile?.name ?? node.title} 正在处理：${node.title}`
-                : `${profile?.name ?? node.title} is working on ${node.title}.`,
+              ? `${profile ? getAgentProfileDisplayName(profile) : node.title} 正在处理：${node.title}`
+              : `${profile ? getAgentProfileDisplayName(profile) : node.title} is working on ${node.title}.`,
               messageKind: 'orchestration_event',
               adapterId: run?.adapterId ?? null,
               sourceKind: 'orchestration',
               sourceLabel: node.title,
               modelLabel: run?.model ?? null,
-              agentLabel: profile?.name ?? null,
+          agentLabel: profile ? getAgentProfileDisplayName(profile) : null,
               orchestrationRunId: node.orchestrationRunId,
               orchestrationNodeId: node.id,
               discussionRound: node.discussionRound ?? null,

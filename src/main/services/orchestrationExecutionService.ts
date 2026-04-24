@@ -21,6 +21,7 @@ import type {
   StartRunInput,
   StartRunResult,
 } from '../../shared/domain.js';
+import { getAgentProfileDisplayName, resolveAgentProfileModel } from '../../shared/agentProfiles.js';
 import type { SkillRegistryService } from './skillRegistryService.js';
 
 // ---------------------------------------------------------------------------
@@ -267,12 +268,15 @@ export class OrchestrationExecutionService {
         const agentProfile = node.agentProfileId
           ? (agentProfiles.find((p) => p.id === node.agentProfileId) ?? null)
           : null;
+        const adapter = agentProfile
+          ? this.getStateSnapshot?.().adapters.find((entry) => entry.id === agentProfile.adapterId) ?? null
+          : null;
 
         const result = this.onRunStart({
           title: node.title,
           prompt: enrichedPrompt,
           adapterId: node.adapterOverride ?? agentProfile?.adapterId ?? '',
-          model: node.modelOverride ?? agentProfile?.model ?? null,
+          model: node.modelOverride ?? (agentProfile ? resolveAgentProfileModel(agentProfile, adapter) : null),
           taskType: node.taskType,
           profileId: node.agentProfileId,
           timeoutMs: agentProfile?.timeoutMs ?? null,
@@ -416,9 +420,8 @@ export class OrchestrationExecutionService {
     const conversationTranscript = this.getDiscussionNodes(context)
       .filter((node) => this.isNodeTerminal(node.status))
       .map((node) => {
-        const profileName = node.agentProfileId
-          ? (agentProfiles.find((profile) => profile.id === node.agentProfileId)?.name ?? node.title)
-          : node.title;
+        const profile = node.agentProfileId ? agentProfiles.find((entry) => entry.id === node.agentProfileId) ?? null : null;
+        const profileName = profile ? getAgentProfileDisplayName(profile) : node.title;
         return `- ${profileName} [Round ${node.discussionRound ?? 1}]: ${node.resultSummary ?? 'No summary recorded.'}`;
       })
       .join('\n');

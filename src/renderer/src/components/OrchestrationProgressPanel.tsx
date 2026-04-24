@@ -1,4 +1,5 @@
 import type { AppState, Locale, OrchestrationNode, OrchestrationRun } from '../../../shared/domain.js';
+import { getAgentProfileDisplayName } from '../../../shared/agentProfiles.js';
 
 interface OrchestrationProgressPanelProps {
   locale: Locale;
@@ -91,7 +92,8 @@ export function OrchestrationProgressPanel(props: OrchestrationProgressPanelProp
 
           {orderedNodes.map((node) => {
             const nodeRun = node.runId ? runs.find((entry) => entry.id === node.runId) ?? null : null;
-            const agentLabel = node.agentProfileId ? (agentProfiles.find((entry) => entry.id === node.agentProfileId)?.name ?? node.agentProfileId) : (locale === 'zh' ? '未分配 Agent' : 'Unassigned agent');
+            const profile = node.agentProfileId ? agentProfiles.find((entry) => entry.id === node.agentProfileId) ?? null : null;
+            const agentLabel = profile ? getAgentProfileDisplayName(profile) : node.agentProfileId ?? (locale === 'zh' ? '未分配 Agent' : 'Unassigned agent');
             const depth = buildDepth(node, nodeMap);
             const dependencyTitles = node.dependsOnNodeIds.map((dependencyId) => nodeMap.get(dependencyId)?.title ?? dependencyId);
             const blockingDependencyTitles = node.dependsOnNodeIds

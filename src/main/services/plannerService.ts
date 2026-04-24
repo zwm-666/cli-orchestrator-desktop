@@ -29,6 +29,7 @@ import type {
   SkillDefinition,
   TaskType,
 } from '../../shared/domain.js';
+import { getAgentProfileDisplayName } from '../../shared/agentProfiles.js';
 
 // ---------------------------------------------------------------------------
 // Constants (moved from orchestratorService.ts)
@@ -544,7 +545,7 @@ const buildProfileExecutionPlan = (input: {
       skillIds,
       mcpServerIds: resolveMcpServersForNode(skillIds, profile ?? null, skills, mcpServers),
       taskType,
-      title: profile ? profile.name : 'General agent',
+      title: profile ? getAgentProfileDisplayName(profile) : 'General agent',
       prompt: `${contextPrefix}${promptPrefix}\n\nTask:\n${rawInput}`,
       status: previousNodeId ? 'waiting_on_deps' : 'ready',
       runId: null,
