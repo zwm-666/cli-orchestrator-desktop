@@ -1,10 +1,11 @@
-import type { AppState, RunEvent, SaveProjectContextInput, SaveWorkbenchStateInput, Task, RunSession } from '../../shared/domain.js';
+import type { AppState, RunEvent, SaveProjectContextInput, SaveWorkbenchStateInput, SubagentStatusEntry, Task, RunSession } from '../../shared/domain.js';
 import { DEFAULT_WORKBENCH_STATE } from '../../shared/domain.js';
 import type { LocalPersistenceStore } from '../persistence.js';
 
 type StateListener = (state: AppState) => void;
 type RunEventListener = (event: RunEvent) => void;
 const RECENT_WORKSPACE_ROOT_LIMIT = 5;
+const SUBAGENT_STATUS_LIMIT = 100;
 
 const normalizeRecentWorkspaceRoots = (roots: string[] | undefined, workspaceRoot: string | null): string[] => {
   const filtered = (roots ?? []).filter((entry) => typeof entry === 'string' && entry.trim().length > 0);
@@ -129,6 +130,16 @@ export class StateManager {
     }
 
     return structuredClone(task);
+  }
+
+  public upsertSubagentStatus(entry: SubagentStatusEntry): void {
+    this.updateState((currentState) => ({
+      ...currentState,
+      subagentStatuses: [
+        structuredClone(entry),
+        ...currentState.subagentStatuses.filter((candidate) => candidate.id !== entry.id),
+      ].slice(0, SUBAGENT_STATUS_LIMIT),
+    }));
   }
 
   public onStateChanged(listener: StateListener): () => void {

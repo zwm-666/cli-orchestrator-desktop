@@ -16,9 +16,12 @@ import type {
   RunTerminalStatus,
   StartRunInput,
   StartRunResult,
+  SubagentStatusEntry,
+  SubagentWorkStatus,
   Task,
   TaskStatus,
 } from '../../shared/domain.js';
+import { getAgentProfileDisplayName } from '../../shared/agentProfiles.js';
 import { stripAnsi } from '../../shared/stripAnsi.js';
 import type { AgentRegistryService } from './agentRegistryService.js';
 import type { AdapterManager, CliAdapterConfig } from './adapterManager.js';
@@ -283,6 +286,8 @@ export class RunManager {
       }),
     }));
 
+    this.updateSubagentStatus(runId, 'thinking', `Queued ${title} for ${adapter.displayName}.`);
+
     this.appendRunEvent(runId, 'info', `Starting ${adapter.displayName}.`);
     this.appendTranscriptEntry(runId, {
       actor: 'system', kind: 'run_started', status: 'completed', label: title, summary: `Queued task for ${adapter.displayName}.`, detail: prompt,
@@ -388,6 +393,7 @@ export class RunManager {
     });
     const execution: RunExecution = { child, phase: 'pending', requestedTerminalStatus: null, spawnError: null, timeoutId: null, timeoutMs };
     this.executions.set(runId, execution);
+    this.updateSubagentStatus(runId, 'tool_calling', `Launching ${adapterConfig.displayName}.`);
 
     if (adapterConfig.promptTransport === 'stdin' && child.stdin) {
       child.stdin.once('error', (error) => {
@@ -414,6 +420,7 @@ export class RunManager {
       if (!current) return;
       current.phase = current.requestedTerminalStatus ? 'terminating' : 'running';
       this.updateRun(runId, (run) => ({ ...run, status: 'running', pid: child.pid ?? null }));
+      this.updateSubagentStatus(runId, 'waiting', `Waiting for ${adapterConfig.displayName} response${child.pid ? ` (pid ${child.pid})` : ''}.`);
       this.appendRunEvent(runId, 'success', `Process started${child.pid ? ` with pid ${child.pid}` : ''}.`);
       this.appendTranscriptEntry(runId, {
         actor: 'tool', kind: 'step_output', status: 'info', label: adapterConfig.displayName,
@@ -425,6 +432,7 @@ export class RunManager {
       const current = this.executions.get(runId);
       if (!current) return;
       current.spawnError = error.message;
+      this.updateSubagentStatus(runId, 'error', error.message);
       this.appendRunEvent(runId, 'error', error.message);
       this.appendTranscriptEntry(runId, {
         actor: 'tool', kind: 'step_failed', status: 'failed', label: adapterConfig.displayName, summary: error.message, stepId: getPrimaryStepId(runId),
@@ -452,6 +460,7 @@ export class RunManager {
     this.appendTranscriptEntry(runId, {
       actor: 'system', kind: 'run_completed', status: 'completed', label: taskId, summary: 'Manual handoff package is ready for copy/paste execution.', detail: instructionMessage,
     });
+    this.updateSubagentStatus(runId, 'completed', 'Manual handoff package is ready.');
     this.stateManager.updateState((currentState) => ({
       ...currentState,
       runs: currentState.runs.map((run) => (run.id !== runId ? run : { ...run, status: 'succeeded', exitCode: 0, endedAt: completedAt })),
@@ -470,6 +479,7 @@ export class RunManager {
       this.updateRun(runId, (run) => ({ ...run, cancelRequestedAt }));
     }
     this.appendRunEvent(runId, status === 'timed_out' ? 'warning' : 'info', message);
+    this.updateSubagentStatus(runId, 'waiting', message);
     this.appendTranscriptEntry(runId, {
       actor: 'system', kind: 'step_output', status: status === 'timed_out' ? 'failed' : 'info', label: status === 'timed_out' ? 'Timeout requested' : 'Cancellation requested', summary: message, stepId: getPrimaryStepId(runId),
     });
@@ -485,6 +495,7 @@ export class RunManager {
     const endedAt = new Date().toISOString();
     const taskStatus = this.mapTaskStatus(status);
     const terminalMessage = this.getTerminalMessage(existingRun, status, code, signal, execution.timeoutMs);
+    this.updateSubagentStatus(runId, status === 'succeeded' ? 'completed' : 'error', terminalMessage);
     this.appendRunEvent(runId, this.getTerminalLevel(status), terminalMessage);
     this.appendTranscriptEntry(runId, {
       actor: 'tool', kind: status === 'succeeded' ? 'step_completed' : 'step_failed', status: status === 'succeeded' ? 'completed' : 'failed', label: existingRun.model ? `${existingRun.adapterId} (${existingRun.model})` : existingRun.adapterId, summary: terminalMessage, stepId: getPrimaryStepId(runId),
@@ -602,18 +613,55 @@ export class RunManager {
     const run = this.stateManager.getState().runs.find((entry) => entry.id === runId);
     const parsed = level === 'stdout' ? (tryParseJsonObject(message) as ParsedCodexEvent | null) : null;
     if (run?.adapterId === 'codex' && parsed?.type === 'item.completed' && parsed.item?.type === 'agent_message') {
+      this.updateSubagentStatus(runId, 'thinking', 'Codex produced an agent message.');
       this.appendTranscriptEntry(runId, { actor: 'assistant', kind: 'step_output', status: 'info', label: 'Codex response', summary: parsed.item.text ?? message, stepId: getPrimaryStepId(runId) });
       return;
     }
     if (run?.adapterId === 'codex' && parsed?.type === 'item.started' && parsed.item?.type === 'command_execution') {
+      this.updateSubagentStatus(runId, 'tool_calling', parsed.item.command ? `Running: ${parsed.item.command}` : 'Codex is running a command.');
       this.appendTranscriptEntry(runId, { actor: 'tool', kind: 'step_output', status: 'running', label: 'Codex command', summary: parsed.item.command ?? 'Executing command', stepId: getPrimaryStepId(runId) });
       return;
     }
     if (run?.adapterId === 'codex' && parsed?.type === 'item.completed' && parsed.item?.type === 'command_execution') {
+      this.updateSubagentStatus(runId, parsed.item.status === 'failed' ? 'error' : 'waiting', parsed.item.status === 'failed' ? 'Codex command failed.' : 'Codex command completed; waiting for the next response.');
       this.appendTranscriptEntry(runId, { actor: 'tool', kind: parsed.item.status === 'failed' ? 'step_failed' : 'step_completed', status: parsed.item.status === 'failed' ? 'failed' : 'completed', label: 'Codex command', summary: parsed.item.aggregated_output || parsed.item.command || 'Command completed', detail: parsed.item.command ?? null, stepId: getPrimaryStepId(runId) });
       return;
     }
+    if (level === 'stdout') {
+      this.updateSubagentStatus(runId, 'thinking', 'Streaming stdout from the agent.');
+    }
     this.appendTranscriptEntry(runId, { actor: 'tool', kind: 'step_output', status: level === 'stderr' ? 'failed' : 'info', label: level === 'stderr' ? 'Stderr' : 'Stdout', summary: message, stepId: getPrimaryStepId(runId) });
+  }
+
+  private updateSubagentStatus(runId: string, status: SubagentWorkStatus, detail: string): void {
+    const currentState = this.stateManager.getState();
+    const run = currentState.runs.find((entry) => entry.id === runId);
+    if (!run) {
+      return;
+    }
+
+    const task = currentState.tasks.find((entry) => entry.id === run.taskId) ?? null;
+    const profileId = task?.profileId ?? null;
+    const profile = profileId ? this.agentRegistry.getAll().find((entry) => entry.id === profileId) ?? null : null;
+    const adapter = currentState.adapters.find((entry) => entry.id === run.adapterId) ?? null;
+    const node = currentState.orchestrationNodes.find((entry) => entry.runId === runId) ?? null;
+    const existingStatus = currentState.subagentStatuses.find((entry) => entry.id === runId) ?? null;
+    const agentLabel = profile
+      ? getAgentProfileDisplayName(profile)
+      : adapter?.displayName ?? run.adapterId;
+    const entry: SubagentStatusEntry = {
+      id: runId,
+      profileId,
+      adapterId: run.adapterId,
+      runId,
+      orchestrationNodeId: node?.id ?? existingStatus?.orchestrationNodeId ?? null,
+      agentLabel,
+      status,
+      detail,
+      updatedAt: new Date().toISOString(),
+    };
+
+    this.stateManager.upsertSubagentStatus(entry);
   }
 
   private captureHandoffArtifact(runId: string, status: RunTerminalStatus): void {
