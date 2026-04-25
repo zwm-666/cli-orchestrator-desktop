@@ -88,6 +88,31 @@ const assertOptionalBoolean = (value: unknown, label: string): boolean | null =>
   return value;
 };
 
+type ValidatorField<T> = {
+  [K in keyof T]: {
+    name: K;
+    assert: (value: unknown, label: string) => T[K];
+    label: string;
+  };
+}[keyof T];
+
+const createValidator = <T extends object>(
+  objectLabel: string,
+  fields: ValidatorField<T>[],
+  options: { allowUndefinedInput?: boolean } = {},
+): (value: unknown) => T => {
+  return (value: unknown): T => {
+    const input = value === undefined && options.allowUndefinedInput ? {} : assertRecord(value, objectLabel);
+    const output: Partial<T> = {};
+
+    fields.forEach((field) => {
+      output[field.name] = field.assert(input[field.name as string], field.label) as T[keyof T];
+    });
+
+    return output as T;
+  };
+};
+
 export const validateObjectInput = (value: unknown, label: string): Record<string, unknown> => {
   return assertRecord(value, label);
 };
@@ -107,12 +132,9 @@ export const validateRoutingSettingsInput = (value: unknown): UpdateRoutingSetti
   return input as unknown as UpdateRoutingSettingsInput;
 };
 
-export const validateProjectContextInput = (value: unknown): SaveProjectContextInput => {
-  const input = assertRecord(value, 'project context input');
-  return {
-    summary: assertString(input.summary, 'project context input.summary'),
-  };
-};
+export const validateProjectContextInput = createValidator<SaveProjectContextInput>('project context input', [
+  { name: 'summary', assert: assertString, label: 'project context input.summary' },
+]);
 
 export const validateWorkbenchStateInput = (value: unknown): SaveWorkbenchStateInput => {
   const input = assertRecord(value, 'workbench state input');
@@ -132,20 +154,14 @@ export const validateSaveAiConfigInput = (value: unknown): SaveAiConfigInput => 
   return input as unknown as SaveAiConfigInput;
 };
 
-export const validateDraftConversationInput = (value: unknown): CreateDraftConversationInput => {
-  const input = assertRecord(value, 'draft conversation input');
-  return {
-    title: assertString(input.title, 'draft conversation input.title'),
-    message: assertString(input.message, 'draft conversation input.message'),
-  };
-};
+export const validateDraftConversationInput = createValidator<CreateDraftConversationInput>('draft conversation input', [
+  { name: 'title', assert: assertString, label: 'draft conversation input.title' },
+  { name: 'message', assert: assertString, label: 'draft conversation input.message' },
+]);
 
-export const validatePlanDraftInput = (value: unknown): PlanDraftInput => {
-  const input = assertRecord(value, 'plan draft input');
-  return {
-    rawInput: assertString(input.rawInput, 'plan draft input.rawInput'),
-  };
-};
+export const validatePlanDraftInput = createValidator<PlanDraftInput>('plan draft input', [
+  { name: 'rawInput', assert: assertString, label: 'plan draft input.rawInput' },
+]);
 
 export const validateStartRunInput = (value: unknown): StartRunInput => {
   const input = assertRecord(value, 'start run input');
@@ -158,12 +174,9 @@ export const validateStartRunInput = (value: unknown): StartRunInput => {
   return input as unknown as StartRunInput;
 };
 
-export const validateCancelRunInput = (value: unknown): CancelRunInput => {
-  const input = assertRecord(value, 'cancel run input');
-  return {
-    runId: assertString(input.runId, 'cancel run input.runId'),
-  };
-};
+export const validateCancelRunInput = createValidator<CancelRunInput>('cancel run input', [
+  { name: 'runId', assert: assertString, label: 'cancel run input.runId' },
+]);
 
 export const validateRecentRunsInput = (value: unknown): { taskType: string; limit?: number } => {
   const input = assertRecord(value, 'recent runs input');
@@ -172,12 +185,9 @@ export const validateRecentRunsInput = (value: unknown): { taskType: string; lim
   return { taskType, ...(limit !== undefined ? { limit } : {}) };
 };
 
-export const validateStartTerminalInput = (value: unknown): StartTerminalInput => {
-  const input = value === undefined ? {} : assertRecord(value, 'start terminal input');
-  return {
-    cwd: assertOptionalString(input.cwd, 'start terminal input.cwd'),
-  };
-};
+export const validateStartTerminalInput = createValidator<StartTerminalInput>('start terminal input', [
+  { name: 'cwd', assert: assertOptionalString, label: 'start terminal input.cwd' },
+], { allowUndefinedInput: true });
 
 export const validateWriteTerminalInput = (value: unknown): WriteTerminalInput => {
   const input = assertRecord(value, 'write terminal input');
@@ -192,12 +202,9 @@ export const validateWriteTerminalInput = (value: unknown): WriteTerminalInput =
   };
 };
 
-export const validateStopTerminalInput = (value: unknown): StopTerminalInput => {
-  const input = assertRecord(value, 'stop terminal input');
-  return {
-    sessionId: assertString(input.sessionId, 'stop terminal input.sessionId'),
-  };
-};
+export const validateStopTerminalInput = createValidator<StopTerminalInput>('stop terminal input', [
+  { name: 'sessionId', assert: assertString, label: 'stop terminal input.sessionId' },
+]);
 
 const assertOptionalStringArray = (value: unknown, label: string): string[] | undefined => {
   if (value === undefined || value === null) {
@@ -355,75 +362,52 @@ export const validateStartOrchestrationInput = (value: unknown): StartOrchestrat
   return input as unknown as StartOrchestrationInput;
 };
 
-export const validateCancelOrchestrationInput = (value: unknown): CancelOrchestrationInput => {
-  const input = assertRecord(value, 'cancel orchestration input');
-  return {
-    orchestrationRunId: assertString(input.orchestrationRunId, 'cancel orchestration input.orchestrationRunId'),
-  };
-};
+export const validateCancelOrchestrationInput = createValidator<CancelOrchestrationInput>('cancel orchestration input', [
+  { name: 'orchestrationRunId', assert: assertString, label: 'cancel orchestration input.orchestrationRunId' },
+]);
 
-export const validateGetOrchestrationRunInput = (value: unknown): GetOrchestrationRunInput => {
-  const input = assertRecord(value, 'get orchestration run input');
-  return {
-    orchestrationRunId: assertString(input.orchestrationRunId, 'get orchestration run input.orchestrationRunId'),
-  };
-};
+export const validateGetOrchestrationRunInput = createValidator<GetOrchestrationRunInput>('get orchestration run input', [
+  { name: 'orchestrationRunId', assert: assertString, label: 'get orchestration run input.orchestrationRunId' },
+]);
 
-export const validateDeleteAgentProfileInput = (value: unknown): DeleteAgentProfileInput => {
-  const input = assertRecord(value, 'delete agent profile input');
-  return {
-    profileId: assertString(input.profileId, 'delete agent profile input.profileId'),
-  };
-};
+export const validateDeleteAgentProfileInput = createValidator<DeleteAgentProfileInput>('delete agent profile input', [
+  { name: 'profileId', assert: assertString, label: 'delete agent profile input.profileId' },
+]);
 
-export const validateDeleteSkillInput = (value: unknown): DeleteSkillInput => {
-  const input = assertRecord(value, 'delete skill input');
-  return {
-    skillId: assertString(input.skillId, 'delete skill input.skillId'),
-  };
-};
+export const validateDeleteSkillInput = createValidator<DeleteSkillInput>('delete skill input', [
+  { name: 'skillId', assert: assertString, label: 'delete skill input.skillId' },
+]);
 
-export const validateDeleteMcpServerInput = (value: unknown): DeleteMcpServerInput => {
-  const input = assertRecord(value, 'delete mcp server input');
-  return {
-    serverId: assertString(input.serverId, 'delete mcp server input.serverId'),
-  };
-};
+export const validateDeleteMcpServerInput = createValidator<DeleteMcpServerInput>('delete mcp server input', [
+  { name: 'serverId', assert: assertString, label: 'delete mcp server input.serverId' },
+]);
 
-export const validateBrowseWorkspaceInput = (value: unknown): BrowseWorkspaceInput => {
-  const input = value === undefined ? {} : assertRecord(value, 'browse workspace input');
-  return {
-    relativePath: assertOptionalString(input.relativePath, 'browse workspace input.relativePath'),
-    workspaceRoot: assertOptionalString(input.workspaceRoot, 'browse workspace input.workspaceRoot'),
-  };
-};
+export const validateBrowseWorkspaceInput = createValidator<BrowseWorkspaceInput>('browse workspace input', [
+  { name: 'relativePath', assert: assertOptionalString, label: 'browse workspace input.relativePath' },
+  { name: 'workspaceRoot', assert: assertOptionalString, label: 'browse workspace input.workspaceRoot' },
+], { allowUndefinedInput: true });
 
-export const validateReadWorkspaceFileInput = (value: unknown): ReadWorkspaceFileInput => {
-  const input = assertRecord(value, 'read workspace file input');
-  return {
-    relativePath: assertString(input.relativePath, 'read workspace file input.relativePath'),
-    workspaceRoot: assertOptionalString(input.workspaceRoot, 'read workspace file input.workspaceRoot'),
-  };
-};
+export const validateReadWorkspaceFileInput = createValidator<ReadWorkspaceFileInput>('read workspace file input', [
+  { name: 'relativePath', assert: assertString, label: 'read workspace file input.relativePath' },
+  { name: 'workspaceRoot', assert: assertOptionalString, label: 'read workspace file input.workspaceRoot' },
+]);
 
-export const validateWriteWorkspaceFileInput = (value: unknown): WriteWorkspaceFileInput => {
-  const input = assertRecord(value, 'write workspace file input');
-  return {
-    relativePath: assertString(input.relativePath, 'write workspace file input.relativePath'),
-    content: assertString(input.content, 'write workspace file input.content'),
-    workspaceRoot: assertOptionalString(input.workspaceRoot, 'write workspace file input.workspaceRoot'),
-  };
-};
+export const validateWriteWorkspaceFileInput = createValidator<WriteWorkspaceFileInput>('write workspace file input', [
+  { name: 'relativePath', assert: assertString, label: 'write workspace file input.relativePath' },
+  { name: 'content', assert: assertString, label: 'write workspace file input.content' },
+  { name: 'workspaceRoot', assert: assertOptionalString, label: 'write workspace file input.workspaceRoot' },
+]);
 
-export const validateApplyWorkspaceFileInput = (value: unknown): ApplyWorkspaceFileInput => {
-  const input = assertRecord(value, 'apply workspace file input');
-  return {
-    relativePath: assertString(input.relativePath, 'apply workspace file input.relativePath'),
-    content: assertString(input.content, 'apply workspace file input.content'),
-    workspaceRoot: assertOptionalString(input.workspaceRoot, 'apply workspace file input.workspaceRoot'),
-    createIfMissing: assertOptionalBoolean(input.createIfMissing, 'apply workspace file input.createIfMissing') ?? false,
-  };
-};
+export const validateApplyWorkspaceFileInput = createValidator<ApplyWorkspaceFileInput>('apply workspace file input', [
+  { name: 'relativePath', assert: assertString, label: 'apply workspace file input.relativePath' },
+  { name: 'content', assert: assertString, label: 'apply workspace file input.content' },
+  { name: 'workspaceRoot', assert: assertOptionalString, label: 'apply workspace file input.workspaceRoot' },
+  {
+    name: 'createIfMissing',
+    assert: (fieldValue, fieldLabel) => assertOptionalBoolean(fieldValue, fieldLabel) ?? false,
+    label: 'apply workspace file input.createIfMissing',
+  },
+]);
 
 export const formatIpcErrorMessage = (error: unknown): string => {
   if (error instanceof IpcValidationError) {
