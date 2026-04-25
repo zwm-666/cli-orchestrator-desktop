@@ -473,11 +473,11 @@ export function ChatPanel(props: ChatPanelProps): React.JSX.Element {
           <span className="mini-meta">
             {selectedFilePath
               ? locale === 'zh'
-                ? `当前文件上下文：${selectedFilePath}`
-                : `Current file context: ${selectedFilePath}`
+                ? `已打开：${selectedFilePath}。仅在输入 @file:${selectedFilePath} 时加入上下文。`
+                : `Open: ${selectedFilePath}. It is only added to context when you type @file:${selectedFilePath}.`
               : locale === 'zh'
-                ? '拖入一个工作区文件即可加入上下文。'
-                : 'Drop a workspace file to load it into context.'}
+                ? '默认只使用项目上下文；拖入文件会插入 @file: 路径。'
+                : 'Project context is used by default; dropping a file inserts an @file: path.'}
           </span>
 
         </div>
