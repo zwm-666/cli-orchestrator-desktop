@@ -112,7 +112,7 @@ export class SkillRegistryService {
   /**
    * Assemble the skill prompt injection for a given set of skill IDs.
    *
-   * Prompt assembly order (per agent.md §7.3):
+   * Prompt assembly order:
    * 1. Global system instruction
    * 2. AgentProfile.systemPrompt
    * 3. SkillDefinition.promptTemplate  <-- this method provides #3

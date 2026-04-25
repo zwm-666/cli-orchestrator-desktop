@@ -3,7 +3,7 @@
  * generation, and the new buildExecutionPlan that produces OrchestrationNodes
  * with dependency relationships.
  *
- * Extracted from OrchestratorService (lines 524-816) per agent.md Phase 2.
+ * Extracted from OrchestratorService (lines 524-816) during the orchestration refactor.
  */
 
 import type {
