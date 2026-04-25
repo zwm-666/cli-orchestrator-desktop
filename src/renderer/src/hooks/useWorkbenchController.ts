@@ -128,6 +128,11 @@ export interface UseWorkbenchControllerResult {
   saveSelectedFile: (content: string) => Promise<void>;
 }
 
+type WorkbenchComposerSelection = Pick<
+  WorkbenchState,
+  'selectedTargetKind' | 'selectedProviderId' | 'selectedAdapterId' | 'selectedAgentProfileId' | 'targetModel'
+>;
+
 const normalizeThreadedWorkbench = (workbench: WorkbenchState, locale: Locale, bootstrapThread: TaskThread): WorkbenchState => {
   const nextWorkbench = {
     ...DEFAULT_WORKBENCH_STATE,
@@ -212,11 +217,11 @@ export function useWorkbenchController(input: UseWorkbenchControllerInput): UseW
   const { locale, aiConfig, appState, promptBuilderConfig, onSaveWorkbenchState } = input;
   const persistedWorkbench = appState.workbench ?? DEFAULT_WORKBENCH_STATE;
   const bootstrapThreadRef = useRef<TaskThread | null>(null);
-  const [selectedTargetKind, setSelectedTargetKind] = useState<WorkbenchTargetKind>('provider');
-  const [selectedProviderId, setSelectedProviderId] = useState(aiConfig.active_provider ?? '');
-  const [selectedAdapterId, setSelectedAdapterId] = useState('');
-  const [selectedAgentProfileId, setSelectedAgentProfileId] = useState('');
-  const [targetModel, setTargetModel] = useState(aiConfig.active_model);
+  const [selectedTargetKind, setSelectedTargetKind] = useState<WorkbenchTargetKind>(persistedWorkbench.selectedTargetKind);
+  const [selectedProviderId, setSelectedProviderId] = useState(persistedWorkbench.selectedProviderId || (aiConfig.active_provider ?? ''));
+  const [selectedAdapterId, setSelectedAdapterId] = useState(persistedWorkbench.selectedAdapterId);
+  const [selectedAgentProfileId, setSelectedAgentProfileId] = useState(persistedWorkbench.selectedAgentProfileId);
+  const [targetModel, setTargetModelState] = useState(persistedWorkbench.targetModel || aiConfig.active_model);
   const [userInput, setUserInput] = useState('');
   const [isOrchestrationPanelOpen, setIsOrchestrationPanelOpen] = useState(false);
   const [orchestrationMode, setOrchestrationMode] = useState<'standard' | 'discussion'>('standard');
@@ -244,6 +249,18 @@ export function useWorkbenchController(input: UseWorkbenchControllerInput): UseW
     workbench,
     persistWorkbench,
   });
+
+  const persistComposerSelection = (selection: Partial<WorkbenchComposerSelection>): void => {
+    void queueWorkbenchPersist((currentWorkbench) => ({
+      ...currentWorkbench,
+      ...selection,
+    }));
+  };
+
+  const setTargetModel = (value: string): void => {
+    setTargetModelState(value);
+    persistComposerSelection({ targetModel: value });
+  };
 
   const handleWorkspaceRootChange = async (workspaceRoot: string | null): Promise<void> => {
     await queueWorkbenchPersist((currentWorkbench) => ({
@@ -293,8 +310,11 @@ export function useWorkbenchController(input: UseWorkbenchControllerInput): UseW
   useEffect(() => {
     if (!selectedAdapterId && availableAdapters[0]) {
       setSelectedAdapterId(availableAdapters[0].id);
+      persistComposerSelection({ selectedAdapterId: availableAdapters[0].id });
       if (selectedTargetKind === 'adapter') {
-        setTargetModel(availableAdapters[0].defaultModel ?? '');
+        const nextModel = availableAdapters[0].defaultModel ?? '';
+        setTargetModelState(nextModel);
+        persistComposerSelection({ targetModel: nextModel });
       }
     }
   }, [availableAdapters, selectedAdapterId, selectedTargetKind]);
@@ -316,8 +336,15 @@ export function useWorkbenchController(input: UseWorkbenchControllerInput): UseW
         }
       }
       if (firstProfileModel) {
-        setTargetModel(firstProfileModel);
+        setTargetModelState(firstProfileModel);
       }
+      persistComposerSelection({
+        selectedAgentProfileId: agentProfileOptions[0].id,
+        selectedTargetKind: firstProfileTarget.id ? firstProfileTarget.kind : selectedTargetKind,
+        selectedProviderId: firstProfileTarget.kind === 'provider' && firstProfileTarget.id ? firstProfileTarget.id : selectedProviderId,
+        selectedAdapterId: firstProfileTarget.kind === 'adapter' && firstProfileTarget.id ? firstProfileTarget.id : selectedAdapterId,
+        targetModel: firstProfileModel || targetModel,
+      });
     }
   }, [agentProfileOptions, aiConfig, appState.adapters, appState.agentProfiles, selectedAgentProfileId]);
 
@@ -464,13 +491,17 @@ export function useWorkbenchController(input: UseWorkbenchControllerInput): UseW
       const providerConfig = aiConfig.providers[providerId];
       const providerDefinition = providerConfig ? getProviderDefinition(providerId, providerConfig) : null;
       const providerSource = providerConfig ? getProviderModelSource(providerId, aiConfig) : getProviderDefinitionModelSource(providerDefinition);
+      const nextModel = selectedAgentProfile
+        ? resolveAgentProfileModel(selectedAgentProfile, providerSource)
+        : providerSource?.defaultModel ?? providerSource?.supportedModels[0] ?? '';
       setSelectedTargetKind('provider');
       setSelectedProviderId(providerId);
-      setTargetModel(
-        selectedAgentProfile
-          ? resolveAgentProfileModel(selectedAgentProfile, providerSource)
-          : providerSource?.defaultModel ?? providerSource?.supportedModels[0] ?? '',
-      );
+      setTargetModelState(nextModel);
+      persistComposerSelection({
+        selectedTargetKind: 'provider',
+        selectedProviderId: providerId,
+        targetModel: nextModel,
+      });
       return;
     }
 
@@ -482,13 +513,17 @@ export function useWorkbenchController(input: UseWorkbenchControllerInput): UseW
           supportedModels: nextAdapter.supportedModels,
         }
       : null;
+    const nextModel = selectedAgentProfile
+      ? resolveAgentProfileModel(selectedAgentProfile, adapterSource)
+      : adapterSource?.defaultModel ?? adapterSource?.supportedModels[0] ?? '';
     setSelectedTargetKind('adapter');
     setSelectedAdapterId(adapterId);
-    setTargetModel(
-      selectedAgentProfile
-        ? resolveAgentProfileModel(selectedAgentProfile, adapterSource)
-        : adapterSource?.defaultModel ?? adapterSource?.supportedModels[0] ?? '',
-    );
+    setTargetModelState(nextModel);
+    persistComposerSelection({
+      selectedTargetKind: 'adapter',
+      selectedAdapterId: adapterId,
+      targetModel: nextModel,
+    });
   };
 
   const handleThreadChange = (nextThreadId: string): void => {
@@ -514,8 +549,15 @@ export function useWorkbenchController(input: UseWorkbenchControllerInput): UseW
       }
     }
     if (nextProfileModel) {
-      setTargetModel(nextProfileModel);
+      setTargetModelState(nextProfileModel);
     }
+    persistComposerSelection({
+      selectedAgentProfileId: nextProfileId,
+      selectedTargetKind: nextProfileTarget.id ? nextProfileTarget.kind : selectedTargetKind,
+      selectedProviderId: nextProfileTarget.kind === 'provider' && nextProfileTarget.id ? nextProfileTarget.id : selectedProviderId,
+      selectedAdapterId: nextProfileTarget.kind === 'adapter' && nextProfileTarget.id ? nextProfileTarget.id : selectedAdapterId,
+      targetModel: nextProfileModel || targetModel,
+    });
   };
 
   const handleCreateThread = (): void => {

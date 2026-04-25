@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import type {
   AppState,
+  CustomCliAdapterDefinition,
   AgentProfile,
   Locale,
   RoutingSettings,
@@ -72,6 +73,9 @@ export interface UseConfigPageControllerResult {
   addCustomProvider: (input: CustomProviderInput) => void;
   removeCustomProvider: (providerId: string) => void;
   updateAdapterSetting: (adapterId: string, updates: Partial<RoutingSettings['adapterSettings'][string]>) => void;
+  updateDiscoveryRoots: (roots: string[]) => void;
+  addCustomAdapter: (adapter: CustomCliAdapterDefinition) => void;
+  removeCustomAdapter: (adapterId: string) => void;
   addBinding: () => void;
   updateBinding: (bindingId: string, updates: Partial<WorkbenchSkillBinding>) => void;
   removeBinding: (bindingId: string) => void;
@@ -330,6 +334,41 @@ export function useConfigPageController(input: UseConfigPageControllerInput): Us
     }));
   };
 
+  const updateDiscoveryRoots = (roots: string[]): void => {
+    setDraftRoutingSettings((current) => ({
+      ...current,
+      discoveryRoots: [...new Set(roots.map((root) => root.trim()).filter((root) => root.length > 0))],
+    }));
+  };
+
+  const addCustomAdapter = (adapter: CustomCliAdapterDefinition): void => {
+    setDraftRoutingSettings((current) => ({
+      ...current,
+      customAdapters: [...current.customAdapters.filter((entry) => entry.id !== adapter.id), adapter],
+      adapterSettings: {
+        ...current.adapterSettings,
+        [adapter.id]: current.adapterSettings[adapter.id] ?? {
+          enabled: adapter.enabled,
+          defaultModel: adapter.defaultModel,
+          modelOptions: adapter.supportedModels,
+          customCommand: '',
+        },
+      },
+    }));
+  };
+
+  const removeCustomAdapter = (adapterId: string): void => {
+    setDraftRoutingSettings((current) => ({
+      ...current,
+      customAdapters: current.customAdapters.filter((adapter) => adapter.id !== adapterId),
+      adapterSettings: omitRecordKey(current.adapterSettings, adapterId),
+      taskProfiles: current.taskProfiles.map((profile) => (profile.adapterId === adapterId ? { ...profile, adapterId: null } : profile)),
+      taskTypeRules: Object.fromEntries(Object.entries(current.taskTypeRules).map(([taskType, rule]) => {
+        return [taskType, rule.adapterId === adapterId ? { ...rule, adapterId: null } : rule];
+      })) as RoutingSettings['taskTypeRules'],
+    }));
+  };
+
   const addBinding = (): void => {
     setDraftWorkbench((current) => ({
       ...current,
@@ -504,6 +543,9 @@ export function useConfigPageController(input: UseConfigPageControllerInput): Us
     addCustomProvider,
     removeCustomProvider,
     updateAdapterSetting,
+    updateDiscoveryRoots,
+    addCustomAdapter,
+    removeCustomAdapter,
     addBinding,
     updateBinding,
     removeBinding,

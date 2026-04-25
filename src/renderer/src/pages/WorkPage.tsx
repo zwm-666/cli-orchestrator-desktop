@@ -250,6 +250,7 @@ export function WorkPage({ locale, aiConfig, appState, promptBuilderConfig, onSa
                   nodes={controller.activeOrchestrationNodes}
                   runs={appState.runs}
                   agentProfiles={appState.agentProfiles}
+                  subagentStatuses={appState.subagentStatuses}
                   onSelectRun={(runId) => { void controller.handleSetActiveOrchestrationRunId(runId); }}
                   onJumpToNode={handleJumpToNode}
                 />
@@ -263,7 +264,7 @@ export function WorkPage({ locale, aiConfig, appState, promptBuilderConfig, onSa
                   activityLog={threadActivityLog}
                 />
 
-                <AgentStatusPanel locale={locale} agentProfiles={appState.agentProfiles} adapters={appState.adapters} aiConfig={aiConfig} />
+                <AgentStatusPanel locale={locale} agentProfiles={appState.agentProfiles} adapters={appState.adapters} subagentStatuses={appState.subagentStatuses} aiConfig={aiConfig} />
               </div>
             </details>
           </aside>
