@@ -185,6 +185,29 @@ const getProviderDefinitionModelSource = (definition: AiProviderDefinition | nul
   };
 };
 
+const decodeFileMentionPath = (value: string): string => {
+  try {
+    return decodeURIComponent(value);
+  } catch {
+    return value;
+  }
+};
+
+const extractFileMentionPaths = (prompt: string): string[] => {
+  const mentionedPaths: string[] = [];
+  const pattern = /@file:(?:"([^"]+)"|([^\s]+))/gu;
+
+  for (const match of prompt.matchAll(pattern)) {
+    const rawPath = match[1] ?? match[2] ?? '';
+    const relativePath = decodeFileMentionPath(rawPath.trim());
+    if (relativePath) {
+      mentionedPaths.push(relativePath);
+    }
+  }
+
+  return [...new Set(mentionedPaths)];
+};
+
 export function useWorkbenchController(input: UseWorkbenchControllerInput): UseWorkbenchControllerResult {
   const { locale, aiConfig, appState, promptBuilderConfig, onSaveWorkbenchState } = input;
   const persistedWorkbench = appState.workbench ?? DEFAULT_WORKBENCH_STATE;
@@ -368,8 +391,8 @@ export function useWorkbenchController(input: UseWorkbenchControllerInput): UseW
         locale,
         workbench,
         activeThread,
-        selectedFilePath: workspace.selectedFile?.relativePath ?? null,
-        selectedFileContent: workspace.selectedFile?.content.slice(0, FILE_CONTEXT_LIMIT) ?? null,
+        selectedFilePath: null,
+        selectedFileContent: null,
         targetKind: selectedTargetKind,
         targetLabel: selectedTargetKind === 'provider' ? (selectedProviderDefinition?.label ?? '') : (selectedAdapter?.displayName ?? ''),
         modelLabel: targetModel,
@@ -391,8 +414,6 @@ export function useWorkbenchController(input: UseWorkbenchControllerInput): UseW
       selectedTargetKind,
       targetModel,
       workbench,
-      workspace.selectedFile?.content,
-      workspace.selectedFile?.relativePath,
     ],
   );
 
@@ -407,7 +428,6 @@ export function useWorkbenchController(input: UseWorkbenchControllerInput): UseW
     continuityPrompt,
     setUserInput,
     boundSkills,
-    selectedFile: workspace.selectedFile,
     selectedAgentLabel: selectedAgentProfile ? getAgentProfileDisplayName(selectedAgentProfile) : null,
     selectedAgentPrompt: selectedAgentProfile?.systemPrompt ?? null,
     getLatestWorkbench,
@@ -595,6 +615,30 @@ export function useWorkbenchController(input: UseWorkbenchControllerInput): UseW
     await window.desktopApi.cancelRun({ runId });
   };
 
+  const expandFileMentions = async (prompt: string): Promise<string> => {
+    const workspaceRoot = workspace.workspaceRoot;
+    if (!workspaceRoot) {
+      return prompt;
+    }
+
+    const uniquePaths = extractFileMentionPaths(prompt);
+    if (uniquePaths.length === 0) {
+      return prompt;
+    }
+
+    const fileContexts = await Promise.all(uniquePaths.map(async (relativePath) => {
+      try {
+        const file = await window.desktopApi.readWorkspaceFile({ relativePath, workspaceRoot });
+        return `File: ${file.relativePath}\n${file.content.slice(0, FILE_CONTEXT_LIMIT)}`;
+      } catch (error: unknown) {
+        const message = error instanceof Error ? error.message : 'Unable to read file.';
+        return `File: ${relativePath}\n${message}`;
+      }
+    }));
+
+    return `${prompt}\n\nExplicit file context (@file):\n${fileContexts.join('\n\n')}`;
+  };
+
   const handleSendEntry = async (): Promise<void> => {
     const trimmedPrompt = userInput.trim();
     if (!trimmedPrompt) {
@@ -603,7 +647,7 @@ export function useWorkbenchController(input: UseWorkbenchControllerInput): UseW
 
     if (trimmedPrompt.startsWith('@multi')) {
       const orchestrationPromptText = trimmedPrompt.replace(/^@multi\s*/, '').trim();
-      handleOpenOrchestrationPanel('standard', orchestrationPromptText);
+      handleOpenOrchestrationPanel('standard', await expandFileMentions(orchestrationPromptText));
       return;
     }
 
@@ -621,20 +665,22 @@ export function useWorkbenchController(input: UseWorkbenchControllerInput): UseW
       return;
     }
     if (parsedEntry.command === 'orchestrate') {
-      handleOpenOrchestrationPanel('standard', parsedEntry.prompt || userInput);
+      handleOpenOrchestrationPanel('standard', await expandFileMentions(parsedEntry.prompt || userInput));
       return;
     }
     if (parsedEntry.command === 'discuss') {
-      handleOpenOrchestrationPanel('discussion', parsedEntry.prompt || userInput);
+      handleOpenOrchestrationPanel('discussion', await expandFileMentions(parsedEntry.prompt || userInput));
       return;
     }
+
+    const promptWithExplicitFiles = await expandFileMentions(parsedEntry.prompt || userInput);
 
     if (selectedTargetKind === 'provider') {
-      await providerFlow.handleProviderSend(parsedEntry.prompt || userInput);
+      await providerFlow.handleProviderSend(promptWithExplicitFiles);
       return;
     }
 
-    await adapterFlow.handleStartAdapterRun(parsedEntry.prompt || userInput);
+    await adapterFlow.handleStartAdapterRun(promptWithExplicitFiles);
     setUserInput('');
   };
 

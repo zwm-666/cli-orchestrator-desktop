@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import type { Locale, ReadWorkspaceFileResult, SkillDefinition, TaskThreadMessage, WorkbenchState } from '../../../shared/domain.js';
+import type { Locale, SkillDefinition, TaskThreadMessage, WorkbenchState } from '../../../shared/domain.js';
 import type { AiConfig, AiProviderDefinition } from '../aiConfig.js';
 import { isProviderReady } from '../aiConfig.js';
 import { localizeProviderRuntimeMessage } from '../providerRuntimeLocalization.js';
@@ -13,7 +13,7 @@ import {
   getTaskThreadById,
   stripTaskUpdateBlock,
 } from '../workbench.js';
-import { FILE_CONTEXT_LIMIT, toErrorMessage } from './workbenchControllerShared.js';
+import { toErrorMessage } from './workbenchControllerShared.js';
 
 interface UseWorkbenchProviderFlowInput {
   locale: Locale;
@@ -26,7 +26,6 @@ interface UseWorkbenchProviderFlowInput {
   continuityPrompt: string;
   setUserInput: (value: string) => void;
   boundSkills: SkillDefinition[];
-  selectedFile: ReadWorkspaceFileResult | null;
   selectedAgentLabel?: string | null;
   selectedAgentPrompt?: string | null;
   getLatestWorkbench: () => WorkbenchState;
@@ -51,7 +50,6 @@ export function useWorkbenchProviderFlow(input: UseWorkbenchProviderFlowInput): 
     continuityPrompt,
     setUserInput,
     boundSkills,
-    selectedFile,
     selectedAgentLabel,
     selectedAgentPrompt,
     getLatestWorkbench,
@@ -116,7 +114,6 @@ export function useWorkbenchProviderFlow(input: UseWorkbenchProviderFlowInput): 
       });
 
       const skillPrompt = boundSkills.map((skill) => skill.promptTemplate.trim()).filter((entry) => entry.length > 0).join('\n\n');
-      const selectedFileContext = selectedFile ? `\n\nSelected file: ${selectedFile.relativePath}\n${selectedFile.content.slice(0, FILE_CONTEXT_LIMIT)}` : '';
       const systemContext = [
         continuityPrompt,
         selectedAgentPrompt
@@ -139,7 +136,7 @@ export function useWorkbenchProviderFlow(input: UseWorkbenchProviderFlowInput): 
         ...historyMessages,
         {
           role: 'user',
-          content: `${trimmedPrompt}${selectedFileContext}`,
+          content: trimmedPrompt,
         },
       ]);
 

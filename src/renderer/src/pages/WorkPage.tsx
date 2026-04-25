@@ -170,9 +170,8 @@ export function WorkPage({ locale, aiConfig, appState, promptBuilderConfig, onSa
           {isTerminalOpen ? (
             <WorkbenchTerminalPanel
               locale={locale}
-              runs={controller.activeThreadRuns}
+              cwd={controller.workspaceRoot}
               onClose={() => { setIsTerminalOpen(false); }}
-              onCancelRun={(runId) => { void controller.handleCancelRun(runId); }}
             />
           ) : null}
         </main>
@@ -221,7 +220,7 @@ export function WorkPage({ locale, aiConfig, appState, promptBuilderConfig, onSa
                   return;
                 }
 
-                controller.setUserInput(`${controller.userInput}\n\n[File context] ${relativePath}`.trim());
+                controller.setUserInput(`${controller.userInput}\n\n@file:"${encodeURIComponent(relativePath)}"`.trim());
                 void controller.loadFilePreviewByPath(relativePath);
               }}
               onApplyCodeToFile={(content) => { void controller.applyToSelectedFile(content); }}
