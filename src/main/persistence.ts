@@ -6,9 +6,15 @@ import type {
   AgentProfile,
   AgentRoleType,
   AppState,
+  CustomCliAdapterDefinition,
   ExecutionTranscriptEntry,
   HandoffArtifact,
   LaunchFormDraft,
+  LocalToolCallLogEntry,
+  LocalToolDefinition,
+  LocalToolKind,
+  LocalToolRegistry,
+  LocalToolSource,
   McpHealthStatus,
   McpServerDefinition,
   McpTransport,
@@ -24,6 +30,8 @@ import type {
   RunSession,
   RunStatus,
   SkillDefinition,
+  SubagentStatusEntry,
+  SubagentWorkStatus,
   TaskThread,
   TaskThreadContinuation,
   TaskThreadMessage,
@@ -39,6 +47,7 @@ import type {
 } from '../shared/domain.js';
 import {
   DEFAULT_WORKBENCH_STATE,
+  DEFAULT_LOCAL_TOOL_REGISTRY,
   DEFAULT_RETRY_POLICY,
   DEFAULT_ROUTING_SETTINGS,
   DEFAULT_TASK_ROUTING_PROFILES,
@@ -53,6 +62,9 @@ interface PersistedAppData {
   conversations: AppState['conversations'];
   tasks: Task[];
   runs: RunSession[];
+  subagentStatuses: SubagentStatusEntry[];
+  localToolRegistry: LocalToolRegistry;
+  localToolCallLogs: LocalToolCallLogEntry[];
   nextClaudeTask: AppState['nextClaudeTask'];
   agentProfiles: AgentProfile[];
   skills: SkillDefinition[];
@@ -100,6 +112,10 @@ const isNonNegativeInteger = (value: unknown): value is number => {
 };
 const normalizeNullableString = (value: unknown): string | null => {
   return typeof value === 'string' && value.length > 0 ? value : null;
+};
+
+const normalizeWorkbenchTargetKind = (value: unknown): WorkbenchState['selectedTargetKind'] => {
+  return value === 'adapter' ? 'adapter' : 'provider';
 };
 
 const normalizeProjectContext = (value: unknown): AppState['projectContext'] => {
@@ -191,6 +207,39 @@ const normalizeAdapterRoutingSettings = (value: unknown): AdapterRoutingSettings
     customCommand: typeof value.customCommand === 'string' ? value.customCommand : '',
   };
 };
+const normalizeStringList = (value: unknown): string[] => {
+  return Array.isArray(value)
+    ? [...new Set(value.filter((entry): entry is string => typeof entry === 'string').map((entry) => entry.trim()).filter((entry) => entry.length > 0))]
+    : [];
+};
+const normalizeCustomCliAdapterDefinition = (value: unknown): CustomCliAdapterDefinition | null => {
+  if (!isJsonObject(value)) {
+    return null;
+  }
+
+  const id = typeof value.id === 'string' ? value.id.trim() : '';
+  const displayName = typeof value.displayName === 'string' ? value.displayName.trim() : '';
+  const command = typeof value.command === 'string' ? value.command.trim() : '';
+  if (!id || !displayName || !command) {
+    return null;
+  }
+
+  const defaultModel = typeof value.defaultModel === 'string' ? value.defaultModel.trim() : '';
+  const supportedModels = normalizeStringList(value.supportedModels);
+  return {
+    id,
+    displayName,
+    command,
+    args: normalizeStringList(value.args),
+    promptTransport: value.promptTransport === 'stdin' ? 'stdin' : 'arg',
+    description: typeof value.description === 'string' && value.description.trim().length > 0 ? value.description.trim() : `Custom local tool ${displayName}`,
+    capabilities: normalizeStringList(value.capabilities),
+    defaultTimeoutMs: typeof value.defaultTimeoutMs === 'number' && Number.isFinite(value.defaultTimeoutMs) && value.defaultTimeoutMs > 0 ? Math.round(value.defaultTimeoutMs) : null,
+    defaultModel,
+    supportedModels: supportedModels.includes(defaultModel) || !defaultModel ? supportedModels : [defaultModel, ...supportedModels],
+    enabled: typeof value.enabled === 'boolean' ? value.enabled : true,
+  };
+};
 const normalizeTaskRoutingRule = (value: unknown): TaskRoutingRule => {
   if (!isJsonObject(value)) {
     return {
@@ -251,6 +300,10 @@ const normalizeRoutingSettings = (value: unknown): RoutingSettings => {
         }));
   return {
     adapterSettings,
+    discoveryRoots: normalizeStringList(value.discoveryRoots).length > 0 ? normalizeStringList(value.discoveryRoots) : [...DEFAULT_ROUTING_SETTINGS.discoveryRoots],
+    customAdapters: (Array.isArray(value.customAdapters) ? value.customAdapters : [])
+      .map((adapter) => normalizeCustomCliAdapterDefinition(adapter))
+      .filter((adapter): adapter is CustomCliAdapterDefinition => Boolean(adapter)),
     taskTypeRules,
     taskProfiles,
   };
@@ -428,6 +481,11 @@ const normalizeWorkbenchState = (value: unknown): WorkbenchState => {
       ? (value.recentWorkspaceRoots as string[]).filter((entry) => typeof entry === 'string' && entry.trim().length > 0)
           .slice(0, 5)
       : [],
+    selectedTargetKind: normalizeWorkbenchTargetKind(value.selectedTargetKind),
+    selectedProviderId: typeof value.selectedProviderId === 'string' ? value.selectedProviderId : '',
+    selectedAdapterId: typeof value.selectedAdapterId === 'string' ? value.selectedAdapterId : '',
+    selectedAgentProfileId: typeof value.selectedAgentProfileId === 'string' ? value.selectedAgentProfileId : '',
+    targetModel: typeof value.targetModel === 'string' ? value.targetModel : '',
     tasks: Array.isArray(value.tasks)
       ? (value.tasks as unknown[]).map(normalizeWorkbenchTaskItem).filter((entry): entry is WorkbenchTaskItem => entry !== null)
       : [],
@@ -526,6 +584,18 @@ const recoverRunsAfterRestart = (appState: PersistedAppData): PersistedAppData =
     }
     return node;
   });
+  const subagentStatuses = appState.subagentStatuses.map((entry) => {
+    if (entry.status !== 'thinking' && entry.status !== 'tool_calling' && entry.status !== 'waiting') {
+      return entry;
+    }
+
+    return {
+      ...entry,
+      status: 'error' as const,
+      detail: 'Interrupted by app restart recovery.',
+      updatedAt: new Date().toISOString(),
+    };
+  });
   return {
     ...appState,
     runs,
@@ -541,6 +611,7 @@ const recoverRunsAfterRestart = (appState: PersistedAppData): PersistedAppData =
     }),
     orchestrationRuns,
     orchestrationNodes,
+    subagentStatuses,
   };
 };
 // ---------------------------------------------------------------------------
@@ -597,6 +668,102 @@ const VALID_RUN_STATUSES: RunStatus[] = [
   'cancelled',
   'timed_out',
 ];
+const VALID_SUBAGENT_WORK_STATUSES: SubagentWorkStatus[] = ['idle', 'thinking', 'tool_calling', 'waiting', 'completed', 'error'];
+const VALID_LOCAL_TOOL_SOURCES: LocalToolSource[] = ['windows_path', 'posix_path', 'wsl_path', 'adapter_config', 'custom_root', 'custom_adapter', 'node_runtime'];
+const VALID_LOCAL_TOOL_KINDS: LocalToolKind[] = ['ai_agent', 'cli', 'editor', 'package_manager', 'runtime', 'search', 'system', 'unknown'];
+
+const normalizeSubagentStatusEntry = (value: unknown): SubagentStatusEntry | null => {
+  if (!isJsonObject(value) || typeof value.id !== 'string' || value.id.trim().length === 0) {
+    return null;
+  }
+
+  const status = typeof value.status === 'string' && VALID_SUBAGENT_WORK_STATUSES.includes(value.status as SubagentWorkStatus)
+    ? (value.status as SubagentWorkStatus)
+    : 'idle';
+
+  return {
+    id: value.id.trim(),
+    profileId: normalizeNullableString(value.profileId),
+    adapterId: normalizeNullableString(value.adapterId),
+    runId: normalizeNullableString(value.runId),
+    orchestrationNodeId: normalizeNullableString(value.orchestrationNodeId),
+    agentLabel: typeof value.agentLabel === 'string' && value.agentLabel.trim().length > 0 ? value.agentLabel.trim() : value.id.trim(),
+    status,
+    detail: typeof value.detail === 'string' ? value.detail : '',
+    updatedAt: typeof value.updatedAt === 'string' ? value.updatedAt : new Date().toISOString(),
+  };
+};
+
+const normalizeStringArray = (value: unknown): string[] => {
+  return Array.isArray(value) ? value.filter((entry): entry is string => typeof entry === 'string') : [];
+};
+
+const normalizeLocalToolDefinition = (value: unknown): LocalToolDefinition | null => {
+  if (!isJsonObject(value) || typeof value.id !== 'string' || value.id.trim().length === 0 || typeof value.name !== 'string') {
+    return null;
+  }
+
+  const source = typeof value.source === 'string' && VALID_LOCAL_TOOL_SOURCES.includes(value.source as LocalToolSource)
+    ? (value.source as LocalToolSource)
+    : 'adapter_config';
+  const kind = typeof value.kind === 'string' && VALID_LOCAL_TOOL_KINDS.includes(value.kind as LocalToolKind)
+    ? (value.kind as LocalToolKind)
+    : 'unknown';
+
+  return {
+    id: value.id.trim(),
+    name: value.name.trim(),
+    displayName: typeof value.displayName === 'string' && value.displayName.trim().length > 0 ? value.displayName.trim() : value.name.trim(),
+    command: typeof value.command === 'string' ? value.command : value.name.trim(),
+    executablePath: normalizeNullableString(value.executablePath),
+    wslDistro: normalizeNullableString(value.wslDistro),
+    source,
+    kind,
+    availability: value.availability === 'unavailable' ? 'unavailable' : 'available',
+    version: normalizeNullableString(value.version),
+    capabilities: normalizeStringArray(value.capabilities),
+    discoveredAt: typeof value.discoveredAt === 'string' ? value.discoveredAt : new Date().toISOString(),
+  };
+};
+
+const normalizeLocalToolRegistry = (value: unknown): LocalToolRegistry => {
+  if (!isJsonObject(value)) {
+    return structuredClone(DEFAULT_LOCAL_TOOL_REGISTRY);
+  }
+
+  return {
+    tools: Array.isArray(value.tools)
+      ? (value.tools as unknown[]).map(normalizeLocalToolDefinition).filter((entry): entry is LocalToolDefinition => entry !== null)
+      : [],
+    scannedAt: normalizeNullableString(value.scannedAt),
+    scanRoots: normalizeStringArray(value.scanRoots),
+  };
+};
+
+const normalizeLocalToolCallLogEntry = (value: unknown): LocalToolCallLogEntry | null => {
+  if (!isJsonObject(value) || typeof value.id !== 'string' || typeof value.toolName !== 'string') {
+    return null;
+  }
+
+  return {
+    id: value.id,
+    toolName: value.toolName,
+    command: typeof value.command === 'string' ? value.command : value.toolName,
+    args: normalizeStringArray(value.args),
+    cwd: typeof value.cwd === 'string' ? value.cwd : '',
+    startedAt: typeof value.startedAt === 'string' ? value.startedAt : new Date().toISOString(),
+    endedAt: typeof value.endedAt === 'string' ? value.endedAt : new Date().toISOString(),
+    success: typeof value.success === 'boolean' ? value.success : false,
+    exitCode: typeof value.exitCode === 'number' ? value.exitCode : null,
+    signal: normalizeNullableString(value.signal),
+    error: normalizeNullableString(value.error),
+    stdoutPreview: typeof value.stdoutPreview === 'string' ? value.stdoutPreview : '',
+    stderrPreview: typeof value.stderrPreview === 'string' ? value.stderrPreview : '',
+    profileId: normalizeNullableString(value.profileId),
+    runId: normalizeNullableString(value.runId),
+    orchestrationNodeId: normalizeNullableString(value.orchestrationNodeId),
+  };
+};
 const normalizeHandoffArtifact = (value: unknown): HandoffArtifact | null => {
   if (!isJsonObject(value)) return null;
   if (value.kind !== 'run_handoff') return null;
@@ -848,6 +1015,17 @@ const normalizePersistedAppData = (value: unknown): PersistedAppData | null => {
       ...run,
       transcript: Array.isArray(run.transcript) ? run.transcript : [],
     })) as RunSession[],
+    subagentStatuses: Array.isArray(value.subagentStatuses)
+      ? (value.subagentStatuses as unknown[])
+          .map(normalizeSubagentStatusEntry)
+          .filter((entry): entry is SubagentStatusEntry => entry !== null)
+      : [],
+    localToolRegistry: normalizeLocalToolRegistry(value.localToolRegistry),
+    localToolCallLogs: Array.isArray(value.localToolCallLogs)
+      ? (value.localToolCallLogs as unknown[])
+          .map(normalizeLocalToolCallLogEntry)
+          .filter((entry): entry is LocalToolCallLogEntry => entry !== null)
+      : [],
     agentProfiles: Array.isArray(value.agentProfiles)
       ? (value.agentProfiles as unknown[]).map(normalizeAgentProfile).filter((p): p is AgentProfile => p !== null)
       : [],
@@ -931,6 +1109,9 @@ export class LocalPersistenceStore {
       conversations: structuredClone(state.conversations),
       tasks: structuredClone(state.tasks),
       runs: structuredClone(state.runs),
+      subagentStatuses: structuredClone(state.subagentStatuses),
+      localToolRegistry: structuredClone(state.localToolRegistry),
+      localToolCallLogs: structuredClone(state.localToolCallLogs),
       nextClaudeTask: structuredClone(state.nextClaudeTask),
       workbench: structuredClone(state.workbench ?? DEFAULT_WORKBENCH_STATE),
       agentProfiles: structuredClone(state.agentProfiles),
@@ -947,6 +1128,9 @@ export class LocalPersistenceStore {
       conversations: structuredClone(state.conversations),
       tasks: structuredClone(state.tasks),
       runs: structuredClone(state.runs),
+      subagentStatuses: structuredClone(state.subagentStatuses),
+      localToolRegistry: structuredClone(state.localToolRegistry),
+      localToolCallLogs: structuredClone(state.localToolCallLogs),
       nextClaudeTask: structuredClone(state.nextClaudeTask),
       workbench: structuredClone(state.workbench ?? DEFAULT_WORKBENCH_STATE),
       agentProfiles: structuredClone(state.agentProfiles),
@@ -1004,6 +1188,9 @@ export class LocalPersistenceStore {
         conversations: [],
         tasks: [],
         runs: [],
+        subagentStatuses: [],
+        localToolRegistry: structuredClone(DEFAULT_LOCAL_TOOL_REGISTRY),
+        localToolCallLogs: [],
         nextClaudeTask: { prompt: '', sourceOrchestrationRunId: null, generatedAt: null, status: 'idle' },
         workbench: structuredClone(DEFAULT_WORKBENCH_STATE),
         agentProfiles: [],
@@ -1044,6 +1231,9 @@ export class LocalPersistenceStore {
         conversations: [],
         tasks: [],
         runs: [],
+        subagentStatuses: [],
+        localToolRegistry: structuredClone(DEFAULT_LOCAL_TOOL_REGISTRY),
+        localToolCallLogs: [],
         nextClaudeTask: { prompt: '', sourceOrchestrationRunId: null, generatedAt: null, status: 'idle' },
         workbench: structuredClone(DEFAULT_WORKBENCH_STATE),
         agentProfiles: [],

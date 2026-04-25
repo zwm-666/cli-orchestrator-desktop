@@ -3,7 +3,7 @@ import { mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import test from 'node:test';
 import type { AppState, RendererContinuityState, RoutingSettings } from '../shared/domain.js';
-import { DEFAULT_WORKBENCH_STATE } from '../shared/domain.js';
+import { DEFAULT_LOCAL_TOOL_REGISTRY, DEFAULT_WORKBENCH_STATE } from '../shared/domain.js';
 import { LocalPersistenceStore } from './persistence.js';
 
 const createRootDir = (name: string): string => {
@@ -97,6 +97,9 @@ const createState = (): AppState => {
         transcript: [],
       },
     ],
+    subagentStatuses: [],
+    localToolRegistry: DEFAULT_LOCAL_TOOL_REGISTRY,
+    localToolCallLogs: [],
     projectContext: { summary: '', updatedAt: null },
     nextClaudeTask: { prompt: '', sourceOrchestrationRunId: null, generatedAt: null, status: 'idle' },
     agentProfiles: [],
@@ -155,6 +158,8 @@ const createRoutingSettings = (): RoutingSettings => {
         customCommand: '',
       },
     },
+    discoveryRoots: ['D:\\ai_models'],
+    customAdapters: [],
     taskTypeRules: {
       general: { adapterId: null, model: '' },
       planning: { adapterId: 'adapter-1', model: 'gpt-5.4' },

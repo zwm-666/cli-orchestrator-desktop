@@ -1,7 +1,7 @@
 import { execFileSync } from 'node:child_process';
 import { accessSync, constants, readFileSync } from 'node:fs';
 import path from 'node:path';
-import type { AdapterRoutingSettings, CliAdapter, CliAdapterLaunchMode, RoutingSettings, RunSession } from '../../shared/domain.js';
+import type { AdapterRoutingSettings, CliAdapter, CliAdapterLaunchMode, CustomCliAdapterDefinition, RoutingSettings, RunSession } from '../../shared/domain.js';
 import type { LocalPersistenceStore } from '../persistence.js';
 
 const ADAPTER_HEALTHS = new Set<CliAdapter['health']>(['healthy', 'idle', 'attention']);
@@ -233,7 +233,7 @@ const canResolveViaWhere = (command: string): boolean => {
   }
 };
 
-const isExecutableAvailableInDirectories = (command: string, directories: string[]): boolean => {
+const findExecutableInDirectories = (command: string, directories: string[]): string | null => {
   const hasKnownExtension = path.extname(command).length > 0;
   const executableExtensions = getExecutableExtensions();
   const candidateSuffixes = hasKnownExtension || process.platform !== 'win32' ? [''] : executableExtensions;
@@ -244,14 +244,18 @@ const isExecutableAvailableInDirectories = (command: string, directories: string
     const basePath = path.join(normalizedDirectory, command);
     for (const suffix of candidateSuffixes) {
       const candidatePath = suffix && !basePath.toLowerCase().endsWith(suffix) ? `${basePath}${suffix}` : basePath;
-      if (canAccessExecutablePath(candidatePath)) return true;
+      if (canAccessExecutablePath(candidatePath)) return candidatePath;
     }
   }
 
-  return false;
+  return null;
 };
 
-const isExecutableAvailable = (command: string): boolean => {
+const isExecutableAvailableInDirectories = (command: string, directories: string[]): boolean => {
+  return findExecutableInDirectories(command, directories) !== null;
+};
+
+const isExecutableAvailable = (command: string, extraDirectories: string[] = []): boolean => {
   if (!command) return false;
 
   const resolvedCommand = Object.values(EXECUTABLE_TOKENS).includes(command as (typeof EXECUTABLE_TOKENS)[keyof typeof EXECUTABLE_TOKENS])
@@ -272,7 +276,7 @@ const isExecutableAvailable = (command: string): boolean => {
     }
   }
 
-  return canResolveViaWhere(resolvedCommand) || isExecutableAvailableInDirectories(resolvedCommand, getWindowsFallbackExecutableDirectories());
+  return canResolveViaWhere(resolvedCommand) || isExecutableAvailableInDirectories(resolvedCommand, [...extraDirectories, ...getWindowsFallbackExecutableDirectories()]);
 };
 
 const extractWslDiscoveryProbe = (args: string[]): { distro: string | null; command: string | null } | null => {
@@ -367,6 +371,24 @@ const parseAdapterConfig = (value: unknown): CliAdapterConfig[] => {
   });
 };
 
+const customAdapterToConfig = (definition: CustomCliAdapterDefinition): CliAdapterConfig => ({
+  id: definition.id,
+  displayName: definition.displayName,
+  visibility: 'user',
+  requiresDiscovery: true,
+  launchMode: 'cli',
+  command: validateExecutable(definition.command, 0),
+  args: definition.args.length > 0 ? definition.args.map((arg, index) => validateTemplateString(arg, 0, `customAdapters.${definition.id}.args[${index}]`)) : ['{{prompt}}'],
+  promptTransport: definition.promptTransport,
+  description: definition.description,
+  capabilities: definition.capabilities.length > 0 ? definition.capabilities : ['local execution'],
+  health: 'idle',
+  enabled: definition.enabled,
+  defaultTimeoutMs: definition.defaultTimeoutMs,
+  defaultModel: definition.defaultModel,
+  supportedModels: definition.supportedModels,
+});
+
 const getAdapterDiscoveryReason = (adapterId: string, command: string, available: boolean): string => {
   if (!available) {
     return `"${command}" was not found in PATH. Ensure it is installed globally (e.g. npm install -g ${adapterId}).`;
@@ -422,7 +444,7 @@ const mergeAdapterModels = (configModels: string[], overrideModels: string[] | u
 };
 
 export class AdapterManager {
-  private readonly adapterConfigs: CliAdapterConfig[];
+  private readonly baseAdapterConfigs: CliAdapterConfig[];
   private readonly discoveredAdapterIds = new Set<string>();
   private readonly discoveryReasons = new Map<string, { available: boolean; reason: string }>();
   private routingSettings: RoutingSettings;
@@ -433,14 +455,14 @@ export class AdapterManager {
     routingSettings: RoutingSettings,
     private readonly getRuns: () => RunSession[],
   ) {
-    this.adapterConfigs = this.loadAdapters();
+    this.baseAdapterConfigs = this.loadAdapters();
     this.routingSettings = routingSettings;
     this.syncDiscoveredAdapterIds(this.routingSettings);
     this.routingSettings = this.sanitizeRoutingSettings(this.routingSettings);
   }
 
   public getAdapters(): CliAdapter[] {
-    return this.adapterConfigs.map((adapter) => this.toAdapter(adapter));
+    return this.getAdapterConfigs(this.routingSettings).map((adapter) => this.toAdapter(adapter));
   }
 
   public getRoutingSettings(): RoutingSettings {
@@ -464,7 +486,7 @@ export class AdapterManager {
   }
 
   public resolveAdapter(adapterId: string): { config: CliAdapterConfig; adapter: CliAdapter } {
-    const adapterConfig = this.adapterConfigs.find((entry) => entry.id === adapterId);
+    const adapterConfig = this.getAdapterConfigs(this.routingSettings).find((entry) => entry.id === adapterId);
     if (!adapterConfig) {
       throw new Error(`Adapter ${adapterId} is not configured.`);
     }
@@ -486,18 +508,24 @@ export class AdapterManager {
     return parseAdapterConfig(JSON.parse(file) as unknown);
   }
 
+  private getAdapterConfigs(settings: RoutingSettings): CliAdapterConfig[] {
+    const customConfigs = settings.customAdapters.map((definition) => customAdapterToConfig(definition));
+    const builtInIds = new Set(this.baseAdapterConfigs.map((config) => config.id));
+    return [...this.baseAdapterConfigs, ...customConfigs.filter((config) => !builtInIds.has(config.id))];
+  }
+
   private syncDiscoveredAdapterIds(settings: RoutingSettings): void {
     this.discoveredAdapterIds.clear();
     this.discoveryReasons.clear();
 
-    for (const adapterId of this.discoverAvailableAdapters(this.adapterConfigs, settings)) {
+    for (const adapterId of this.discoverAvailableAdapters(this.getAdapterConfigs(settings), settings)) {
       this.discoveredAdapterIds.add(adapterId);
     }
   }
 
   private toAdapter(config: CliAdapterConfig): CliAdapter {
     const routingOverride = getAdapterSetting(this.routingSettings, config);
-    const command = normalizeOptionalString(routingOverride.customCommand) ?? this.resolveExecutable(config.command);
+    const command = normalizeOptionalString(routingOverride.customCommand) ?? this.resolveExecutable(config.command, this.routingSettings.discoveryRoots);
     const discoveryInfo = this.discoveryReasons.get(config.id);
     const availability: CliAdapter['availability'] = this.discoveredAdapterIds.has(config.id) ? 'available' : 'unavailable';
     const discoveryReason = discoveryInfo?.reason ?? (availability === 'available' ? 'Found in PATH.' : 'Not checked.');
@@ -531,7 +559,7 @@ export class AdapterManager {
 
     for (const config of configs) {
       const routingOverride = getAdapterSetting(routingSettings, config);
-      const command = normalizeOptionalString(routingOverride.customCommand) ?? this.resolveExecutable(config.command);
+      const command = normalizeOptionalString(routingOverride.customCommand) ?? this.resolveExecutable(config.command, routingSettings.discoveryRoots);
 
       if (!config.requiresDiscovery || config.launchMode === 'manual_handoff') {
         available.add(config.id);
@@ -540,7 +568,7 @@ export class AdapterManager {
           reason: config.launchMode === 'manual_handoff' ? 'Manual handoff adapter is always available for copy/paste workflows.' : 'Discovery not required (internal adapter).',
         });
       } else if (path.basename(command).toLowerCase() === 'wsl.exe' || path.basename(command).toLowerCase() === 'wsl') {
-        if (isExecutableAvailable(command) && isWslInnerCommandAvailable(command, config.args)) {
+        if (isExecutableAvailable(command, routingSettings.discoveryRoots) && isWslInnerCommandAvailable(command, config.args)) {
           available.add(config.id);
           this.discoveryReasons.set(config.id, { available: true, reason: getAdapterDiscoveryReason(config.id, command, true) });
         } else {
@@ -549,7 +577,7 @@ export class AdapterManager {
             reason: `"${command}" is available, but the configured command inside WSL could not be verified. Check the distro/tool installation and any custom command override.`,
           });
         }
-      } else if (isExecutableAvailable(command)) {
+      } else if (isExecutableAvailable(command, routingSettings.discoveryRoots)) {
         available.add(config.id);
         this.discoveryReasons.set(config.id, { available: true, reason: getAdapterDiscoveryReason(config.id, command, true) });
       } else {
@@ -589,11 +617,13 @@ export class AdapterManager {
 
   private sanitizeRoutingSettings(settings: RoutingSettings): RoutingSettings {
     const availableUserFacingAdapterIds = new Set(
-      this.adapterConfigs.filter((config) => config.visibility === 'user' && this.discoveredAdapterIds.has(config.id)).map((config) => config.id),
+      this.getAdapterConfigs(settings).filter((config) => config.visibility === 'user' && this.discoveredAdapterIds.has(config.id)).map((config) => config.id),
     );
 
     return {
       adapterSettings: { ...settings.adapterSettings },
+      discoveryRoots: [...settings.discoveryRoots],
+      customAdapters: [...settings.customAdapters],
       taskTypeRules: Object.fromEntries(
         Object.entries(settings.taskTypeRules).map(([taskType, rule]) => {
           const nextAdapterId = rule.adapterId && availableUserFacingAdapterIds.has(rule.adapterId) ? rule.adapterId : null;
@@ -610,7 +640,14 @@ export class AdapterManager {
     };
   }
 
-  private resolveExecutable(command: string): string {
-    return command === EXECUTABLE_TOKENS.nodeExecPath ? process.execPath : command;
+  private resolveExecutable(command: string, extraDirectories: string[] = []): string {
+    if (command === EXECUTABLE_TOKENS.nodeExecPath) {
+      return process.execPath;
+    }
+    if (isPathLikeExecutable(command)) {
+      return command;
+    }
+
+    return findExecutableInDirectories(command, extraDirectories) ?? command;
   }
 }
