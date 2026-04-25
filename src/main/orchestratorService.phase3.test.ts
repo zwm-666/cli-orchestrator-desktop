@@ -19,6 +19,7 @@ import type {
   StartRunInput,
   Task,
 } from '../shared/domain.js';
+import { DEFAULT_LOCAL_TOOL_REGISTRY } from '../shared/domain.js';
 import type { SkillRegistryService } from './services/skillRegistryService.js';
 
 // ---------------------------------------------------------------------------
@@ -80,6 +81,9 @@ const createTestHarness = (): TestHarness => {
     conversations: [],
     tasks: [],
     runs: [],
+    subagentStatuses: [],
+    localToolRegistry: DEFAULT_LOCAL_TOOL_REGISTRY,
+    localToolCallLogs: [],
     projectContext: { summary: '', updatedAt: null },
     nextClaudeTask: { prompt: '', sourceOrchestrationRunId: null, generatedAt: null, status: 'idle' },
     agentProfiles: [],
@@ -387,6 +391,8 @@ void describe('OrchestrationExecutionService', () => {
       [],
       {
         adapterSettings: {},
+        discoveryRoots: [],
+        customAdapters: [],
         taskTypeRules: {
           general: { adapterId: null, model: '' },
           planning: { adapterId: null, model: '' },

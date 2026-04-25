@@ -5,6 +5,11 @@ import type {
   CancelOrchestrationResult,
   CancelRunInput,
   CancelRunResult,
+  CallCliAgentInput,
+  CliAgentCallResult,
+  CliAgentContext,
+  CliAgentDecision,
+  CliAgentStreamEvent,
   CreateDraftConversationInput,
   CreateDraftConversationResult,
   DeleteAgentProfileInput,
@@ -12,6 +17,9 @@ import type {
   DeleteSkillInput,
   GetOrchestrationRunInput,
   GetOrchestrationRunResult,
+  LocalToolCallInput,
+  LocalToolCallResult,
+  LocalToolRegistry,
   McpServerDefinition,
   PlanDraftInput,
   PlanDraftResult,
@@ -26,12 +34,17 @@ import type {
   StartRunInput,
   StartRunResult,
   RunEvent,
+  SubagentStatusEntry,
+  SubagentWorkStatus,
 } from '../shared/domain.js';
-import { DEFAULT_WORKBENCH_STATE } from '../shared/domain.js';
+import { DEFAULT_LOCAL_TOOL_REGISTRY, DEFAULT_WORKBENCH_STATE } from '../shared/domain.js';
+import { getAgentProfileDisplayName } from '../shared/agentProfiles.js';
 import type { LocalPersistenceStore } from './persistence.js';
 import { AgentRegistryService } from './services/agentRegistryService.js';
 import { AdapterManager } from './services/adapterManager.js';
+import { CliAgentRouterService } from './services/cliAgentRouterService.js';
 import { McpRegistryService } from './services/mcpRegistryService.js';
+import { LocalToolRegistryService } from './services/localToolRegistryService.js';
 import { OrchestrationExecutionService } from './services/orchestrationExecutionService.js';
 import { RunManager } from './services/runManager.js';
 import { SkillRegistryService } from './services/skillRegistryService.js';
@@ -40,6 +53,7 @@ import { buildExecutionPlan, createPlanDraft as createPlanDraftFromService } fro
 
 type StateListener = (state: AppState) => void;
 type RunEventListener = (event: RunEvent) => void;
+type CliAgentEventListener = (event: CliAgentStreamEvent) => void;
 
 const now = new Date('2026-03-20T10:15:00.000Z');
 
@@ -94,6 +108,9 @@ const buildInitialState = (
     conversations: persistedState?.conversations ?? seedConversations(),
     tasks: persistedState?.tasks ?? [],
     runs: persistedState?.runs ?? [],
+    subagentStatuses: persistedState?.subagentStatuses ?? [],
+    localToolRegistry: persistedState?.localToolRegistry ?? structuredClone(DEFAULT_LOCAL_TOOL_REGISTRY),
+    localToolCallLogs: persistedState?.localToolCallLogs ?? [],
     nextClaudeTask: persistedState?.nextClaudeTask ?? {
       prompt: '',
       sourceOrchestrationRunId: null,
@@ -114,10 +131,13 @@ export class OrchestratorService {
   private readonly agentRegistry: AgentRegistryService;
   private readonly skillRegistry: SkillRegistryService;
   private readonly mcpRegistry: McpRegistryService;
+  private readonly localToolRegistry: LocalToolRegistryService;
+  private readonly cliAgentRouter: CliAgentRouterService;
   private readonly orchestrationExecution: OrchestrationExecutionService;
   private readonly stateManager: StateManager;
   private readonly adapterManager: AdapterManager;
   private readonly runManager: RunManager;
+  private readonly cliAgentEventListeners = new Set<CliAgentEventListener>();
 
   public constructor(
     rootDir: string,
@@ -129,6 +149,8 @@ export class OrchestratorService {
     this.agentRegistry = new AgentRegistryService(rootDir);
     this.skillRegistry = new SkillRegistryService(rootDir);
     this.mcpRegistry = new McpRegistryService(rootDir);
+    this.localToolRegistry = new LocalToolRegistryService(rootDir);
+    this.cliAgentRouter = new CliAgentRouterService(rootDir, this.localToolRegistry);
     this.orchestrationExecution = new OrchestrationExecutionService();
 
     this.agentRegistry.loadFromConfig();
@@ -178,6 +200,45 @@ export class OrchestratorService {
     this.adapterManager.refreshAdapters();
     this.stateManager.refreshDerivedState();
     return this.stateManager.getAppState();
+  }
+
+  public async refreshLocalTools(): Promise<LocalToolRegistry> {
+    const registry = await this.localToolRegistry.refreshRegistry(this.adapterManager.getRoutingSettings());
+    this.stateManager.updateState((state) => ({
+      ...state,
+      localToolRegistry: registry,
+    }));
+    return registry;
+  }
+
+  public async callLocalTool(input: LocalToolCallInput): Promise<LocalToolCallResult> {
+    const result = await this.localToolRegistry.callLocalTool(input, {
+      onStatus: (status, detail, callId) => {
+        this.upsertLocalToolSubagentStatus(input, status, detail, callId);
+      },
+    });
+    this.stateManager.updateState((state) => ({
+      ...state,
+      localToolCallLogs: this.localToolRegistry.trimCallLogs([result.logEntry, ...state.localToolCallLogs]),
+    }));
+    return result;
+  }
+
+  public decideCliAgentRoute(prompt: string, context: CliAgentContext = {}): CliAgentDecision {
+    return this.cliAgentRouter.decideRoute(prompt, context);
+  }
+
+  public async callCliAgent(input: CallCliAgentInput): Promise<CliAgentCallResult> {
+    const result = await this.cliAgentRouter.callCliAgent(input, (event) => {
+      this.cliAgentEventListeners.forEach((listener) => {
+        listener(structuredClone(event));
+      });
+    });
+    this.stateManager.updateState((state) => ({
+      ...state,
+      localToolCallLogs: this.localToolRegistry.trimCallLogs([result.logEntry, ...state.localToolCallLogs]),
+    }));
+    return result;
   }
 
   public getRoutingSettings() {
@@ -371,11 +432,36 @@ export class OrchestratorService {
     return this.runManager.getRecentRunsByCategory(taskType, limit);
   }
 
+  private upsertLocalToolSubagentStatus(input: LocalToolCallInput, status: SubagentWorkStatus, detail: string, callId: string): void {
+    const profile = input.profileId ? this.agentRegistry.getAll().find((entry) => entry.id === input.profileId) ?? null : null;
+    const entry: SubagentStatusEntry = {
+      id: callId,
+      profileId: input.profileId ?? null,
+      adapterId: null,
+      runId: input.runId ?? null,
+      orchestrationNodeId: input.orchestrationNodeId ?? null,
+      agentLabel: profile ? getAgentProfileDisplayName(profile) : input.toolName,
+      status,
+      detail,
+      updatedAt: new Date().toISOString(),
+    };
+
+    this.stateManager.upsertSubagentStatus(entry);
+  }
+
   public onStateChanged(listener: StateListener): () => void {
     return this.stateManager.onStateChanged(listener);
   }
 
   public onRunEvent(listener: RunEventListener): () => void {
     return this.stateManager.onRunEvent(listener);
+  }
+
+  public onCliAgentEvent(listener: CliAgentEventListener): () => void {
+    this.cliAgentEventListeners.add(listener);
+
+    return () => {
+      this.cliAgentEventListeners.delete(listener);
+    };
   }
 }

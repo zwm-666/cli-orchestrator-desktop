@@ -3,6 +3,7 @@ import { chmodSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import test from 'node:test';
 import type { AppState, RoutingSettings } from '../shared/domain.js';
+import { DEFAULT_LOCAL_TOOL_REGISTRY } from '../shared/domain.js';
 import { LocalPersistenceStore } from './persistence.js';
 import { OrchestratorService } from './orchestratorService.js';
 
@@ -32,6 +33,8 @@ const createRoutingSettings = (): RoutingSettings => {
         customCommand: '',
       },
     },
+    discoveryRoots: [],
+    customAdapters: [],
     taskTypeRules: {
       general: { adapterId: null, model: '' },
       planning: { adapterId: null, model: '' },
@@ -423,6 +426,9 @@ const createPersistedAppStateForReadiness = (): AppState => {
         transcript: [],
       },
     ],
+    subagentStatuses: [],
+    localToolRegistry: DEFAULT_LOCAL_TOOL_REGISTRY,
+    localToolCallLogs: [],
     projectContext: { summary: '', updatedAt: null },
     nextClaudeTask: { prompt: '', sourceOrchestrationRunId: null, generatedAt: null, status: 'idle' },
     agentProfiles: [],
@@ -543,6 +549,50 @@ void test('OrchestratorService discovery honors customCommand overrides when rou
     assert.equal(after.availability, 'available');
     assert.equal(after.enabled, true);
     assert.equal(service.getRoutingSettings().taskTypeRules.code.adapterId, 'missing-ai');
+  } finally {
+    rmSync(rootDir, { recursive: true, force: true });
+  }
+});
+
+void test('OrchestratorService discovers adapters from configured discovery roots and custom adapter definitions', () => {
+  const rootDir = createRootDir('orchestrator-service-custom-discovery-root');
+
+  try {
+    writeAdaptersConfig(rootDir);
+    const customRoot = path.resolve(rootDir, 'ai-models');
+    const executableName = process.platform === 'win32' ? 'custom-ai.cmd' : 'custom-ai';
+    void writeNamedExecutable(
+      path.resolve(customRoot, executableName),
+      '@echo off\r\necho custom-ai:%*\r\n',
+      '#!/bin/sh\necho custom-ai:$*\n',
+    );
+    const persistenceStore = new LocalPersistenceStore(rootDir);
+    persistenceStore.saveRoutingSettings({
+      ...createRoutingSettings(),
+      discoveryRoots: [customRoot],
+      customAdapters: [
+        {
+          id: 'custom-ai',
+          displayName: 'Custom AI',
+          command: 'custom-ai',
+          args: ['{{prompt}}'],
+          promptTransport: 'arg',
+          description: 'Custom AI CLI from configured root.',
+          capabilities: ['local execution'],
+          defaultTimeoutMs: null,
+          defaultModel: 'local-model',
+          supportedModels: ['local-model'],
+          enabled: true,
+        },
+      ],
+    });
+
+    const service = new OrchestratorService(rootDir, persistenceStore);
+    const adapter = service.getAppState().adapters.find((entry) => entry.id === 'custom-ai');
+    assert.ok(adapter);
+    assert.equal(adapter.availability, 'available');
+    assert.equal(adapter.enabled, true);
+    assert.equal(adapter.command, path.resolve(customRoot, executableName));
   } finally {
     rmSync(rootDir, { recursive: true, force: true });
   }
