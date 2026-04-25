@@ -128,6 +128,38 @@ export interface RunSession {
   transcript: ExecutionTranscriptEntry[];
 }
 
+export type TerminalEventStream = 'stdout' | 'stderr' | 'system';
+export type TerminalEventKind = 'output' | 'started' | 'exit' | 'error';
+
+export interface TerminalEvent {
+  sessionId: string;
+  kind: TerminalEventKind;
+  stream: TerminalEventStream;
+  data: string;
+  timestamp: string;
+  exitCode?: number | null;
+  signal?: string | null;
+}
+
+export interface StartTerminalInput {
+  cwd?: string | null;
+}
+
+export interface StartTerminalResult {
+  sessionId: string;
+  shell: string;
+  cwd: string;
+}
+
+export interface WriteTerminalInput {
+  sessionId: string;
+  data: string;
+}
+
+export interface StopTerminalInput {
+  sessionId: string;
+}
+
 export interface ProjectContextState {
   summary: string;
   updatedAt: string | null;
@@ -215,6 +247,7 @@ export interface TaskThread {
   id: string;
   title: string;
   continuation?: TaskThreadContinuation | null;
+  archivedAt?: string | null;
   messages: TaskThreadMessage[];
   activityLog: WorkbenchActivitySummary[];
   createdAt: string;

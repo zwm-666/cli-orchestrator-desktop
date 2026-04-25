@@ -24,6 +24,7 @@ interface ProviderConfigSectionProps {
     enabled: boolean;
   }) => void;
   removeCustomProvider: (providerId: string) => void;
+  handleFetchProviderModels: (providerId: string) => Promise<void>;
   handleTestProvider: (providerId: string) => Promise<void>;
 }
 
@@ -40,6 +41,7 @@ export function ProviderConfigSection(props: ProviderConfigSectionProps): React.
     setActiveModel,
     addCustomProvider,
     removeCustomProvider,
+    handleFetchProviderModels,
     handleTestProvider,
   } = props;
 
@@ -66,6 +68,7 @@ export function ProviderConfigSection(props: ProviderConfigSectionProps): React.
         setActiveModel={setActiveModel}
         addCustomProvider={addCustomProvider}
         removeCustomProvider={removeCustomProvider}
+        handleFetchProviderModels={handleFetchProviderModels}
         handleTestProvider={handleTestProvider}
       />
 

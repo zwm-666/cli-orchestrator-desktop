@@ -29,6 +29,9 @@ interface ChatPanelProps {
   onThreadChange: (threadId: string) => void;
   onSubmit: () => void;
   onNewThread: () => void;
+  onArchiveThread: (threadId?: string) => void;
+  onDeleteThread: (threadId?: string) => void;
+  onHideRightRail: () => void;
   onStartDiscussion: () => void;
   onStartOrchestration: () => void;
   onDropFile: (absolutePath: string) => void;
@@ -125,6 +128,9 @@ export function ChatPanel(props: ChatPanelProps): React.JSX.Element {
     onThreadChange,
     onSubmit,
     onNewThread,
+    onArchiveThread,
+    onDeleteThread,
+    onHideRightRail,
     onStartDiscussion,
     onStartOrchestration,
     onDropFile,
@@ -134,6 +140,7 @@ export function ChatPanel(props: ChatPanelProps): React.JSX.Element {
 
   const textareaRef = inputRef;
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const threadMenuRef = useRef<HTMLDetailsElement>(null);
 
   useEffect(() => {
     const textarea = textareaRef.current;
@@ -144,6 +151,18 @@ export function ChatPanel(props: ChatPanelProps): React.JSX.Element {
     textarea.style.height = '0px';
     textarea.style.height = `${Math.max(textarea.scrollHeight, 72)}px`;
   }, [inputValue, textareaRef]);
+
+  useEffect(() => {
+    if (threadMenuRef.current) {
+      threadMenuRef.current.open = false;
+    }
+  }, [activeThreadId]);
+
+  const closeThreadMenu = (): void => {
+    if (threadMenuRef.current) {
+      threadMenuRef.current.open = false;
+    }
+  };
 
   const showCommandMenu = inputValue.trimStart().startsWith('/');
   const activeMentionQuery = useMemo(() => {
@@ -162,40 +181,79 @@ export function ChatPanel(props: ChatPanelProps): React.JSX.Element {
   return (
     <section className="section-panel inlay-card chat-panel cursor-chat-panel">
       <div className="cursor-chat-topbar" aria-label={locale === 'zh' ? '对话工具栏' : 'Chat toolbar'}>
-        <button type="button" className="chat-icon-button" onClick={() => { textareaRef.current?.focus(); }} aria-label={locale === 'zh' ? '聚焦对话输入框' : 'Focus chat input'} title={locale === 'zh' ? '聚焦对话输入框' : 'Focus chat input'}>
-          💬
+        <button type="button" className="secondary-button secondary-button-compact chat-rail-hide-button" onClick={onHideRightRail}>
+          {locale === 'zh' ? '折叠右栏' : 'Hide right rail'}
         </button>
 
-        <label className="chat-thread-picker">
-          <span className="sr-only">{locale === 'zh' ? '查看之前的对话' : 'View previous conversations'}</span>
-          <select value={activeThreadId ?? ''} onChange={(event) => { onThreadChange(event.target.value); }}>
-            {threadOptions.map((option) => (
-              <option key={option.id} value={option.id}>{option.label}</option>
-            ))}
-          </select>
-          <span className="chat-thread-title" aria-hidden="true">{activeThreadLabel}</span>
-        </label>
+        <button type="button" className="secondary-button secondary-button-compact composer-action-button" onClick={onStartDiscussion}>
+          {locale === 'zh' ? '讨论' : 'Discuss'}
+        </button>
 
-        <div className="cursor-chat-topbar-actions">
-          <button type="button" className="chat-icon-button" onClick={onNewThread} aria-label={locale === 'zh' ? '创建新对话' : 'Create new chat'} title={locale === 'zh' ? '创建新对话' : 'Create new chat'}>
-            ✎
-          </button>
-        </div>
+        <button type="button" className="secondary-button secondary-button-compact composer-action-button" onClick={onStartOrchestration}>
+          {locale === 'zh' ? '编排' : 'Orchestrate'}
+        </button>
+
+        <details ref={threadMenuRef} className="chat-thread-menu">
+          <summary className="chat-thread-picker">
+            <span className="chat-thread-title">{activeThreadLabel}</span>
+          </summary>
+          <div className="chat-thread-menu-popover">
+            <div className="chat-thread-menu-heading">
+              <span className="section-label">{locale === 'zh' ? '对话记录' : 'Conversation history'}</span>
+              <button type="button" className="secondary-button secondary-button-compact" onClick={() => { onNewThread(); closeThreadMenu(); }}>
+                {locale === 'zh' ? '新建' : 'New'}
+              </button>
+            </div>
+            <div className="chat-thread-option-list" role="listbox" aria-label={locale === 'zh' ? '对话记录' : 'Conversation history'}>
+              {threadOptions.length > 0 ? threadOptions.map((option) => (
+                <div key={option.id} className={`chat-thread-row ${option.id === activeThreadId ? 'is-active' : ''}`} role="option" aria-selected={option.id === activeThreadId}>
+                  <button type="button" className="chat-thread-row-main" onClick={() => { onThreadChange(option.id); closeThreadMenu(); }}>
+                    <span>{option.label}</span>
+                  </button>
+                  <details className="chat-thread-row-menu" onClick={(event) => { event.stopPropagation(); }}>
+                    <summary aria-label={locale === 'zh' ? `更多操作：${option.label}` : `More actions for ${option.label}`} title={locale === 'zh' ? '更多操作' : 'More actions'}>
+                      ⋯
+                    </summary>
+                    <div className="chat-thread-row-menu-popover">
+                      <button type="button" onClick={() => { onArchiveThread(option.id); closeThreadMenu(); }}>
+                        {locale === 'zh' ? '归档' : 'Archive'}
+                      </button>
+                      <button type="button" className="is-danger" onClick={() => { onDeleteThread(option.id); closeThreadMenu(); }}>
+                        {locale === 'zh' ? '删除' : 'Delete'}
+                      </button>
+                    </div>
+                  </details>
+                </div>
+              )) : (
+                <p className="empty-state">{locale === 'zh' ? '暂无对话记录。' : 'No conversations yet.'}</p>
+              )}
+            </div>
+          </div>
+        </details>
+
+        <button type="button" className="chat-icon-button" onClick={onNewThread} aria-label={locale === 'zh' ? '创建新对话' : 'Create new chat'} title={locale === 'zh' ? '创建新对话' : 'Create new chat'}>
+          ✎
+        </button>
+
       </div>
 
-      {errorMessage ? <div className="status-banner status-error"><p>{errorMessage}</p></div> : null}
+      {errorMessage || activeOrchestrationRun?.status === 'executing' ? (
+        <div className="cursor-chat-status-stack">
+          {errorMessage ? <div className="status-banner status-error"><p>{errorMessage}</p></div> : null}
 
-      {activeOrchestrationRun?.status === 'executing' ? (
-        <div className="status-banner status-info">
-          <p>
-            {activeOrchestrationRun.automationMode === 'discussion'
-              ? locale === 'zh'
-                ? '讨论进行中… 你仍可继续输入意见或发起新的操作。'
-                : 'Discussion in progress… you can still add guidance or start new actions.'
-              : locale === 'zh'
-                ? '编排执行中… Agent 输出会实时进入消息流。'
-                : 'Orchestration running… agent output will stream into the chat timeline.'}
-          </p>
+          {activeOrchestrationRun?.status === 'executing' ? (
+            <div className="status-banner status-info">
+              <p>
+                {activeOrchestrationRun.automationMode === 'discussion'
+                  ? locale === 'zh'
+                    ? '讨论进行中… 你仍可继续输入意见或发起新的操作。'
+                    : 'Discussion in progress… you can still add guidance or start new actions.'
+                  : locale === 'zh'
+                    ? '编排执行中… Agent 输出会实时进入消息流。'
+                    : 'Orchestration running… agent output will stream into the chat timeline.'}
+              </p>
+            </div>
+          ) : null}
         </div>
       ) : null}
 
@@ -206,6 +264,9 @@ export function ChatPanel(props: ChatPanelProps): React.JSX.Element {
           </p>
         ) : (
           messages.map((message) => (
+            (() => {
+              const shouldShowMessageMetadata = message.role !== 'user';
+              return (
             <article
               key={message.id}
               className={`chat-message is-${message.role} is-source-${message.sourceKind ?? 'none'} is-${message.messageKind ?? 'default'}`}
@@ -214,11 +275,11 @@ export function ChatPanel(props: ChatPanelProps): React.JSX.Element {
             >
               <div className="chat-message-topline">
                 <span className="status-pill">{getMessageRoleLabel(locale, message)}</span>
-                {getMessageKindLabel(locale, message) ? <span className="status-pill">{getMessageKindLabel(locale, message)}</span> : null}
-                {message.agentLabel ? <span className="status-pill">@{message.agentLabel}</span> : null}
-                {message.sourceLabel ? <span className="status-pill">{locale === 'zh' ? '经由' : 'via'} {message.sourceLabel}</span> : null}
-                {message.modelLabel ? <span className="status-pill">{message.modelLabel}</span> : null}
-                {message.discussionRound ? <span className="status-pill">{locale === 'zh' ? `第 ${message.discussionRound} 轮` : `Round ${message.discussionRound}`}</span> : null}
+                {shouldShowMessageMetadata && getMessageKindLabel(locale, message) ? <span className="status-pill">{getMessageKindLabel(locale, message)}</span> : null}
+                {shouldShowMessageMetadata && message.agentLabel ? <span className="status-pill">@{message.agentLabel}</span> : null}
+                {shouldShowMessageMetadata && message.sourceLabel ? <span className="status-pill">{locale === 'zh' ? '经由' : 'via'} {message.sourceLabel}</span> : null}
+                {shouldShowMessageMetadata && message.modelLabel ? <span className="status-pill">{message.modelLabel}</span> : null}
+                {shouldShowMessageMetadata && message.discussionRound ? <span className="status-pill">{locale === 'zh' ? `第 ${message.discussionRound} 轮` : `Round ${message.discussionRound}`}</span> : null}
                 <span className="chat-message-actions">
                   <button
                     type="button"
@@ -283,6 +344,8 @@ export function ChatPanel(props: ChatPanelProps): React.JSX.Element {
                 ))}
               </div>
             </article>
+              );
+            })()
           ))
         )}
       </div>
@@ -400,14 +463,6 @@ export function ChatPanel(props: ChatPanelProps): React.JSX.Element {
               ))}
             </select>
           </label>
-
-          <button type="button" className="secondary-button secondary-button-compact composer-action-button" onClick={onStartDiscussion}>
-            {locale === 'zh' ? '讨论' : 'Discuss'}
-          </button>
-
-          <button type="button" className="secondary-button secondary-button-compact composer-action-button" onClick={onStartOrchestration}>
-            {locale === 'zh' ? '编排' : 'Orchestrate'}
-          </button>
 
           <button type="button" className="chat-send-button cursor-send-button" disabled={!canSend || isSending} onClick={onSubmit} aria-label={isSending ? (locale === 'zh' ? '处理中' : 'Working') : locale === 'zh' ? '发送' : 'Send'}>
             {isSending ? '…' : '↑'}

@@ -335,11 +335,17 @@ export const bindContinuationToThread = (
 };
 
 export const getActiveTaskThread = (workbench: WorkbenchState): TaskThread | null => {
+  const visibleThreads = workbench.threads.filter((thread) => !thread.archivedAt);
   if (!workbench.activeThreadId) {
-    return workbench.threads[0] ?? null;
+    return visibleThreads[0] ?? workbench.threads[0] ?? null;
   }
 
-  return workbench.threads.find((thread) => thread.id === workbench.activeThreadId) ?? workbench.threads[0] ?? null;
+  const activeThread = workbench.threads.find((thread) => thread.id === workbench.activeThreadId) ?? null;
+  if (activeThread && !activeThread.archivedAt) {
+    return activeThread;
+  }
+
+  return visibleThreads[0] ?? activeThread ?? workbench.threads[0] ?? null;
 };
 
 export const getTaskThreadById = (workbench: WorkbenchState, threadId: string | null): TaskThread | null => {

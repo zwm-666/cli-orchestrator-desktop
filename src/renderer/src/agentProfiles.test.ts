@@ -65,8 +65,8 @@ describe('agent profile helpers', () => {
     const profile = createProfile({ model: 'o3-pro', modelOptions: ['o3-pro', 'opus'] });
     const adapter = createAdapter({ defaultModel: 'sonnet', supportedModels: ['sonnet', 'opus'] });
 
-    expect(resolveAgentProfileModel(profile, adapter)).toBe('sonnet');
-    expect(resolveAgentProfileModelOptions(profile, adapter)).toEqual(['sonnet', 'o3-pro', 'opus']);
+    expect(resolveAgentProfileModel(profile, adapter)).toBe('opus');
+    expect(resolveAgentProfileModelOptions(profile, adapter)).toEqual(['opus', 'sonnet', 'o3-pro']);
   });
 
   it('keeps bundled agent profile display names unique and suffix-free', () => {

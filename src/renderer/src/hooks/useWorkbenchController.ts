@@ -13,7 +13,7 @@ import { DEFAULT_WORKBENCH_STATE } from '../../../shared/domain.js';
 import { getAgentProfileDisplayName, resolveAgentProfileModel, resolveAgentProfileModelOptions } from '../../../shared/agentProfiles.js';
 import type { PromptBuilderConfig } from '../../../shared/promptBuilder.js';
 import type { AiConfig, AiProviderConfig, AiProviderDefinition } from '../aiConfig.js';
-import { getProviderDefinition } from '../aiConfig.js';
+import { getProviderDefinition, getProviderModelOptions } from '../aiConfig.js';
 import {
   buildContinuityPrompt,
   createTaskThread,
@@ -100,6 +100,9 @@ export interface UseWorkbenchControllerResult {
   handleThreadChange: (nextThreadId: string) => void;
   handleCreateThread: () => void;
   handleNewThread: () => void;
+  handleArchiveThread: (threadId?: string) => void;
+  handleDeleteThread: (threadId?: string) => void;
+  handleCancelRun: (runId: string) => Promise<void>;
   handleToggleTask: (taskId: string) => void;
   handleAddTask: () => void;
   handleSendEntry: () => Promise<void>;
@@ -163,10 +166,21 @@ const getProviderModelSource = (providerId: string, aiConfig: AiConfig): { defau
   if (!providerConfig) {
     return null;
   }
-  const providerDefinition = getProviderDefinition(providerId, providerConfig);
-  const supportedModels = [...new Set([providerConfig.default_model ?? '', ...(providerConfig.models ?? []), ...providerDefinition.modelSuggestions].map((model) => model.trim()).filter((model) => model.length > 0))];
+  const supportedModels = getProviderModelOptions(providerId, providerConfig);
   return {
     defaultModel: providerConfig.default_model?.trim() || supportedModels[0] || null,
+    supportedModels,
+  };
+};
+
+const getProviderDefinitionModelSource = (definition: AiProviderDefinition | null): { defaultModel: string | null; supportedModels: string[] } | null => {
+  if (!definition) {
+    return null;
+  }
+
+  const supportedModels = [...definition.modelSuggestions];
+  return {
+    defaultModel: supportedModels[0] ?? null,
     supportedModels,
   };
 };
@@ -194,7 +208,7 @@ export function useWorkbenchController(input: UseWorkbenchControllerInput): UseW
     [locale, persistedWorkbench],
   );
   const activeThread = useMemo(() => getActiveTaskThread(workbench), [workbench]);
-  const threadOptions = useMemo<WorkbenchOption[]>(() => workbench.threads.map((thread) => ({ id: thread.id, label: thread.title })), [workbench.threads]);
+  const threadOptions = useMemo<WorkbenchOption[]>(() => workbench.threads.filter((thread) => !thread.archivedAt).map((thread) => ({ id: thread.id, label: thread.title })), [workbench.threads]);
 
   const persistWorkbench = async (nextWorkbench: WorkbenchState): Promise<void> => {
     await onSaveWorkbenchState({
@@ -291,6 +305,22 @@ export function useWorkbenchController(input: UseWorkbenchControllerInput): UseW
   const selectedProviderConfig = selectedProviderId ? aiConfig.providers[selectedProviderId] ?? null : null;
   const selectedAdapter = availableAdapters.find((adapter) => adapter.id === selectedAdapterId) ?? null;
   const selectedAgentProfile = appState.agentProfiles.find((profile) => profile.id === selectedAgentProfileId) ?? null;
+  const selectedTargetModelSource = useMemo(() => {
+    if (selectedTargetKind === 'provider') {
+      return selectedProviderConfig && selectedProviderId
+        ? getProviderModelSource(selectedProviderId, aiConfig)
+        : getProviderDefinitionModelSource(selectedProviderDefinition);
+    }
+
+    if (!selectedAdapter) {
+      return null;
+    }
+
+    return {
+      defaultModel: selectedAdapter.defaultModel,
+      supportedModels: selectedAdapter.supportedModels,
+    };
+  }, [aiConfig, selectedAdapter, selectedProviderConfig, selectedProviderDefinition, selectedProviderId, selectedTargetKind]);
 
   const targetOptions = useMemo<ComposerTargetOption[]>(
     () => [
@@ -305,27 +335,20 @@ export function useWorkbenchController(input: UseWorkbenchControllerInput): UseW
   const targetModelOptions = useMemo(() => {
     const models = new Set<string>();
     if (selectedAgentProfile) {
-      const profileTarget = getProfileTarget(selectedAgentProfile);
-      const profileAdapter = profileTarget.kind === 'adapter' ? appState.adapters.find((adapter) => adapter.id === profileTarget.id) ?? null : null;
-      const profileProvider = profileTarget.kind === 'provider' ? getProviderModelSource(profileTarget.id, aiConfig) : null;
-      resolveAgentProfileModelOptions(selectedAgentProfile, profileAdapter ?? profileProvider).forEach((model) => {
+      resolveAgentProfileModelOptions(selectedAgentProfile, selectedTargetModelSource).forEach((model) => {
         if (model.trim()) models.add(model.trim());
       });
-    }
-    if (selectedTargetKind === 'provider') {
-      (selectedProviderDefinition?.modelSuggestions ?? []).forEach((model) => {
-        if (model.trim()) models.add(model.trim());
+    } else if (selectedTargetModelSource) {
+      const defaultModel = selectedTargetModelSource.defaultModel?.trim();
+      if (defaultModel) models.add(defaultModel);
+      selectedTargetModelSource.supportedModels.forEach((model) => {
+        const normalizedModel = model.trim();
+        if (normalizedModel) models.add(normalizedModel);
       });
-    } else {
-      (selectedAdapter?.supportedModels ?? []).forEach((model) => {
-        if (model.trim()) models.add(model.trim());
-      });
-      const defaultAdapterModel = selectedAdapter?.defaultModel?.trim();
-      if (defaultAdapterModel) models.add(defaultAdapterModel);
     }
     if (targetModel.trim()) models.add(targetModel.trim());
     return [...models];
-  }, [aiConfig, appState.adapters, selectedAdapter, selectedAgentProfile, selectedProviderDefinition, selectedTargetKind, targetModel]);
+  }, [selectedAgentProfile, selectedTargetModelSource, targetModel]);
 
   const boundSkills = useMemo(() => {
     const targetId = selectedTargetKind === 'provider' ? selectedProviderId : selectedAdapterId;
@@ -420,17 +443,32 @@ export function useWorkbenchController(input: UseWorkbenchControllerInput): UseW
       const providerId = nextTargetOptionId.replace(/^provider:/, '');
       const providerConfig = aiConfig.providers[providerId];
       const providerDefinition = providerConfig ? getProviderDefinition(providerId, providerConfig) : null;
+      const providerSource = providerConfig ? getProviderModelSource(providerId, aiConfig) : getProviderDefinitionModelSource(providerDefinition);
       setSelectedTargetKind('provider');
       setSelectedProviderId(providerId);
-      setTargetModel(providerConfig?.default_model?.trim() || providerDefinition?.modelSuggestions[0] || '');
+      setTargetModel(
+        selectedAgentProfile
+          ? resolveAgentProfileModel(selectedAgentProfile, providerSource)
+          : providerSource?.defaultModel ?? providerSource?.supportedModels[0] ?? '',
+      );
       return;
     }
 
     const adapterId = nextTargetOptionId.replace(/^adapter:/, '');
     const nextAdapter = availableAdapters.find((adapter) => adapter.id === adapterId) ?? null;
+    const adapterSource = nextAdapter
+      ? {
+          defaultModel: nextAdapter.defaultModel,
+          supportedModels: nextAdapter.supportedModels,
+        }
+      : null;
     setSelectedTargetKind('adapter');
     setSelectedAdapterId(adapterId);
-    setTargetModel(nextAdapter?.defaultModel ?? '');
+    setTargetModel(
+      selectedAgentProfile
+        ? resolveAgentProfileModel(selectedAgentProfile, adapterSource)
+        : adapterSource?.defaultModel ?? adapterSource?.supportedModels[0] ?? '',
+    );
   };
 
   const handleThreadChange = (nextThreadId: string): void => {
@@ -475,6 +513,54 @@ export function useWorkbenchController(input: UseWorkbenchControllerInput): UseW
     handleCreateThread();
   };
 
+  const handleArchiveThread = (threadIdOverride?: string): void => {
+    const threadId = threadIdOverride ?? activeThread?.id ?? null;
+    if (!threadId) {
+      return;
+    }
+
+    void queueWorkbenchPersist((currentWorkbench) => {
+      const archivedAt = new Date().toISOString();
+      const targetExists = currentWorkbench.threads.some((thread) => thread.id === threadId);
+      if (!targetExists) {
+        return currentWorkbench;
+      }
+
+      const visibleThreads = currentWorkbench.threads.filter((thread) => !thread.archivedAt && thread.id !== threadId);
+      const fallbackThread = visibleThreads[0] ?? createTaskThread({ locale, objective: currentWorkbench.objective });
+      const hasFallbackThread = currentWorkbench.threads.some((thread) => thread.id === fallbackThread.id);
+      return {
+        ...currentWorkbench,
+        activeThreadId: currentWorkbench.activeThreadId === threadId ? fallbackThread.id : currentWorkbench.activeThreadId,
+        threads: [
+          ...currentWorkbench.threads.map((thread) => (thread.id === threadId ? { ...thread, archivedAt, updatedAt: archivedAt } : thread)),
+          ...(currentWorkbench.activeThreadId === threadId && !hasFallbackThread ? [fallbackThread] : []),
+        ],
+      };
+    });
+  };
+
+  const handleDeleteThread = (threadIdOverride?: string): void => {
+    const threadId = threadIdOverride ?? activeThread?.id ?? null;
+    if (!threadId) {
+      return;
+    }
+
+    void queueWorkbenchPersist((currentWorkbench) => {
+      const remainingThreads = currentWorkbench.threads.filter((thread) => thread.id !== threadId);
+      if (remainingThreads.length === currentWorkbench.threads.length) {
+        return currentWorkbench;
+      }
+      const fallbackThread = remainingThreads.find((thread) => !thread.archivedAt) ?? createTaskThread({ locale, objective: currentWorkbench.objective });
+      const hasFallbackThread = remainingThreads.some((thread) => thread.id === fallbackThread.id);
+      return {
+        ...currentWorkbench,
+        activeThreadId: currentWorkbench.activeThreadId === threadId ? fallbackThread.id : currentWorkbench.activeThreadId,
+        threads: currentWorkbench.activeThreadId === threadId && !hasFallbackThread ? [...remainingThreads, fallbackThread] : remainingThreads,
+      };
+    });
+  };
+
   const handleOpenOrchestrationPanel = (mode: 'standard' | 'discussion', prompt?: string): void => {
     setOrchestrationMode(mode);
     setOrchestrationExecutionStyle(mode === 'discussion' ? 'sequential' : 'parallel');
@@ -503,6 +589,10 @@ export function useWorkbenchController(input: UseWorkbenchControllerInput): UseW
         : null,
     });
     setIsOrchestrationPanelOpen(false);
+  };
+
+  const handleCancelRun = async (runId: string): Promise<void> => {
+    await window.desktopApi.cancelRun({ runId });
   };
 
   const handleSendEntry = async (): Promise<void> => {
@@ -623,6 +713,9 @@ export function useWorkbenchController(input: UseWorkbenchControllerInput): UseW
     handleThreadChange,
     handleCreateThread,
     handleNewThread,
+    handleArchiveThread,
+    handleDeleteThread,
+    handleCancelRun,
     handleToggleTask: taskBoard.handleToggleTask,
     handleAddTask: taskBoard.handleAddTask,
     handleSendEntry,

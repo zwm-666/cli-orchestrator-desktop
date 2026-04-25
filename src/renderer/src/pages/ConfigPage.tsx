@@ -59,6 +59,7 @@ export function ConfigPage(props: ConfigPageProps): React.JSX.Element {
             setActiveModel={controller.setActiveModel}
             addCustomProvider={controller.addCustomProvider}
             removeCustomProvider={controller.removeCustomProvider}
+            handleFetchProviderModels={controller.handleFetchProviderModels}
             handleTestProvider={controller.handleTestProvider}
           />
 

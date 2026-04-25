@@ -41,4 +41,12 @@ describe('provider model config updates', () => {
 
     expect(next.providers.openai?.models).toEqual(['gpt-5.4', 'gpt-4.1']);
   });
+
+  it('keeps fetched provider models separate from saved models', () => {
+    const current = createConfig();
+    const next = applyProviderConfigUpdate(current, 'openai', { fetched_models: [' gpt-4.1 ', 'gpt-5.4', 'gpt-4.1'] });
+
+    expect(next.providers.openai?.models).toEqual(['gpt-5.4']);
+    expect(next.providers.openai?.fetched_models).toEqual(['gpt-4.1', 'gpt-5.4']);
+  });
 });

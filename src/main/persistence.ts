@@ -402,6 +402,7 @@ const normalizeTaskThread = (value: unknown): TaskThread | null => {
     id: value.id.trim(),
     title: typeof value.title === 'string' && value.title.trim().length > 0 ? value.title.trim() : 'Thread',
     continuation: normalizeTaskThreadContinuation(value.continuation),
+    ...(typeof value.archivedAt === 'string' && value.archivedAt.trim().length > 0 ? { archivedAt: value.archivedAt } : {}),
     messages: Array.isArray(value.messages)
       ? (value.messages as unknown[]).map(normalizeTaskThreadMessage).filter((entry): entry is TaskThreadMessage => entry !== null)
       : [],

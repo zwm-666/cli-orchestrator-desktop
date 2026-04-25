@@ -1,6 +1,6 @@
 import type { Locale } from '../../../shared/domain.js';
 import type { AiConfig, AiProviderDefinition } from '../aiConfig.js';
-import { getProviderDefinition, isProviderReady } from '../aiConfig.js';
+import { getProviderDefinition, getProviderModelOptions, isProviderReady } from '../aiConfig.js';
 
 interface ActiveProviderPanelProps {
   locale: Locale;
@@ -12,7 +12,7 @@ interface ActiveProviderPanelProps {
 
 export function ActiveProviderPanel({ locale, draftConfig, activeProviderDefinition, setActiveProvider, setActiveModel }: ActiveProviderPanelProps): React.JSX.Element {
   const activeProviderConfig = draftConfig.active_provider ? draftConfig.providers[draftConfig.active_provider] : null;
-  const modelOptions = activeProviderDefinition?.modelSuggestions ?? [];
+  const modelOptions = draftConfig.active_provider && activeProviderConfig ? getProviderModelOptions(draftConfig.active_provider, activeProviderConfig) : (activeProviderDefinition?.modelSuggestions ?? []);
 
   return (
     <div className="config-provider-summary subdued-row">
@@ -45,7 +45,7 @@ export function ActiveProviderPanel({ locale, draftConfig, activeProviderDefinit
                 setActiveModel(event.target.value);
               }}
             >
-              <option value="">{locale === 'zh' ? '选择已保存模型' : 'Choose a saved model'}</option>
+              <option value="">{locale === 'zh' ? '选择模型' : 'Choose a model'}</option>
               {modelOptions.map((model) => (
                 <option key={model} value={model}>
                   {model}

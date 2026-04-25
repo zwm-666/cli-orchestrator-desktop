@@ -19,11 +19,28 @@ export const resolveAgentProfileModelOptions = (
   profile: Pick<AgentProfile, 'model' | 'modelOptions'>,
   source: ModelSource | null | undefined,
 ): string[] => {
+  const profileModels: string[] = [];
+  (profile.modelOptions ?? []).forEach((model) => { appendUniqueModel(profileModels, model); });
+  appendUniqueModel(profileModels, profile.model);
+
+  const sourceModels: string[] = [];
+  appendUniqueModel(sourceModels, source?.defaultModel ?? null);
+  (source?.supportedModels ?? []).forEach((model) => { appendUniqueModel(sourceModels, model); });
+
+  if (sourceModels.length === 0) {
+    return profileModels;
+  }
+
+  const sourceModelSet = new Set(sourceModels);
   const options: string[] = [];
-  appendUniqueModel(options, source?.defaultModel ?? null);
-  (profile.modelOptions ?? []).forEach((model) => { appendUniqueModel(options, model); });
-  appendUniqueModel(options, profile.model);
-  (source?.supportedModels ?? []).forEach((model) => { appendUniqueModel(options, model); });
+  profileModels
+    .filter((model) => sourceModelSet.has(model))
+    .forEach((model) => { appendUniqueModel(options, model); });
+  sourceModels.forEach((model) => { appendUniqueModel(options, model); });
+  profileModels
+    .filter((model) => !sourceModelSet.has(model))
+    .forEach((model) => { appendUniqueModel(options, model); });
+
   return options;
 };
 

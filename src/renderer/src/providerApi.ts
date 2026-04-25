@@ -72,6 +72,30 @@ const extractErrorMessage = (payload: unknown): string | null => {
   return readString(errorValue.message) ?? readString(errorValue.code);
 };
 
+const normalizeGeminiModelName = (modelName: string): string => modelName.replace(/^models\//u, '').trim();
+
+const parseProviderModels = (providerId: string, config: AiProviderConfig, payload: unknown): string[] => {
+  const provider = getProviderDefinition(providerId, config);
+  const rawEntries = provider.apiStyle === 'gemini'
+    ? readArray(isRecord(payload) ? payload.models : null)
+    : readArray(isRecord(payload) ? payload.data : null);
+  const models = new Set<string>();
+
+  rawEntries.forEach((entry) => {
+    if (!isRecord(entry)) {
+      return;
+    }
+
+    const id = readString(entry.id) ?? readString(entry.name) ?? readString(entry.model);
+    const normalizedId = provider.apiStyle === 'gemini' && id ? normalizeGeminiModelName(id) : id?.trim();
+    if (normalizedId) {
+      models.add(normalizedId);
+    }
+  });
+
+  return [...models];
+};
+
 const getFailureMessage = async (response: Response): Promise<string> => {
   const responseText = await response.text();
   const parsedPayload = parseJsonText(responseText);
@@ -219,6 +243,11 @@ const performJsonRequest = async (
 };
 
 export async function testProviderConnection(providerId: string, config: AiProviderConfig): Promise<string> {
+  const models = await fetchProviderModels(providerId, config);
+  return `Connected. ${models.length} model entries returned.`;
+}
+
+export async function fetchProviderModels(providerId: string, config: AiProviderConfig): Promise<string[]> {
   const apiKey = requireConfiguredValue(config.api_key, 'API key');
   const baseUrl = requireConfiguredValue(config.base_url, 'Base URL');
   const provider = getProviderDefinition(providerId, config);
@@ -232,8 +261,7 @@ export async function testProviderConnection(providerId: string, config: AiProvi
         'x-goog-api-key': apiKey,
       },
     });
-    const modelCount = readArray(isRecord(payload) ? payload.models : null).length;
-    return `Connected. ${modelCount} model entries returned.`;
+    return parseProviderModels(providerId, config, payload);
   }
 
   const headers: Record<string, string> = { 'Content-Type': 'application/json' };
@@ -253,8 +281,7 @@ export async function testProviderConnection(providerId: string, config: AiProvi
     });
   }
 
-  const modelCount = readArray(isRecord(payload) ? payload.data : null).length;
-  return `Connected. ${modelCount} model entries returned.`;
+  return parseProviderModels(providerId, config, payload);
 }
 
 export async function sendProviderChat(
@@ -295,8 +322,9 @@ export async function sendProviderChat(
   }
 
   if (provider.apiStyle === 'gemini') {
+    const geminiModel = normalizeGeminiModelName(resolvedModel);
     const payload = await performJsonRequest(
-      resolveProviderUrl(baseUrl, `models/${encodeURIComponent(resolvedModel)}:generateContent`),
+      resolveProviderUrl(baseUrl, `models/${encodeURIComponent(geminiModel)}:generateContent`),
       {
         method: 'POST',
         headers: {

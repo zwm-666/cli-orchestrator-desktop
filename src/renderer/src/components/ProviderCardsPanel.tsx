@@ -1,14 +1,14 @@
 import { useMemo, useState } from 'react';
 import type { Locale } from '../../../shared/domain.js';
 import type { AiConfig, AiProviderConfig, AiProviderDefinition, ProviderApiStyle } from '../aiConfig.js';
-import { AI_PROVIDERS, getProviderDefinition, isCustomProviderId } from '../aiConfig.js';
+import { AI_PROVIDERS, getProviderDefinition, getProviderModelOptions, isCustomProviderId, mergeProviderModelLists } from '../aiConfig.js';
 import type { ProviderStatusMap, VisibilityMap } from '../configPageShared.js';
 import { getProviderDescription } from '../configLocalization.js';
 
 const parseModelEditorValue = (value: string): string[] => {
   const uniqueModels = new Set<string>();
   value
-    .split(/\r?\n|,/) 
+    .split(/\r?\n|,|;|；/)
     .map((entry) => entry.trim())
     .filter((entry) => entry.length > 0)
     .forEach((entry) => {
@@ -36,6 +36,7 @@ interface ProviderCardsPanelProps {
     enabled: boolean;
   }) => void;
   removeCustomProvider: (providerId: string) => void;
+  handleFetchProviderModels: (providerId: string) => Promise<void>;
   handleTestProvider: (providerId: string) => Promise<void>;
 }
 
@@ -153,13 +154,20 @@ const renderProviderModelConfig = (input: {
   locale: Locale;
   providerId: string;
   providerDefinition: AiProviderDefinition;
+  providerConfig: AiProviderConfig;
   currentModel: string;
   modelEditorValue: string;
   isActiveProvider: boolean;
+  onModelEditorChange: (value: string) => void;
+  onCommitModelEditor: (value: string) => void;
   saveConfig: (updates: Partial<AiProviderConfig>) => void;
   setActiveModel: (model: string) => void;
 }): React.JSX.Element => {
-  const { locale, providerDefinition, currentModel, modelEditorValue, isActiveProvider, saveConfig, setActiveModel } = input;
+  const { locale, providerId, providerConfig, currentModel, modelEditorValue, isActiveProvider, onModelEditorChange, onCommitModelEditor, saveConfig, setActiveModel } = input;
+  const providerModelOptions = getProviderModelOptions(providerId, providerConfig);
+  const fetchedModels = providerConfig.fetched_models ?? [];
+  const savedModelSet = new Set(parseModelEditorValue(modelEditorValue));
+  const fetchedModelsAvailableToSave = fetchedModels.filter((model) => model.trim().length > 0 && !savedModelSet.has(model.trim()));
   const setProviderModel = (model: string): void => {
     if (isActiveProvider) {
       setActiveModel(model);
@@ -168,24 +176,58 @@ const renderProviderModelConfig = (input: {
 
     saveConfig({ default_model: model });
   };
+  const saveFetchedModel = (model: string): void => {
+    onCommitModelEditor(mergeProviderModelLists(parseModelEditorValue(modelEditorValue), [model]).join('\n'));
+  };
 
   return (
     <>
-      <ProviderField label={locale === 'zh' ? '已保存模型（每行一个）' : 'Saved models (one per line)'}>
+      <ProviderField label={locale === 'zh' ? '已保存模型（换行、逗号或分号分隔）' : 'Saved models (newline, comma, or semicolon separated)'}>
         <textarea
           className="model-list-textarea"
           wrap="off"
           rows={4}
           value={modelEditorValue}
-          placeholder={locale === 'zh' ? '例如：\ngpt-4.1\ngpt-5.4' : 'For example:\ngpt-4.1\ngpt-5.4'}
+          placeholder={locale === 'zh' ? '例如：\ngpt-4.1\ngpt-5.4\n或：gpt-4.1; gpt-5.4' : 'For example:\ngpt-4.1\ngpt-5.4\nor: gpt-4.1; gpt-5.4'}
           onChange={(event) => {
-            saveConfig({ models: parseModelEditorValue(event.target.value) });
+            onModelEditorChange(event.target.value);
+          }}
+          onBlur={(event) => {
+            onCommitModelEditor(event.target.value);
           }}
         />
       </ProviderField>
 
+      {fetchedModels.length > 0 ? (
+        <div className="stack-list compact-stack-list">
+          <p className="mini-meta">
+            {locale === 'zh'
+              ? `API 已自动读取 ${fetchedModels.length} 个可用模型；点击下方模型可加入已保存模型。`
+              : `${fetchedModels.length} models fetched from the provider API; click a model below to save it.`}
+          </p>
+          {fetchedModelsAvailableToSave.length > 0 ? (
+            <div className="badge-pair model-chip-row">
+              {fetchedModelsAvailableToSave.map((model) => (
+                <button
+                  key={model}
+                  type="button"
+                  className="secondary-button secondary-button-compact"
+                  onClick={() => {
+                    saveFetchedModel(model);
+                  }}
+                >
+                  + {model}
+                </button>
+              ))}
+            </div>
+          ) : (
+            <p className="mini-meta">{locale === 'zh' ? '检测到的模型都已加入已保存模型。' : 'All fetched models are already saved.'}</p>
+          )}
+        </div>
+      ) : null}
+
       <ProviderField label={locale === 'zh' ? '当前默认模型' : 'Current default model'}>
-        {providerDefinition.modelSuggestions.length > 0 ? (
+        {providerModelOptions.length > 0 ? (
           <select
             value={currentModel}
             onChange={(event) => {
@@ -193,7 +235,7 @@ const renderProviderModelConfig = (input: {
             }}
           >
             <option value="">{locale === 'zh' ? '选择模型' : 'Choose a model'}</option>
-            {providerDefinition.modelSuggestions.map((model) => (
+            {providerModelOptions.map((model) => (
               <option key={model} value={model}>{model}</option>
             ))}
           </select>
@@ -207,9 +249,9 @@ const renderProviderModelConfig = (input: {
         />
       </ProviderField>
 
-      {providerDefinition.modelSuggestions.length > 0 ? (
+      {providerModelOptions.length > 0 ? (
         <div className="badge-pair">
-          {providerDefinition.modelSuggestions.map((model) => (
+          {providerModelOptions.slice(0, 12).map((model) => (
             <button
               key={model}
               type="button"
@@ -239,6 +281,7 @@ export function ProviderCardsPanel(props: ProviderCardsPanelProps): React.JSX.El
     setActiveModel,
     addCustomProvider,
     removeCustomProvider,
+    handleFetchProviderModels,
     handleTestProvider,
   } = props;
   const [isAddingCustomProvider, setIsAddingCustomProvider] = useState(false);
@@ -251,6 +294,7 @@ export function ProviderCardsPanel(props: ProviderCardsPanelProps): React.JSX.El
     enabled: true,
   });
   const [expandedProviderIds, setExpandedProviderIds] = useState<Set<string>>(() => new Set());
+  const [modelEditorDrafts, setModelEditorDrafts] = useState<Record<string, string>>({});
 
   const customProviderCount = useMemo(
     () => Object.keys(draftConfig.providers).filter((providerId) => isCustomProviderId(providerId)).length,
@@ -287,9 +331,18 @@ export function ProviderCardsPanel(props: ProviderCardsPanelProps): React.JSX.El
         const hasKey = providerConfig.api_key.trim().length > 0;
         const providerStateBadge = getProviderStateBadge(locale, providerStatus, hasKey);
         const currentModel = draftConfig.active_provider === providerId ? draftConfig.active_model : (providerConfig.default_model ?? '');
-        const modelEditorValue = (providerConfig.models ?? []).join('\n');
+        const savedModelEditorValue = (providerConfig.models ?? []).join('\n');
+        const modelEditorValue = modelEditorDrafts[providerId] ?? savedModelEditorValue;
         const saveConfig = (updates: Partial<AiProviderConfig>): void => {
           saveProviderConfig(providerId, updates);
+        };
+        const setModelEditorValue = (value: string): void => {
+          setModelEditorDrafts((current) => ({ ...current, [providerId]: value }));
+        };
+        const commitModelEditorValue = (value: string): void => {
+          const nextModels = parseModelEditorValue(value);
+          saveConfig({ models: nextModels });
+          setModelEditorValue(nextModels.join('\n'));
         };
         const isExpanded = expandedProviderIds.has(providerId);
         const toggleExpanded = (): void => {
@@ -338,9 +391,12 @@ export function ProviderCardsPanel(props: ProviderCardsPanelProps): React.JSX.El
                   locale,
                   providerId,
                   providerDefinition,
+                  providerConfig,
                   currentModel,
                   modelEditorValue,
                   isActiveProvider: draftConfig.active_provider === providerId,
+                  onModelEditorChange: setModelEditorValue,
+                  onCommitModelEditor: commitModelEditorValue,
                   saveConfig,
                   setActiveModel,
                 })}
@@ -375,6 +431,16 @@ export function ProviderCardsPanel(props: ProviderCardsPanelProps): React.JSX.El
                     }}
                   >
                     {locale === 'zh' ? '测试连接' : 'Test'}
+                  </button>
+
+                  <button
+                    type="button"
+                    className="secondary-button"
+                    onClick={() => {
+                      void handleFetchProviderModels(providerId);
+                    }}
+                  >
+                    {locale === 'zh' ? '刷新模型' : 'Refresh models'}
                   </button>
 
                   {isCustom ? (

@@ -12,6 +12,7 @@ import { OrchestrationProgressPanel } from '../components/OrchestrationProgressP
 import { WorkbenchActivityPanel } from '../components/WorkbenchActivityPanel.js';
 import { WorkbenchControlPanel } from '../components/WorkbenchControlPanel.js';
 import { WorkbenchSettingsDialog } from '../components/WorkbenchSettingsDialog.js';
+import { WorkbenchTerminalPanel } from '../components/WorkbenchTerminalPanel.js';
 import { WorkbenchTaskPanel } from '../components/WorkbenchTaskPanel.js';
 import { useWorkbenchController } from '../hooks/useWorkbenchController.js';
 import { resolveWorkspaceRelativePath } from '../hooks/workbenchControllerShared.js';
@@ -30,6 +31,7 @@ export function WorkPage({ locale, aiConfig, appState, promptBuilderConfig, onSa
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [leftSidebarWidth, setLeftSidebarWidth] = useState(320);
   const [rightSidebarWidth, setRightSidebarWidth] = useState(390);
+  const [isTerminalOpen, setIsTerminalOpen] = useState(false);
   const [collapsedSide, setCollapsedSide] = useState<{ left: boolean; right: boolean }>({ left: false, right: false });
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const resizingSideRef = useRef<ResizeSide>(null);
@@ -138,7 +140,7 @@ export function WorkPage({ locale, aiConfig, appState, promptBuilderConfig, onSa
 
         <div className="cursor-resizer" onMouseDown={() => { resizingSideRef.current = 'left'; }} />
 
-        <main className="cursor-main-column">
+        <main className={`cursor-main-column ${isTerminalOpen ? 'is-terminal-open' : ''}`}>
           <div className="cursor-main-toolbar section-panel inlay-card">
             <div>
               <p className="section-label">{locale === 'zh' ? '当前项目' : 'Active project'}</p>
@@ -147,6 +149,9 @@ export function WorkPage({ locale, aiConfig, appState, promptBuilderConfig, onSa
             </div>
 
             <div className="card-actions">
+              <button type="button" className={`secondary-button secondary-button-compact ${isTerminalOpen ? 'is-active' : ''}`} onClick={() => { setIsTerminalOpen((current) => !current); }}>
+                {locale === 'zh' ? '终端' : 'Terminal'}
+              </button>
               <button type="button" className="secondary-button secondary-button-compact" onClick={() => { setIsSettingsOpen(true); }}>
                 {locale === 'zh' ? '工作台设置' : 'Workbench settings'}
               </button>
@@ -161,18 +166,21 @@ export function WorkPage({ locale, aiConfig, appState, promptBuilderConfig, onSa
             errorMessage={controller.previewError}
             onSave={(content) => { void controller.saveSelectedFile(content); }}
           />
+
+          {isTerminalOpen ? (
+            <WorkbenchTerminalPanel
+              locale={locale}
+              runs={controller.activeThreadRuns}
+              onClose={() => { setIsTerminalOpen(false); }}
+              onCancelRun={(runId) => { void controller.handleCancelRun(runId); }}
+            />
+          ) : null}
         </main>
 
         <div className="cursor-resizer" onMouseDown={() => { resizingSideRef.current = 'right'; }} />
 
         {!collapsedSide.right ? (
           <aside className="cursor-sidebar cursor-sidebar-right" style={{ width: rightSidebarWidth }}>
-            <div className="cursor-sidebar-topline cursor-sidebar-topline-minimal">
-              <button type="button" className="secondary-button secondary-button-compact" onClick={() => { setCollapsedSide((current) => ({ ...current, right: true })); }}>
-                {locale === 'zh' ? '折叠右栏' : 'Hide right rail'}
-              </button>
-            </div>
-
             <ChatPanel
               locale={locale}
               messages={controller.chatMessages}
@@ -199,6 +207,9 @@ export function WorkPage({ locale, aiConfig, appState, promptBuilderConfig, onSa
               onThreadChange={controller.handleThreadChange}
               onSubmit={() => { void controller.handleSendEntry(); }}
               onNewThread={controller.handleNewThread}
+              onArchiveThread={controller.handleArchiveThread}
+              onDeleteThread={controller.handleDeleteThread}
+              onHideRightRail={() => { setCollapsedSide((current) => ({ ...current, right: true })); }}
               onStartDiscussion={() => { controller.handleOpenOrchestrationPanel('discussion'); }}
               onStartOrchestration={() => { controller.handleOpenOrchestrationPanel('standard'); }}
               onRetryMessage={(message) => {

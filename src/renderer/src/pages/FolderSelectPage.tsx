@@ -35,8 +35,8 @@ export function FolderSelectPage(props: FolderSelectPageProps): React.JSX.Elemen
             <h1>{locale === 'zh' ? '打开项目文件夹开始任务规划' : 'Open a project folder to start planning'}</h1>
             <p className="muted">
               {locale === 'zh'
-                ? '流程会从文件夹开始，然后创建任务计划，最后进入 Cursor 风格工作区。'
-                : 'The flow starts with a folder, then a task plan, then the Cursor-like workspace.'}
+                ? '流程会从文件夹开始，然后创建任务计划，最后进入本地 AI 工作区。'
+                : 'The flow starts with a folder, then a task plan, then the local AI workspace.'}
             </p>
           </div>
         </div>

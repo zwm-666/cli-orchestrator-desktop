@@ -1,7 +1,8 @@
+import { useState } from 'react';
 import type { AgentProfile, AppState, Locale, WorkbenchTargetKind } from '../../../shared/domain.js';
 import { getAgentProfileDisplayName, resolveAgentProfileModel, resolveAgentProfileModelOptions } from '../../../shared/agentProfiles.js';
 import type { AiConfig } from '../aiConfig.js';
-import { getProviderDefinition } from '../aiConfig.js';
+import { getProviderDefinition, getProviderModelOptions } from '../aiConfig.js';
 
 interface AgentProfilesConfigSectionProps {
   locale: Locale;
@@ -16,8 +17,7 @@ const getProviderModelSource = (providerId: string, aiConfig: AiConfig): { defau
   if (!providerConfig) {
     return null;
   }
-  const definition = getProviderDefinition(providerId, providerConfig);
-  const models = [...new Set([providerConfig.default_model ?? '', ...(providerConfig.models ?? []), ...definition.modelSuggestions].map((model) => model.trim()).filter((model) => model.length > 0))];
+  const models = getProviderModelOptions(providerId, providerConfig);
   return {
     defaultModel: providerConfig.default_model?.trim() || models[0] || null,
     supportedModels: models,
@@ -25,6 +25,9 @@ const getProviderModelSource = (providerId: string, aiConfig: AiConfig): { defau
 };
 
 export function AgentProfilesConfigSection({ locale, agentProfiles, adapters, aiConfig, onSaveAgentProfile }: AgentProfilesConfigSectionProps): React.JSX.Element {
+  const [modelDrafts, setModelDrafts] = useState<Record<string, string>>({});
+  const [isAgentsCollapsed, setIsAgentsCollapsed] = useState(false);
+  const [collapsedProfileIds, setCollapsedProfileIds] = useState<Set<string>>(() => new Set());
   const userFacingAdapters = adapters.filter((adapter) => adapter.visibility === 'user');
   const providerOptions = Object.entries(aiConfig.providers).map(([providerId, providerConfig]) => ({
     id: providerId,
@@ -32,18 +35,25 @@ export function AgentProfilesConfigSection({ locale, agentProfiles, adapters, ai
   }));
 
   return (
-    <section id="config-agents" className="section-panel inlay-card config-section-card">
+    <section id="config-agents" className={`section-panel inlay-card config-section-card config-section-collapsible ${isAgentsCollapsed ? 'is-collapsed' : 'is-expanded'}`}>
       <div className="section-heading workspace-pane-heading">
         <div>
           <p className="section-label">{locale === 'zh' ? 'Agent 配置' : 'Agent config'}</p>
           <h3>{locale === 'zh' ? '设置 Agent 使用的工具和模型' : 'Configure each agent tool and model'}</h3>
         </div>
-        <span className="status-pill">{agentProfiles.length}</span>
+        <div className="provider-card-heading-actions">
+          <span className="status-pill">{agentProfiles.length}</span>
+          <button type="button" className="secondary-button secondary-button-compact" onClick={() => { setIsAgentsCollapsed((current) => !current); }}>
+            {isAgentsCollapsed ? (locale === 'zh' ? '展开' : 'Expand') : locale === 'zh' ? '最小化' : 'Minimize'}
+          </button>
+        </div>
       </div>
 
-      {agentProfiles.length === 0 ? (
+      {!isAgentsCollapsed && agentProfiles.length === 0 ? (
         <p className="empty-state">{locale === 'zh' ? '还没有 Agent Profile。' : 'No agent profiles yet.'}</p>
-      ) : (
+      ) : null}
+
+      {!isAgentsCollapsed && agentProfiles.length > 0 ? (
         <div className="provider-card-grid provider-card-grid-wide">
           {agentProfiles.map((profile) => {
             const targetKind: WorkbenchTargetKind = profile.targetKind ?? 'adapter';
@@ -54,6 +64,20 @@ export function AgentProfilesConfigSection({ locale, agentProfiles, adapters, ai
             const displayName = getAgentProfileDisplayName(profile);
             const modelOptions = resolveAgentProfileModelOptions(profile, modelSource);
             const resolvedModel = resolveAgentProfileModel(profile, modelSource);
+            const savedModelOptions = profile.modelOptions ?? [];
+            const modelDraft = modelDrafts[profile.id] ?? '';
+            const isProfileCollapsed = collapsedProfileIds.has(profile.id);
+            const toggleProfileCollapsed = (): void => {
+              setCollapsedProfileIds((current) => {
+                const next = new Set(current);
+                if (next.has(profile.id)) {
+                  next.delete(profile.id);
+                } else {
+                  next.add(profile.id);
+                }
+                return next;
+              });
+            };
             const saveProfile = (updates: Partial<AgentProfile>): void => {
               onSaveAgentProfile({
                 ...profile,
@@ -66,26 +90,50 @@ export function AgentProfilesConfigSection({ locale, agentProfiles, adapters, ai
                 ...updates,
               });
             };
+            const addModelOption = (): void => {
+              const nextModel = modelDraft.trim();
+              if (!nextModel) {
+                return;
+              }
+
+              const nextModelOptions = [...new Set([...savedModelOptions, nextModel])];
+              saveProfile({ model: nextModel, modelOptions: nextModelOptions });
+              setModelDrafts((current) => ({ ...current, [profile.id]: '' }));
+            };
+            const removeModelOption = (model: string): void => {
+              const nextModelOptions = savedModelOptions.filter((entry) => entry !== model);
+              saveProfile({
+                model: resolvedModel === model ? nextModelOptions[0] ?? '' : resolvedModel,
+                modelOptions: nextModelOptions,
+              });
+            };
 
             return (
-              <article key={profile.id} id={`config-agent-${profile.id}`} className="section-panel inlay-card provider-card">
+              <article key={profile.id} id={`config-agent-${profile.id}`} className={`section-panel inlay-card provider-card provider-card-collapsible ${isProfileCollapsed ? 'is-collapsed' : 'is-expanded'}`}>
                 <div className="section-heading provider-card-heading">
                   <div>
                     <p className="section-label">{profile.role}</p>
                     <h3>{displayName}</h3>
                   </div>
-                  <label className="toggle-field provider-toggle-row">
-                    <input
-                      type="checkbox"
-                      checked={profile.enabled}
-                      onChange={(event) => {
-                        saveProfile({ enabled: event.target.checked });
-                      }}
-                    />
-                    <span>{profile.enabled ? (locale === 'zh' ? '已启用' : 'Enabled') : locale === 'zh' ? '已禁用' : 'Disabled'}</span>
-                  </label>
+                  <div className="provider-card-heading-actions">
+                    <label className="toggle-field provider-toggle-row">
+                      <input
+                        type="checkbox"
+                        checked={profile.enabled}
+                        onChange={(event) => {
+                          saveProfile({ enabled: event.target.checked });
+                        }}
+                      />
+                      <span>{profile.enabled ? (locale === 'zh' ? '已启用' : 'Enabled') : locale === 'zh' ? '已禁用' : 'Disabled'}</span>
+                    </label>
+                    <button type="button" className="secondary-button secondary-button-compact" onClick={toggleProfileCollapsed}>
+                      {isProfileCollapsed ? (locale === 'zh' ? '展开' : 'Expand') : locale === 'zh' ? '最小化' : 'Minimize'}
+                    </button>
+                  </div>
                 </div>
 
+                {!isProfileCollapsed ? (
+                  <>
                 <div className="settings-grid compact-settings-grid">
                   <label className="field">
                     <span>{locale === 'zh' ? 'Agent 目标' : 'Agent target'}</span>
@@ -141,6 +189,45 @@ export function AgentProfilesConfigSection({ locale, agentProfiles, adapters, ai
                   </label>
                 </div>
 
+                <div className="agent-model-editor">
+                  <label className="field">
+                    <span>{locale === 'zh' ? '添加 Agent 模型' : 'Add agent model'}</span>
+                    <div className="provider-secret-row">
+                      <input
+                        value={modelDraft}
+                        placeholder={locale === 'zh' ? '输入模型名后添加到该 Agent' : 'Type a model name to pin it to this agent'}
+                        onChange={(event) => {
+                          setModelDrafts((current) => ({ ...current, [profile.id]: event.target.value }));
+                        }}
+                        onKeyDown={(event) => {
+                          if (event.key === 'Enter') {
+                            event.preventDefault();
+                            addModelOption();
+                          }
+                        }}
+                      />
+                      <button type="button" className="secondary-button secondary-button-compact" onClick={addModelOption} disabled={!modelDraft.trim()}>
+                        {locale === 'zh' ? '添加' : 'Add'}
+                      </button>
+                    </div>
+                  </label>
+
+                  {savedModelOptions.length > 0 ? (
+                    <div className="badge-pair agent-model-chip-row">
+                      {savedModelOptions.map((model) => (
+                        <span key={model} className="model-chip-removable">
+                          <span>{model}</span>
+                          <button type="button" aria-label={locale === 'zh' ? `删除模型 ${model}` : `Remove model ${model}`} onClick={() => { removeModelOption(model); }}>
+                            ×
+                          </button>
+                        </span>
+                      ))}
+                    </div>
+                  ) : (
+                    <p className="mini-meta">{locale === 'zh' ? '该 Agent 暂无自定义保存模型，会使用目标 Provider/工具的可用模型。' : 'No custom models pinned to this agent yet; target provider/tool models remain available.'}</p>
+                  )}
+                </div>
+
                 <label className="field">
                   <span>{locale === 'zh' ? '系统提示词' : 'System prompt'}</span>
                   <textarea
@@ -151,11 +238,13 @@ export function AgentProfilesConfigSection({ locale, agentProfiles, adapters, ai
                     }}
                   />
                 </label>
+                  </>
+                ) : null}
               </article>
             );
           })}
         </div>
-      )}
+      ) : null}
     </section>
   );
 }

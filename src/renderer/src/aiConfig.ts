@@ -18,7 +18,10 @@ export interface AiProviderConfig {
   base_url: string;
   label?: string | undefined;
   default_model?: string | undefined;
+  /** User-pinned models. Kept as `models` for backward-compatible persistence. */
   models?: string[] | undefined;
+  /** Provider-discovered models fetched from the live API. */
+  fetched_models?: string[] | undefined;
   api_style?: ProviderApiStyle | undefined;
 }
 
@@ -167,6 +170,16 @@ export const mergeProviderModelLists = (...lists: (string[] | undefined)[]): str
   return [...merged];
 };
 
+export const getProviderModelOptions = (providerId: string, config: AiProviderConfig): string[] => {
+  const provider = AI_PROVIDERS.find((entry) => entry.id === providerId);
+  return mergeProviderModelLists(
+    config.default_model ? [config.default_model] : [],
+    config.models,
+    config.fetched_models,
+    provider ? [...provider.modelSuggestions] : [],
+  );
+};
+
 const normalizeProviderApiStyle = (value: unknown, fallback: ProviderApiStyle): ProviderApiStyle => {
   return value === 'anthropic' || value === 'gemini' || value === 'openai' ? value : fallback;
 };
@@ -185,7 +198,7 @@ export const isAiProviderId = (value: unknown): value is string => {
 
 export function getProviderDefinition(providerId: string, config?: AiProviderConfig): AiProviderDefinition {
   const provider = AI_PROVIDERS.find((entry) => entry.id === providerId);
-  const configuredModels = mergeProviderModelLists(config?.models, config?.default_model ? [config.default_model] : []);
+  const configuredModels = config ? getProviderModelOptions(providerId, config) : [];
 
   if (provider) {
     return {
@@ -211,7 +224,7 @@ export function createProviderConfig(providerId: BuiltinAiProviderId): AiProvide
     ...EMPTY_PROVIDER_CONFIG,
     base_url: definition.defaultBaseUrl,
     default_model: definition.modelSuggestions[0] ?? '',
-    models: [...definition.modelSuggestions],
+    models: [],
     api_style: definition.apiStyle,
   };
 }
@@ -238,16 +251,22 @@ function normalizeProviderConfig(value: unknown, fallback: AiProviderConfig): Ai
     normalizeProviderModelList(value.saved_models),
     normalizeProviderModelList(value.modelSuggestions),
   );
+  const fetchedModels = mergeProviderModelLists(
+    fallback.fetched_models,
+    normalizeProviderModelList(value.fetched_models),
+    normalizeProviderModelList(value.fetchedModels),
+  );
   const defaultModel = normalizeString(value.default_model, normalizeString(value.defaultModel, normalizeString(value.model, fallback.default_model ?? ''))).trim();
-  const resolvedModels = mergeProviderModelLists(models, defaultModel ? [defaultModel] : []);
+  const fallbackDefaultModel = normalizeString(fallback.default_model, '').trim();
 
   return {
     api_key: apiKey,
     enabled: normalizeBoolean(value.enabled, enabledFallback),
     base_url: baseUrl,
     label: normalizeOptionalString(value.label, fallback.label),
-    default_model: defaultModel || resolvedModels[0] || fallback.default_model,
-    models: resolvedModels,
+    default_model: defaultModel || models[0] || fallbackDefaultModel || fallback.default_model,
+    models,
+    fetched_models: fetchedModels,
     api_style: normalizeProviderApiStyle(value.api_style, normalizeProviderApiStyle(value.apiStyle, fallback.api_style ?? 'openai')),
   };
 }

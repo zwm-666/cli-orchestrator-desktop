@@ -4,15 +4,25 @@
     "name": "Sisyphus",
     "role": "master",
     "adapterId": "claude",
-    "model": "sonnet",
-    "modelOptions": ["sonnet", "opus"],
+    "model": "gpt-5.5",
+    "modelOptions": [
+      "sonnet",
+      "opus",
+      "gpt-5.5"
+    ],
     "systemPrompt": "You are Sisyphus, the master orchestrator. Decompose work, coordinate specialists, maintain momentum, and aggregate results into a coherent final output.",
     "enabledSkillIds": [],
     "enabledMcpServerIds": [],
     "maxParallelChildren": 3,
-    "retryPolicy": { "maxRetries": 1, "delayMs": 2000, "backoffMultiplier": 2 },
+    "retryPolicy": {
+      "maxRetries": 1,
+      "delayMs": 2000,
+      "backoffMultiplier": 2
+    },
     "timeoutMs": null,
-    "enabled": true
+    "enabled": true,
+    "targetKind": "adapter",
+    "targetId": "claude"
   },
   {
     "id": "prometheus",
@@ -20,12 +30,19 @@
     "role": "planner",
     "adapterId": "claude",
     "model": "sonnet",
-    "modelOptions": ["sonnet", "opus"],
+    "modelOptions": [
+      "sonnet",
+      "opus"
+    ],
     "systemPrompt": "You are Prometheus, the plan builder. Analyze requirements, reveal ambiguity, produce clear execution plans, and define verifiable success criteria.",
     "enabledSkillIds": [],
     "enabledMcpServerIds": [],
     "maxParallelChildren": 1,
-    "retryPolicy": { "maxRetries": 0, "delayMs": 2000, "backoffMultiplier": 2 },
+    "retryPolicy": {
+      "maxRetries": 0,
+      "delayMs": 2000,
+      "backoffMultiplier": 2
+    },
     "timeoutMs": null,
     "enabled": true
   },
@@ -35,14 +52,28 @@
     "role": "coder",
     "adapterId": "codex",
     "model": "gpt-5.4",
-    "modelOptions": ["gpt-5.4", "gpt-5.1", "gpt-4.1"],
+    "modelOptions": [
+      "gpt-5.3-codex",
+      "gpt-5.4",
+      "gpt-5.1"
+    ],
     "systemPrompt": "You are Hephaestus, the deep implementation worker. Write clean production code, follow project conventions, fix root causes, and verify changes thoroughly.",
-    "enabledSkillIds": ["code-implementation", "bug-debugging", "frontend-polish"],
+    "enabledSkillIds": [
+      "code-implementation",
+      "bug-debugging",
+      "frontend-polish"
+    ],
     "enabledMcpServerIds": [],
     "maxParallelChildren": 1,
-    "retryPolicy": { "maxRetries": 1, "delayMs": 3000, "backoffMultiplier": 2 },
+    "retryPolicy": {
+      "maxRetries": 1,
+      "delayMs": 3000,
+      "backoffMultiplier": 2
+    },
     "timeoutMs": null,
-    "enabled": true
+    "enabled": true,
+    "targetKind": "adapter",
+    "targetId": "codex"
   },
   {
     "id": "librarian",
@@ -50,14 +81,25 @@
     "role": "researcher",
     "adapterId": "openai",
     "model": "gpt-5.4",
-    "modelOptions": ["gpt-5.4", "gpt-5.1", "gpt-4.1"],
+    "modelOptions": [
+      "gpt-5.4",
+      "gpt-5.1"
+    ],
     "systemPrompt": "You are Librarian, the research specialist. Find authoritative codebase, documentation, and external reference context; return concise evidence-backed findings.",
-    "enabledSkillIds": ["repo-research"],
+    "enabledSkillIds": [
+      "repo-research"
+    ],
     "enabledMcpServerIds": [],
     "maxParallelChildren": 1,
-    "retryPolicy": { "maxRetries": 1, "delayMs": 2000, "backoffMultiplier": 2 },
+    "retryPolicy": {
+      "maxRetries": 1,
+      "delayMs": 2000,
+      "backoffMultiplier": 2
+    },
     "timeoutMs": null,
-    "enabled": true
+    "enabled": true,
+    "targetKind": "adapter",
+    "targetId": "openai"
   },
   {
     "id": "oracle",
@@ -65,12 +107,21 @@
     "role": "reviewer",
     "adapterId": "claude",
     "model": "opus",
-    "modelOptions": ["opus", "sonnet"],
+    "modelOptions": [
+      "opus",
+      "sonnet"
+    ],
     "systemPrompt": "You are Oracle, the high-rigor reviewer. Evaluate designs, debug hard failures, identify hidden risks, and provide precise read-only recommendations.",
-    "enabledSkillIds": ["code-review"],
+    "enabledSkillIds": [
+      "code-review"
+    ],
     "enabledMcpServerIds": [],
     "maxParallelChildren": 1,
-    "retryPolicy": { "maxRetries": 0, "delayMs": 2000, "backoffMultiplier": 2 },
+    "retryPolicy": {
+      "maxRetries": 0,
+      "delayMs": 2000,
+      "backoffMultiplier": 2
+    },
     "timeoutMs": null,
     "enabled": true
   },
@@ -80,12 +131,21 @@
     "role": "reviewer",
     "adapterId": "claude",
     "model": "sonnet",
-    "modelOptions": ["sonnet", "opus"],
+    "modelOptions": [
+      "sonnet",
+      "opus"
+    ],
     "systemPrompt": "You are Momus, the critic. Check plans and implementations for clarity, verifiability, missing context, and overconfident assumptions.",
-    "enabledSkillIds": ["code-review"],
+    "enabledSkillIds": [
+      "code-review"
+    ],
     "enabledMcpServerIds": [],
     "maxParallelChildren": 1,
-    "retryPolicy": { "maxRetries": 0, "delayMs": 2000, "backoffMultiplier": 2 },
+    "retryPolicy": {
+      "maxRetries": 0,
+      "delayMs": 2000,
+      "backoffMultiplier": 2
+    },
     "timeoutMs": null,
     "enabled": true
   },
@@ -95,12 +155,49 @@
     "role": "tester",
     "adapterId": "claude",
     "model": "sonnet",
-    "modelOptions": ["sonnet", "opus"],
+    "modelOptions": [
+      "sonnet",
+      "opus"
+    ],
     "systemPrompt": "You are Tester, the validation specialist. Design and run meaningful tests, cover edge cases, and report reproducible failures with minimal noise.",
-    "enabledSkillIds": ["test-writing"],
+    "enabledSkillIds": [
+      "test-writing"
+    ],
     "enabledMcpServerIds": [],
     "maxParallelChildren": 1,
-    "retryPolicy": { "maxRetries": 1, "delayMs": 2000, "backoffMultiplier": 2 },
+    "retryPolicy": {
+      "maxRetries": 1,
+      "delayMs": 2000,
+      "backoffMultiplier": 2
+    },
+    "timeoutMs": null,
+    "enabled": true
+  },
+  {
+    "id": "coder-claude",
+    "name": "Coder",
+    "role": "coder",
+    "targetKind": "adapter",
+    "targetId": "claude",
+    "adapterId": "claude",
+    "model": "sonnet",
+    "modelOptions": [
+      "sonnet",
+      "opus"
+    ],
+    "systemPrompt": "You are a coding agent. Write clean, production-ready code. Follow existing project conventions, include error handling, and add comments for complex logic.",
+    "enabledSkillIds": [
+      "code-implementation",
+      "bug-debugging",
+      "frontend-polish"
+    ],
+    "enabledMcpServerIds": [],
+    "maxParallelChildren": 1,
+    "retryPolicy": {
+      "maxRetries": 1,
+      "delayMs": 3000,
+      "backoffMultiplier": 2
+    },
     "timeoutMs": null,
     "enabled": true
   }

@@ -17,7 +17,7 @@ const ADAPTER_DESCRIPTIONS_ZH: Record<string, string> = {
   codex: '使用本机已安装的 Codex CLI 执行本地代码任务。',
   openai: '当本机存在可用安装时，使用 OpenAI CLI。',
   opencode: '使用本机已安装的 OpenCode CLI 执行本地代码工作流。',
-  cursor: '为 Cursor 准备手动交接内容，便于把当前工作无缝带入编辑器。',
+  cursor: '为 HelpCoder 准备使用 Codex 的手动提示，避免依赖 Cursor 自动化。',
   vscode: '为 VS Code 准备手动交接内容，便于把当前工作无缝带入编辑器。',
 };
 

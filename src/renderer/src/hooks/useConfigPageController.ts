@@ -11,9 +11,9 @@ import type {
 } from '../../../shared/domain.js';
 import { DEFAULT_WORKBENCH_STATE } from '../../../shared/domain.js';
 import type { AiConfig, AiProviderConfig, ProviderApiStyle } from '../aiConfig.js';
-import { AI_CONFIG_STORAGE_KEY, getProviderDefinition, isCustomProviderId, mergeProviderModelLists } from '../aiConfig.js';
+import { AI_CONFIG_STORAGE_KEY, getProviderDefinition, getProviderModelOptions, isCustomProviderId, mergeProviderModelLists } from '../aiConfig.js';
 import { localizeProviderRuntimeMessage } from '../providerRuntimeLocalization.js';
-import { testProviderConnection } from '../providerApi.js';
+import { fetchProviderModels } from '../providerApi.js';
 import {
   type InlineStatus,
   type ProviderStatusMap,
@@ -77,6 +77,7 @@ export interface UseConfigPageControllerResult {
   removeBinding: (bindingId: string) => void;
   toggleBindingSkill: (bindingId: string, skillId: string, enabled: boolean) => void;
   handleSave: () => Promise<void>;
+  handleFetchProviderModels: (providerId: string) => Promise<void>;
   handleTestProvider: (providerId: string) => Promise<void>;
   handleTestActiveProvider: () => Promise<void>;
   handleRefreshAdapters: () => Promise<void>;
@@ -105,8 +106,14 @@ export const applyProviderConfigUpdate = (current: AiConfig, providerId: string,
     nextProvider.models = mergeProviderModelLists(nextProvider.models);
   }
 
+  if ('fetched_models' in updates) {
+    nextProvider.fetched_models = mergeProviderModelLists(updates.fetched_models);
+  } else {
+    nextProvider.fetched_models = mergeProviderModelLists(nextProvider.fetched_models);
+  }
+
   if (typeof nextProvider.default_model === 'string' && nextProvider.default_model.trim().length === 0) {
-    nextProvider.default_model = nextProvider.models[0] ?? '';
+    nextProvider.default_model = getProviderModelOptions(providerId, nextProvider)[0] ?? '';
   }
 
   if (
@@ -227,9 +234,11 @@ export function useConfigPageController(input: UseConfigPageControllerInput): Us
       }
 
       const providerDefinition = getProviderDefinition(providerId, providerConfig);
+      const providerModels = getProviderModelOptions(providerId, providerConfig);
       const nextModel =
         (current.active_provider === providerId && current.active_model) ||
         providerConfig.default_model?.trim() ||
+        providerModels[0] ||
         providerDefinition.modelSuggestions[0] ||
         current.active_model ||
         '';
@@ -380,9 +389,16 @@ export function useConfigPageController(input: UseConfigPageControllerInput): Us
     }));
 
     try {
-      const result = await testProviderConnection(providerId, providerConfig);
+      const fetchedModels = await fetchProviderModels(providerId, providerConfig);
       const latency = Math.round(performance.now() - startedAt);
-      const message = `${localizeProviderRuntimeMessage(result, locale)} · ${latency} ms`;
+      const result = `Connected. ${fetchedModels.length} model entries returned.`;
+      const fetchedSuffix = fetchedModels.length > 0
+        ? locale === 'zh'
+          ? ` · 已读取 ${fetchedModels.length} 个模型`
+          : ` · ${fetchedModels.length} models refreshed`
+        : '';
+      const message = `${localizeProviderRuntimeMessage(result, locale)}${fetchedSuffix} · ${latency} ms`;
+      setDraftConfig((current) => applyProviderConfigUpdate(current, providerId, { fetched_models: fetchedModels }));
       setProviderStatuses((current) => ({
         ...current,
         [providerId]: { tone: 'success', message },
@@ -411,6 +427,36 @@ export function useConfigPageController(input: UseConfigPageControllerInput): Us
     }
 
     await handleTestProvider(draftConfig.active_provider);
+  };
+
+  const handleFetchProviderModels = async (providerId: string): Promise<void> => {
+    const providerConfig = draftConfig.providers[providerId];
+    if (!providerConfig) {
+      return;
+    }
+
+    setProviderStatuses((current) => ({
+      ...current,
+      [providerId]: { tone: 'loading', message: locale === 'zh' ? '正在读取模型列表…' : 'Fetching available models…' },
+    }));
+
+    try {
+      const fetchedModels = await fetchProviderModels(providerId, providerConfig);
+      setDraftConfig((current) => applyProviderConfigUpdate(current, providerId, { fetched_models: fetchedModels }));
+      setProviderStatuses((current) => ({
+        ...current,
+        [providerId]: {
+          tone: 'success',
+          message: locale === 'zh' ? `已读取 ${fetchedModels.length} 个可用模型。` : `Fetched ${fetchedModels.length} available models.`,
+        },
+      }));
+    } catch (error: unknown) {
+      const message = error instanceof Error ? localizeProviderRuntimeMessage(error.message, locale) : locale === 'zh' ? '读取模型列表失败。' : 'Failed to fetch model list.';
+      setProviderStatuses((current) => ({
+        ...current,
+        [providerId]: { tone: 'error', message },
+      }));
+    }
   };
 
   const handleSaveSkill = (skill: SkillDefinition): void => {
@@ -463,6 +509,7 @@ export function useConfigPageController(input: UseConfigPageControllerInput): Us
     removeBinding,
     toggleBindingSkill,
     handleSave,
+    handleFetchProviderModels,
     handleTestProvider,
     handleTestActiveProvider,
     handleRefreshAdapters,

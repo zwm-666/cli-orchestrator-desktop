@@ -90,7 +90,7 @@ export function FileEditor({ locale, file, isLoading, isSaving, errorMessage, on
         <div className="file-editor-shell">
           <pre className="file-editor-line-numbers" aria-hidden="true">{lineNumbers}</pre>
           <textarea
-            className="file-editor-area"
+            className="file-editor-textarea"
             value={draftContent}
             readOnly={isReadOnly || isSaving}
             spellCheck={false}
