@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { HashRouter, Navigate, Route, Routes, useLocation, useNavigate } from 'react-router-dom';
 import type { AppState, Locale, RendererContinuityState, RoutingSettings, SaveSkillInput, SelectWorkspaceFolderResult, SkillDefinition, WorkbenchState } from '../../shared/domain.js';
-import { DEFAULT_LOCAL_TOOL_REGISTRY, DEFAULT_WORKBENCH_STATE } from '../../shared/domain.js';
+import { DEFAULT_LOCAL_TOOL_REGISTRY, DEFAULT_ROUTING_SETTINGS, DEFAULT_WORKBENCH_STATE } from '../../shared/domain.js';
 import { DEFAULT_PROMPT_BUILDER_CONFIG, type PromptBuilderConfig } from '../../shared/promptBuilder.js';
 import { loadAiConfig, loadAiConfigFromPersistence, saveAiConfig, type AiConfig } from './aiConfig.js';
 import { TopNav, type ThemeName } from './components/TopNav.js';
@@ -36,22 +36,6 @@ const DEFAULT_APP_STATE: AppState = {
   orchestrationRuns: [],
   orchestrationNodes: [],
   workbench: DEFAULT_WORKBENCH_STATE,
-};
-
-const DEFAULT_ROUTING_SETTINGS: RoutingSettings = {
-  adapterSettings: {},
-  discoveryRoots: ['D:\\ai_models'],
-  customAdapters: [],
-  taskTypeRules: {
-    general: { adapterId: null, model: '' },
-    planning: { adapterId: null, model: '' },
-    code: { adapterId: null, model: '' },
-    frontend: { adapterId: null, model: '' },
-    research: { adapterId: null, model: '' },
-    git: { adapterId: null, model: '' },
-    ops: { adapterId: null, model: '' },
-  },
-  taskProfiles: [],
 };
 
 const THEME_STORAGE_KEY = 'cli-orchestrator-theme';

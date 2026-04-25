@@ -620,7 +620,7 @@ export const DEFAULT_TASK_ROUTING_PROFILES: TaskRoutingProfile[] = [
 
 export const DEFAULT_ROUTING_SETTINGS: RoutingSettings = {
   adapterSettings: {},
-  discoveryRoots: ['D:\\ai_models'],
+  discoveryRoots: [],
   customAdapters: [],
   taskTypeRules: {
     general: { adapterId: null, model: '' },

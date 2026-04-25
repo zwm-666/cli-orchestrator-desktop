@@ -158,7 +158,7 @@ const createRoutingSettings = (): RoutingSettings => {
         customCommand: '',
       },
     },
-    discoveryRoots: ['D:\\ai_models'],
+    discoveryRoots: [],
     customAdapters: [],
     taskTypeRules: {
       general: { adapterId: null, model: '' },

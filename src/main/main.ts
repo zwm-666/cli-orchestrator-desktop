@@ -70,6 +70,7 @@ const rendererHtmlPath = path.resolve(rootDir, 'dist/renderer/index.html');
 const WORKSPACE_IGNORED_NAMES = new Set(['.cli-orchestrator', '.git', 'dist', 'node_modules', 'release']);
 const WORKSPACE_PREVIEW_BYTE_LIMIT = 256 * 1024;
 const WORKSPACE_WRITE_BYTE_LIMIT = 10 * 1024 * 1024;
+const WORKSPACE_WRITE_LIMIT_LABEL = '10MB';
 
 app.setPath('userData', electronDataDir);
 app.setPath('sessionData', path.resolve(electronDataDir, 'session'));
@@ -514,7 +515,7 @@ const writeWorkspaceTextFile = async (
 
   const byteLength = Buffer.byteLength(input.content, 'utf8');
   if (byteLength > WORKSPACE_WRITE_BYTE_LIMIT) {
-    throw new Error('Workspace file writes are limited to 10 MB.');
+    throw new Error(`File too large to write (limit: ${WORKSPACE_WRITE_LIMIT_LABEL})`);
   }
 
   const absolutePath = resolveWorkspacePath(workspaceRoot, relativePath);
