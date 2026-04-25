@@ -185,6 +185,7 @@ interface TerminalSession {
   id: string;
   shell: string;
   cwd: string;
+  status: 'running' | 'stopping' | 'exited';
   process: ChildProcessWithoutNullStreams;
 }
 
@@ -247,7 +248,7 @@ const startTerminalSession = async (input: StartTerminalInput): Promise<StartTer
     windowsHide: true,
   });
 
-  const session: TerminalSession = { id: sessionId, shell, cwd, process: child };
+  const session: TerminalSession = { id: sessionId, shell, cwd, status: 'running', process: child };
   terminalSessions.set(sessionId, session);
 
   child.stdout.on('data', (chunk: Buffer) => {
@@ -263,7 +264,7 @@ const startTerminalSession = async (input: StartTerminalInput): Promise<StartTer
   });
 
   child.on('exit', (code, signal) => {
-    terminalSessions.delete(sessionId);
+    session.status = 'exited';
     broadcastTerminalEvent(createTerminalEvent(
       sessionId,
       'exit',
@@ -271,6 +272,7 @@ const startTerminalSession = async (input: StartTerminalInput): Promise<StartTer
       `\n[terminal exited${typeof code === 'number' ? ` with code ${code}` : ''}${signal ? ` by ${signal}` : ''}]\n`,
       { exitCode: code, signal },
     ));
+    terminalSessions.delete(sessionId);
   });
 
   broadcastTerminalEvent(createTerminalEvent(sessionId, 'started', 'system', `[started ${shell} in ${cwd}]\n`));
@@ -305,7 +307,7 @@ const killTerminalProcessTree = (session: TerminalSession): void => {
 
 const writeTerminalSession = (input: WriteTerminalInput): void => {
   const session = terminalSessions.get(input.sessionId);
-  if (!session) {
+  if (!session || session.status !== 'running') {
     throw new Error('Terminal session is no longer running.');
   }
 
@@ -318,7 +320,11 @@ const stopTerminalSession = (input: StopTerminalInput): void => {
     return;
   }
 
-  terminalSessions.delete(input.sessionId);
+  if (session.status !== 'running') {
+    return;
+  }
+
+  session.status = 'stopping';
   killTerminalProcessTree(session);
 };
 
@@ -800,6 +806,7 @@ void app.whenReady().then(async () => {
 
 app.on('window-all-closed', () => {
   terminalSessions.forEach((session) => {
+    session.status = 'stopping';
     killTerminalProcessTree(session);
   });
   terminalSessions.clear();
