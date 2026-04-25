@@ -68,6 +68,9 @@ export function ConfigPage(props: ConfigPageProps): React.JSX.Element {
             userFacingAdapters={controller.userFacingAdapters}
             draftRoutingSettings={controller.draftRoutingSettings}
             updateAdapterSetting={controller.updateAdapterSetting}
+            updateDiscoveryRoots={controller.updateDiscoveryRoots}
+            addCustomAdapter={controller.addCustomAdapter}
+            removeCustomAdapter={controller.removeCustomAdapter}
           />
 
           <AgentProfilesConfigSection

@@ -7,6 +7,7 @@ interface OrchestrationProgressPanelProps {
   nodes: OrchestrationNode[];
   runs: AppState['runs'];
   agentProfiles: AppState['agentProfiles'];
+  subagentStatuses: AppState['subagentStatuses'];
   onSelectRun: (runId: string | null) => void;
   onJumpToNode: (nodeId: string) => void;
 }
@@ -20,6 +21,25 @@ const STATUS_ICONS: Record<OrchestrationNode['status'], string> = {
   failed: '❌',
   skipped: '⏭️',
   cancelled: '⛔',
+};
+
+const SUBAGENT_STATUS_LABELS: Record<Locale, Record<AppState['subagentStatuses'][number]['status'], string>> = {
+  en: {
+    idle: 'Idle',
+    thinking: 'Thinking',
+    tool_calling: 'Using tools',
+    waiting: 'Waiting',
+    completed: 'Completed',
+    error: 'Error',
+  },
+  zh: {
+    idle: '空闲',
+    thinking: '思考中',
+    tool_calling: '工具调用中',
+    waiting: '等待响应',
+    completed: '已完成',
+    error: '出错',
+  },
 };
 
 const buildDepth = (node: OrchestrationNode, nodeMap: Map<string, OrchestrationNode>): number => {
@@ -70,7 +90,7 @@ const getOrderedNodes = (nodes: OrchestrationNode[]): OrchestrationNode[] => {
 };
 
 export function OrchestrationProgressPanel(props: OrchestrationProgressPanelProps): React.JSX.Element {
-  const { locale, run, nodes, runs, agentProfiles, onSelectRun, onJumpToNode } = props;
+  const { locale, run, nodes, runs, agentProfiles, subagentStatuses, onSelectRun, onJumpToNode } = props;
   const nodeMap = new Map(nodes.map((node) => [node.id, node]));
   const orderedNodes = getOrderedNodes(nodes);
 
@@ -92,6 +112,7 @@ export function OrchestrationProgressPanel(props: OrchestrationProgressPanelProp
 
           {orderedNodes.map((node) => {
             const nodeRun = node.runId ? runs.find((entry) => entry.id === node.runId) ?? null : null;
+            const subagentStatus = subagentStatuses.find((entry) => entry.runId === node.runId || entry.orchestrationNodeId === node.id) ?? null;
             const profile = node.agentProfileId ? agentProfiles.find((entry) => entry.id === node.agentProfileId) ?? null : null;
             const agentLabel = profile ? getAgentProfileDisplayName(profile) : node.agentProfileId ?? (locale === 'zh' ? '未分配 Agent' : 'Unassigned agent');
             const depth = buildDepth(node, nodeMap);
@@ -120,8 +141,10 @@ export function OrchestrationProgressPanel(props: OrchestrationProgressPanelProp
                   <div className="list-topline">
                     <strong>{STATUS_ICONS[node.status]} {agentLabel}</strong>
                     <span className="status-pill">{durationLabel}</span>
+                    {subagentStatus ? <span className={`status-pill subagent-status-pill is-${subagentStatus.status}`}>{SUBAGENT_STATUS_LABELS[locale][subagentStatus.status]}</span> : null}
                   </div>
                   <p>{node.title}</p>
+                  {subagentStatus?.detail ? <span className="mini-meta">{subagentStatus.detail}</span> : null}
                   {node.discussionRound ? <span className="mini-meta">Round {node.discussionRound}</span> : null}
                   {dependencyTitles.length > 0 ? (
                     <span className="mini-meta">

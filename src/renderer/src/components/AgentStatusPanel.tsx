@@ -7,10 +7,39 @@ interface AgentStatusPanelProps {
   locale: Locale;
   agentProfiles: AppState['agentProfiles'];
   adapters: AppState['adapters'];
+  subagentStatuses: AppState['subagentStatuses'];
   aiConfig: AiConfig;
 }
 
-export function AgentStatusPanel({ locale, agentProfiles, adapters, aiConfig }: AgentStatusPanelProps): React.JSX.Element {
+const STATUS_LABELS: Record<Locale, Record<AppState['subagentStatuses'][number]['status'], string>> = {
+  en: {
+    idle: 'Idle',
+    thinking: 'Thinking',
+    tool_calling: 'Using tools',
+    waiting: 'Waiting',
+    completed: 'Completed',
+    error: 'Error',
+  },
+  zh: {
+    idle: '空闲',
+    thinking: '思考中',
+    tool_calling: '工具调用中',
+    waiting: '等待响应',
+    completed: '已完成',
+    error: '出错',
+  },
+};
+
+const STATUS_ICONS: Record<AppState['subagentStatuses'][number]['status'], string> = {
+  idle: '○',
+  thinking: '◌',
+  tool_calling: '⚙',
+  waiting: '…',
+  completed: '✓',
+  error: '!',
+};
+
+export function AgentStatusPanel({ locale, agentProfiles, adapters, subagentStatuses, aiConfig }: AgentStatusPanelProps): React.JSX.Element {
   const visibleProfiles = agentProfiles.filter((profile) => profile.enabled);
 
   return (
@@ -41,13 +70,31 @@ export function AgentStatusPanel({ locale, agentProfiles, adapters, aiConfig }: 
             const targetLabel = targetKind === 'provider'
               ? providerConfig?.label?.trim() || (providerConfig ? getProviderDefinition(targetId, providerConfig).label : targetId)
               : adapter?.displayName ?? targetId;
+            const profileStatuses = subagentStatuses
+              .filter((entry) => entry.profileId === profile.id)
+              .sort((left, right) => right.updatedAt.localeCompare(left.updatedAt));
+            const latestStatus = profileStatuses[0] ?? null;
+            const status = latestStatus?.status ?? 'idle';
             return (
               <article key={profile.id} className="list-card">
                 <div className="list-topline">
                   <strong>{getAgentProfileDisplayName(profile)}</strong>
-                  <span className="status-pill">{profile.role}</span>
+                  <span className={`status-pill subagent-status-pill is-${status}`}>{STATUS_ICONS[status]} {STATUS_LABELS[locale][status]}</span>
                 </div>
                 <p className="mini-meta">{targetLabel} · {resolveAgentProfileModel(profile, adapter ?? providerSource)}</p>
+                <p className="mini-meta">{profile.role}</p>
+                {profileStatuses.length > 0 ? (
+                  <div className="subagent-status-list">
+                    {profileStatuses.slice(0, 3).map((entry) => (
+                      <div key={entry.id} className="subagent-status-row">
+                        <span className={`status-pill subagent-status-pill is-${entry.status}`}>{STATUS_ICONS[entry.status]} {STATUS_LABELS[locale][entry.status]}</span>
+                        <span className="mini-meta">{entry.detail}</span>
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <p className="mini-meta">{locale === 'zh' ? '当前没有运行中的子任务。' : 'No active subtask for this agent.'}</p>
+                )}
               </article>
             );
           })}

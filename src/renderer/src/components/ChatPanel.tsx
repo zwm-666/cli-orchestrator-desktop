@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { Locale, OrchestrationRun, TaskThreadMessage } from '../../../shared/domain.js';
 import type { ComposerTargetOption } from '../hooks/useWorkbenchController.js';
 import type { WorkbenchOption } from '../hooks/workbenchControllerShared.js';
@@ -46,6 +46,83 @@ interface ParsedChunk {
 }
 
 const COMMAND_OPTIONS = ['/orchestrate', '/discuss', '/clear', '/switchProvider'] as const;
+const MESSAGE_SUMMARY_LENGTH = 20;
+const MESSAGE_HIGHLIGHT_DURATION_MS = 2000;
+
+type MessageIndexRoleFilter = 'all' | 'user' | 'assistant' | 'agent';
+type MessageIndexRole = Exclude<MessageIndexRoleFilter, 'all'>;
+
+interface MessageIndexEntry {
+  anchorId: string;
+  haystack: string;
+  message: TaskThreadMessage;
+  role: MessageIndexRole;
+  sequence: number;
+  summary: string;
+}
+
+const ROLE_FILTERS: MessageIndexRoleFilter[] = ['all', 'user', 'assistant', 'agent'];
+
+const getMessageAnchorId = (index: number): string => `msg-${index + 1}`;
+
+const normalizeSearchText = (value: string): string => value.replace(/\s+/gu, ' ').trim().toLowerCase();
+
+const summarizeMessage = (content: string): string => {
+  const normalized = content.replace(/\s+/gu, ' ').trim();
+  if (!normalized) {
+    return '—';
+  }
+
+  const characters = Array.from(normalized);
+  const summary = characters.slice(0, MESSAGE_SUMMARY_LENGTH).join('');
+  return characters.length > MESSAGE_SUMMARY_LENGTH ? `${summary}…` : summary;
+};
+
+const getMessageIndexRole = (message: TaskThreadMessage): MessageIndexRole => {
+  if (message.role === 'user') {
+    return 'user';
+  }
+
+  if (
+    message.agentLabel
+    || message.sourceKind === 'adapter'
+    || message.sourceKind === 'orchestration'
+    || message.messageKind === 'orchestration_event'
+    || message.messageKind === 'orchestration_result'
+  ) {
+    return 'agent';
+  }
+
+  return 'assistant';
+};
+
+const getMessageIndexRoleLabel = (locale: Locale, role: MessageIndexRoleFilter): string => {
+  const labels: Record<Locale, Record<MessageIndexRoleFilter, string>> = {
+    en: {
+      all: 'All',
+      user: 'User',
+      assistant: 'Assistant',
+      agent: 'Agent',
+    },
+    zh: {
+      all: '全部',
+      user: '用户',
+      assistant: '助手',
+      agent: 'Agent',
+    },
+  };
+
+  return labels[locale][role];
+};
+
+const isEditableKeyboardTarget = (target: EventTarget | null): boolean => {
+  if (!(target instanceof HTMLElement)) {
+    return false;
+  }
+
+  const tagName = target.tagName.toLowerCase();
+  return target.isContentEditable || tagName === 'input' || tagName === 'textarea' || tagName === 'select';
+};
 
 const parseMessageContent = (content: string): ParsedChunk[] => {
   const pattern = /```([\w-]+)?\n([\s\S]*?)```/g;
@@ -141,6 +218,14 @@ export function ChatPanel(props: ChatPanelProps): React.JSX.Element {
   const textareaRef = inputRef;
   const fileInputRef = useRef<HTMLInputElement>(null);
   const threadMenuRef = useRef<HTMLDetailsElement>(null);
+  const jumpInputRef = useRef<HTMLInputElement>(null);
+  const highlightTimerRef = useRef<number | null>(null);
+  const [isIndexOpen, setIsIndexOpen] = useState(false);
+  const [isJumpOpen, setIsJumpOpen] = useState(false);
+  const [roleFilter, setRoleFilter] = useState<MessageIndexRoleFilter>('all');
+  const [jumpQuery, setJumpQuery] = useState('');
+  const [activeMatchIndex, setActiveMatchIndex] = useState(0);
+  const [highlightedAnchorId, setHighlightedAnchorId] = useState<string | null>(null);
 
   useEffect(() => {
     const textarea = textareaRef.current;
@@ -156,7 +241,18 @@ export function ChatPanel(props: ChatPanelProps): React.JSX.Element {
     if (threadMenuRef.current) {
       threadMenuRef.current.open = false;
     }
+    setJumpQuery('');
+    setActiveMatchIndex(0);
+    setHighlightedAnchorId(null);
   }, [activeThreadId]);
+
+  useEffect(() => {
+    return () => {
+      if (highlightTimerRef.current !== null) {
+        window.clearTimeout(highlightTimerRef.current);
+      }
+    };
+  }, []);
 
   const closeThreadMenu = (): void => {
     if (threadMenuRef.current) {
@@ -165,6 +261,149 @@ export function ChatPanel(props: ChatPanelProps): React.JSX.Element {
   };
 
   const showCommandMenu = inputValue.trimStart().startsWith('/');
+  const indexEntries = useMemo<MessageIndexEntry[]>(() => messages.map((message, index) => {
+    const sequence = index + 1;
+    const summary = summarizeMessage(message.content);
+    const role = getMessageIndexRole(message);
+    const anchorId = getMessageAnchorId(index);
+    const searchableParts = [
+      sequence.toString(),
+      `#${anchorId}`,
+      message.id,
+      summary,
+      message.content,
+      message.agentLabel ?? '',
+      message.sourceLabel ?? '',
+      message.modelLabel ?? '',
+      role,
+    ];
+
+    return {
+      anchorId,
+      haystack: normalizeSearchText(searchableParts.join(' ')),
+      message,
+      role,
+      sequence,
+      summary,
+    };
+  }), [messages]);
+  const roleFilteredEntries = useMemo(() => {
+    if (roleFilter === 'all') {
+      return indexEntries;
+    }
+
+    return indexEntries.filter((entry) => entry.role === roleFilter);
+  }, [indexEntries, roleFilter]);
+  const normalizedJumpQuery = useMemo(() => normalizeSearchText(jumpQuery), [jumpQuery]);
+  const matchedEntries = useMemo(() => {
+    if (!normalizedJumpQuery) {
+      return roleFilteredEntries;
+    }
+
+    const numericQuery = /^\d+$/u.test(normalizedJumpQuery) ? Number.parseInt(normalizedJumpQuery, 10) : null;
+    return roleFilteredEntries.filter((entry) => {
+      if (numericQuery !== null && entry.sequence === numericQuery) {
+        return true;
+      }
+
+      return entry.haystack.includes(normalizedJumpQuery);
+    });
+  }, [normalizedJumpQuery, roleFilteredEntries]);
+
+  useEffect(() => {
+    setActiveMatchIndex((current) => {
+      if (matchedEntries.length === 0) {
+        return 0;
+      }
+
+      return Math.min(current, matchedEntries.length - 1);
+    });
+  }, [matchedEntries.length]);
+
+  useEffect(() => {
+    if (!isJumpOpen) {
+      return;
+    }
+
+    const focusTimer = window.setTimeout(() => {
+      jumpInputRef.current?.focus();
+      jumpInputRef.current?.select();
+    }, 0);
+
+    return () => {
+      window.clearTimeout(focusTimer);
+    };
+  }, [isJumpOpen]);
+
+  const jumpToEntry = useCallback((entry: MessageIndexEntry | null): void => {
+    if (!entry) {
+      return;
+    }
+
+    const element = document.getElementById(entry.anchorId);
+    if (!(element instanceof HTMLElement)) {
+      return;
+    }
+
+    element.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    setHighlightedAnchorId(entry.anchorId);
+
+    if (highlightTimerRef.current !== null) {
+      window.clearTimeout(highlightTimerRef.current);
+    }
+
+    highlightTimerRef.current = window.setTimeout(() => {
+      setHighlightedAnchorId((current) => (current === entry.anchorId ? null : current));
+      highlightTimerRef.current = null;
+    }, MESSAGE_HIGHLIGHT_DURATION_MS);
+
+  }, []);
+
+  const jumpToMatchAt = useCallback((nextIndex: number): void => {
+    if (matchedEntries.length === 0) {
+      return;
+    }
+
+    const normalizedIndex = ((nextIndex % matchedEntries.length) + matchedEntries.length) % matchedEntries.length;
+    setActiveMatchIndex(normalizedIndex);
+    jumpToEntry(matchedEntries[normalizedIndex] ?? null);
+  }, [jumpToEntry, matchedEntries]);
+
+  const openJumpBox = useCallback((): void => {
+    setIsIndexOpen(true);
+    setIsJumpOpen(true);
+  }, []);
+
+  useEffect(() => {
+    const handleKeyDown = (event: KeyboardEvent): void => {
+      const isMacLike = /Mac|iPhone|iPad|iPod/u.test(navigator.userAgent);
+      const isPrimaryModifier = isMacLike ? event.metaKey : event.ctrlKey;
+
+      if (isPrimaryModifier && event.key.toLowerCase() === 'g') {
+        event.preventDefault();
+        openJumpBox();
+        return;
+      }
+
+      if (event.key === '/' && !event.altKey && !event.ctrlKey && !event.metaKey && !isEditableKeyboardTarget(event.target)) {
+        event.preventDefault();
+        setJumpQuery('');
+        openJumpBox();
+        return;
+      }
+
+      if (event.key === 'Escape' && isJumpOpen) {
+        event.preventDefault();
+        setIsJumpOpen(false);
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    return () => {
+      window.removeEventListener('keydown', handleKeyDown);
+    };
+  }, [isJumpOpen, openJumpBox]);
+
   const activeMentionQuery = useMemo(() => {
     const matched = /(?:^|\s)@([^\s]*)$/u.exec(inputValue);
     return matched?.[1]?.toLowerCase() ?? null;
@@ -235,6 +474,20 @@ export function ChatPanel(props: ChatPanelProps): React.JSX.Element {
           ✎
         </button>
 
+        <button
+          type="button"
+          className={`secondary-button secondary-button-compact chat-history-toggle ${isIndexOpen ? 'is-active' : ''}`}
+          onClick={() => {
+            setIsIndexOpen((current) => !current);
+          }}
+        >
+          {locale === 'zh' ? '索引' : 'Index'}
+        </button>
+
+        <button type="button" className="secondary-button secondary-button-compact chat-history-toggle" onClick={openJumpBox}>
+          {locale === 'zh' ? '跳转' : 'Jump'}
+        </button>
+
       </div>
 
       {errorMessage || activeOrchestrationRun?.status === 'executing' ? (
@@ -257,21 +510,135 @@ export function ChatPanel(props: ChatPanelProps): React.JSX.Element {
         </div>
       ) : null}
 
+      {isIndexOpen ? (
+        <aside className="chat-message-index-panel" aria-label={locale === 'zh' ? '消息索引' : 'Message index'}>
+          <div className="chat-message-index-heading">
+            <div>
+              <p className="section-label">{locale === 'zh' ? '当前对话索引' : 'Current chat index'}</p>
+              <h3>{locale === 'zh' ? `${matchedEntries.length} 条消息` : `${matchedEntries.length} message${matchedEntries.length === 1 ? '' : 's'}`}</h3>
+            </div>
+            <button
+              type="button"
+              className="secondary-button secondary-button-compact"
+              onClick={() => {
+                setIsIndexOpen(false);
+                setIsJumpOpen(false);
+              }}
+            >
+              {locale === 'zh' ? '关闭' : 'Close'}
+            </button>
+          </div>
+
+          <div className="message-index-role-tabs" role="group" aria-label={locale === 'zh' ? '按角色筛选' : 'Filter by role'}>
+            {ROLE_FILTERS.map((role) => (
+              <button
+                key={role}
+                type="button"
+                className={`secondary-button secondary-button-compact ${roleFilter === role ? 'is-active' : ''}`}
+                onClick={() => {
+                  setRoleFilter(role);
+                  setActiveMatchIndex(0);
+                }}
+              >
+                {getMessageIndexRoleLabel(locale, role)}
+              </button>
+            ))}
+          </div>
+
+          {isJumpOpen ? (
+            <div className="chat-jump-box" role="search">
+              <label className="field">
+                <span>{locale === 'zh' ? '输入关键词或消息序号' : 'Keyword or message number'}</span>
+                <input
+                  ref={jumpInputRef}
+                  value={jumpQuery}
+                  placeholder={locale === 'zh' ? '例如：42、错误、#msg-7' : 'e.g. 42, error, #msg-7'}
+                  onChange={(event) => {
+                    setJumpQuery(event.target.value);
+                    setActiveMatchIndex(0);
+                  }}
+                  onKeyDown={(event) => {
+                    if (event.key === 'Enter') {
+                      event.preventDefault();
+                      jumpToMatchAt(activeMatchIndex);
+                    }
+
+                    if (event.key === 'ArrowDown') {
+                      event.preventDefault();
+                      jumpToMatchAt(activeMatchIndex + 1);
+                    }
+
+                    if (event.key === 'ArrowUp') {
+                      event.preventDefault();
+                      jumpToMatchAt(activeMatchIndex - 1);
+                    }
+
+                    if (event.key === 'Escape') {
+                      event.preventDefault();
+                      setIsJumpOpen(false);
+                    }
+                  }}
+                />
+              </label>
+
+              <div className="chat-jump-actions">
+                <button type="button" className="secondary-button secondary-button-compact" disabled={matchedEntries.length === 0} onClick={() => { jumpToMatchAt(activeMatchIndex - 1); }}>
+                  {locale === 'zh' ? '↑ 上一条匹配' : '↑ Previous match'}
+                </button>
+                <button type="button" className="secondary-button secondary-button-compact" disabled={matchedEntries.length === 0} onClick={() => { jumpToMatchAt(activeMatchIndex + 1); }}>
+                  {locale === 'zh' ? '↓ 下一条匹配' : '↓ Next match'}
+                </button>
+                <span className="mini-meta">
+                  {matchedEntries.length === 0
+                    ? locale === 'zh' ? '无匹配' : 'No matches'
+                    : `${activeMatchIndex + 1}/${matchedEntries.length}`}
+                </span>
+              </div>
+            </div>
+          ) : null}
+
+          <div className="chat-message-index-list" role="listbox" aria-label={locale === 'zh' ? '当前对话消息条目' : 'Current chat messages'}>
+            {matchedEntries.length > 0 ? matchedEntries.map((entry, entryIndex) => (
+              <button
+                key={entry.message.id}
+                type="button"
+                className={`chat-message-index-item ${entryIndex === activeMatchIndex ? 'is-active' : ''}`}
+                role="option"
+                aria-selected={entryIndex === activeMatchIndex}
+                onClick={() => {
+                  setActiveMatchIndex(entryIndex);
+                  jumpToEntry(entry);
+                }}
+              >
+                <span className="chat-message-index-number">#{entry.sequence}</span>
+                <span className={`chat-message-index-role is-${entry.role}`}>{getMessageIndexRoleLabel(locale, entry.role)}</span>
+                <span className="chat-message-index-summary">{entry.summary}</span>
+              </button>
+            )) : (
+              <p className="empty-state">{locale === 'zh' ? '没有匹配当前筛选的消息。' : 'No messages match the current filters.'}</p>
+            )}
+          </div>
+        </aside>
+      ) : null}
+
       <div className="chat-thread cursor-chat-thread">
         {messages.length === 0 ? (
           <p className="empty-state tall">
             {locale === 'zh' ? '从一个问题、实现请求、讨论或编排开始。' : 'Start with a question, implementation request, discussion, or orchestration.'}
           </p>
         ) : (
-          messages.map((message) => (
+          messages.map((message, index) => (
             (() => {
               const shouldShowMessageMetadata = message.role !== 'user';
+              const anchorId = getMessageAnchorId(index);
               return (
             <article
               key={message.id}
-              className={`chat-message is-${message.role} is-source-${message.sourceKind ?? 'none'} is-${message.messageKind ?? 'default'}`}
+              id={anchorId}
+              className={`chat-message is-${message.role} is-source-${message.sourceKind ?? 'none'} is-${message.messageKind ?? 'default'} ${highlightedAnchorId === anchorId ? 'is-highlighted' : ''}`}
               data-orchestration-node-id={message.orchestrationNodeId ?? ''}
               data-message-id={message.id}
+              data-message-anchor={anchorId}
             >
               <div className="chat-message-topline">
                 <span className="status-pill">{getMessageRoleLabel(locale, message)}</span>

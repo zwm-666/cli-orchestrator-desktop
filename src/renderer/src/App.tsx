@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { HashRouter, Navigate, Route, Routes, useLocation, useNavigate } from 'react-router-dom';
 import type { AppState, Locale, RendererContinuityState, RoutingSettings, SaveSkillInput, SelectWorkspaceFolderResult, SkillDefinition, WorkbenchState } from '../../shared/domain.js';
-import { DEFAULT_WORKBENCH_STATE } from '../../shared/domain.js';
+import { DEFAULT_LOCAL_TOOL_REGISTRY, DEFAULT_WORKBENCH_STATE } from '../../shared/domain.js';
 import { DEFAULT_PROMPT_BUILDER_CONFIG, type PromptBuilderConfig } from '../../shared/promptBuilder.js';
 import { loadAiConfig, loadAiConfigFromPersistence, saveAiConfig, type AiConfig } from './aiConfig.js';
 import { TopNav, type ThemeName } from './components/TopNav.js';
@@ -25,6 +25,9 @@ const DEFAULT_APP_STATE: AppState = {
   conversations: [],
   tasks: [],
   runs: [],
+  subagentStatuses: [],
+  localToolRegistry: DEFAULT_LOCAL_TOOL_REGISTRY,
+  localToolCallLogs: [],
   projectContext: { summary: '', updatedAt: null },
   nextClaudeTask: { prompt: '', sourceOrchestrationRunId: null, generatedAt: null, status: 'idle' },
   agentProfiles: [],
@@ -37,6 +40,8 @@ const DEFAULT_APP_STATE: AppState = {
 
 const DEFAULT_ROUTING_SETTINGS: RoutingSettings = {
   adapterSettings: {},
+  discoveryRoots: ['D:\\ai_models'],
+  customAdapters: [],
   taskTypeRules: {
     general: { adapterId: null, model: '' },
     planning: { adapterId: null, model: '' },
