@@ -9,6 +9,11 @@ import type {
   BrowseWorkspaceResult,
   CancelOrchestrationInput,
   CancelRunInput,
+  CallCliAgentInput,
+  CliAgentCallResult,
+  CliAgentContext,
+  CliAgentDecision,
+  CliAgentStreamEvent,
   CategoryRunSummary,
   CreateDraftConversationInput,
   DeleteAgentProfileInput,
@@ -17,6 +22,9 @@ import type {
   GetOrchestrationRunInput,
   GetOrchestrationRunResult,
   GetNextClaudeTaskResult,
+  LocalToolCallInput,
+  LocalToolCallResult,
+  LocalToolRegistry,
   McpServerDefinition,
   PlanDraftInput,
   PlanDraftResult,
@@ -75,6 +83,11 @@ const IPC_CHANNELS = {
   terminalWrite: 'terminal:write',
   terminalStop: 'terminal:stop',
   terminalEvent: 'terminal:event',
+  refreshLocalTools: 'local-tools:refresh',
+  callLocalTool: 'local-tools:call',
+  decideCliAgentRoute: 'cli-agent:decide-route',
+  callCliAgent: 'cli-agent:call',
+  cliAgentEvent: 'cli-agent:event',
   startOrchestration: 'orchestration:start',
   cancelOrchestration: 'orchestration:cancel',
   getOrchestrationRun: 'orchestration:get-run',
@@ -149,6 +162,19 @@ const desktopApi: DesktopApi = {
     ipcRenderer.on(IPC_CHANNELS.terminalEvent, wrapped);
     return (): void => {
       ipcRenderer.removeListener(IPC_CHANNELS.terminalEvent, wrapped);
+    };
+  },
+  refreshLocalTools: (): Promise<LocalToolRegistry> => ipcRenderer.invoke(IPC_CHANNELS.refreshLocalTools),
+  callLocalTool: (input: LocalToolCallInput): Promise<LocalToolCallResult> => ipcRenderer.invoke(IPC_CHANNELS.callLocalTool, input),
+  decideCliAgentRoute: (input: { prompt: string; context?: CliAgentContext }): Promise<CliAgentDecision> => ipcRenderer.invoke(IPC_CHANNELS.decideCliAgentRoute, input),
+  callCliAgent: (input: CallCliAgentInput): Promise<CliAgentCallResult> => ipcRenderer.invoke(IPC_CHANNELS.callCliAgent, input),
+  onCliAgentEvent: (listener: (event: CliAgentStreamEvent) => void) => {
+    const wrapped = (_event: Electron.IpcRendererEvent, event: CliAgentStreamEvent): void => {
+      listener(event);
+    };
+    ipcRenderer.on(IPC_CHANNELS.cliAgentEvent, wrapped);
+    return (): void => {
+      ipcRenderer.removeListener(IPC_CHANNELS.cliAgentEvent, wrapped);
     };
   },
   startOrchestration: (input: StartOrchestrationInput) => ipcRenderer.invoke(IPC_CHANNELS.startOrchestration, input),

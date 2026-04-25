@@ -10,6 +10,7 @@ import type {
   ApplyWorkspaceFileResult,
   BrowseWorkspaceInput,
   BrowseWorkspaceResult,
+  CliAgentStreamEvent,
   GetNextClaudeTaskResult,
   ReadWorkspaceFileInput,
   ReadWorkspaceFileResult,
@@ -30,13 +31,16 @@ import {
   formatIpcErrorMessage,
   validateApplyWorkspaceFileInput,
   validateBrowseWorkspaceInput,
+  validateCallCliAgentInput,
   validateCancelOrchestrationInput,
+  validateCliAgentRouteInput,
   validateCancelRunInput,
   validateDeleteAgentProfileInput,
   validateDeleteMcpServerInput,
   validateDeleteSkillInput,
   validateDraftConversationInput,
   validateGetOrchestrationRunInput,
+  validateLocalToolCallInput,
   validateObjectInput,
   validatePlanDraftInput,
   validateProjectContextInput,
@@ -111,6 +115,9 @@ const createAppStatePatch = (previousState: import('../shared/domain.js').AppSta
     'conversations',
     'tasks',
     'runs',
+    'subagentStatuses',
+    'localToolRegistry',
+    'localToolCallLogs',
     'projectContext',
     'nextClaudeTask',
     'agentProfiles',
@@ -200,6 +207,12 @@ const createTerminalEvent = (
 const broadcastTerminalEvent = (terminalEvent: TerminalEvent): void => {
   BrowserWindow.getAllWindows().forEach((window) => {
     window.webContents.send(IPC_CHANNELS.terminalEvent, terminalEvent);
+  });
+};
+
+const broadcastCliAgentEvent = (event: CliAgentStreamEvent): void => {
+  BrowserWindow.getAllWindows().forEach((window) => {
+    window.webContents.send(IPC_CHANNELS.cliAgentEvent, event);
   });
 };
 
@@ -578,6 +591,10 @@ const registerIpc = (): void => {
     broadcastRunEvent(runEvent);
   });
 
+  orchestratorService.onCliAgentEvent((event) => {
+    broadcastCliAgentEvent(event);
+  });
+
   // --- Existing channels ---
 
   ipcMain.handle(IPC_CHANNELS.getAppState, safeNoInputHandle(() => {
@@ -668,6 +685,22 @@ const registerIpc = (): void => {
     stopTerminalSession(input);
   }));
 
+  ipcMain.handle(IPC_CHANNELS.refreshLocalTools, safeNoInputHandle(() => {
+    return orchestratorService.refreshLocalTools();
+  }));
+
+  ipcMain.handle(IPC_CHANNELS.callLocalTool, safeHandle(validateLocalToolCallInput, (input) => {
+    return orchestratorService.callLocalTool(input);
+  }));
+
+  ipcMain.handle(IPC_CHANNELS.decideCliAgentRoute, safeHandle(validateCliAgentRouteInput, (input) => {
+    return orchestratorService.decideCliAgentRoute(input.prompt, input.context);
+  }));
+
+  ipcMain.handle(IPC_CHANNELS.callCliAgent, safeHandle(validateCallCliAgentInput, (input) => {
+    return orchestratorService.callCliAgent(input);
+  }));
+
   // --- Orchestration channels ---
 
   ipcMain.handle(IPC_CHANNELS.startOrchestration, safeHandle(validateStartOrchestrationInput, (input) => {
@@ -753,6 +786,9 @@ void app.whenReady().then(async () => {
   registerIpc();
   await promptBuilderConfigService.loadConfig();
   await createMainWindow();
+  void orchestratorService.refreshLocalTools().catch((error: unknown) => {
+    console.warn('[main] Local tool registry refresh failed:', error);
+  });
 
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) {

@@ -1,6 +1,8 @@
 import type {
   BrowseWorkspaceInput,
   ApplyWorkspaceFileInput,
+  CallCliAgentInput,
+  CliAgentContext,
   CancelOrchestrationInput,
   CancelRunInput,
   CreateDraftConversationInput,
@@ -8,6 +10,7 @@ import type {
   DeleteMcpServerInput,
   DeleteSkillInput,
   GetOrchestrationRunInput,
+  LocalToolCallInput,
   PlanDraftInput,
   ReadWorkspaceFileInput,
   RendererContinuityState,
@@ -193,6 +196,106 @@ export const validateStopTerminalInput = (value: unknown): StopTerminalInput => 
   const input = assertRecord(value, 'stop terminal input');
   return {
     sessionId: assertString(input.sessionId, 'stop terminal input.sessionId'),
+  };
+};
+
+const assertOptionalStringArray = (value: unknown, label: string): string[] | undefined => {
+  if (value === undefined || value === null) {
+    return undefined;
+  }
+
+  if (!Array.isArray(value) || value.some((entry) => typeof entry !== 'string')) {
+    throw new IpcValidationError(`${label} must be a string array.`);
+  }
+
+  return value.filter((entry): entry is string => typeof entry === 'string');
+};
+
+const assertOptionalStringRecord = (value: unknown, label: string): Record<string, string> | undefined => {
+  if (value === undefined || value === null) {
+    return undefined;
+  }
+
+  const record = assertRecord(value, label);
+  return Object.fromEntries(
+    Object.entries(record).map(([key, entry]) => {
+      if (typeof entry !== 'string') {
+        throw new IpcValidationError(`${label}.${key} must be a string.`);
+      }
+
+      return [key, entry];
+    }),
+  );
+};
+
+export const validateLocalToolCallInput = (value: unknown): LocalToolCallInput => {
+  const input = assertRecord(value, 'local tool call input');
+  const args = assertOptionalStringArray(input.args, 'local tool call input.args');
+  const env = assertOptionalStringRecord(input.env, 'local tool call input.env');
+  const timeoutMs = assertOptionalNumber(input.timeoutMs, 'local tool call input.timeoutMs');
+  if (timeoutMs !== null && timeoutMs <= 0) {
+    throw new IpcValidationError('local tool call input.timeoutMs must be positive when provided.');
+  }
+
+  return {
+    toolName: assertString(input.toolName, 'local tool call input.toolName'),
+    ...(args ? { args } : {}),
+    cwd: assertOptionalString(input.cwd, 'local tool call input.cwd'),
+    stdin: assertOptionalString(input.stdin, 'local tool call input.stdin'),
+    timeoutMs,
+    ...(env ? { env } : {}),
+    profileId: assertOptionalString(input.profileId, 'local tool call input.profileId'),
+    runId: assertOptionalString(input.runId, 'local tool call input.runId'),
+    orchestrationNodeId: assertOptionalString(input.orchestrationNodeId, 'local tool call input.orchestrationNodeId'),
+  };
+};
+
+const validateCliAgentContext = (value: unknown): CliAgentContext | undefined => {
+  if (value === undefined || value === null) {
+    return undefined;
+  }
+
+  const input = assertRecord(value, 'cli agent context');
+  const taskType = input.taskType;
+  const validTaskTypes = new Set(['general', 'planning', 'code', 'frontend', 'research', 'git', 'ops']);
+  if (taskType !== undefined && taskType !== null && (typeof taskType !== 'string' || !validTaskTypes.has(taskType))) {
+    throw new IpcValidationError('cli agent context.taskType must be a valid task type.');
+  }
+  const timeoutMs = assertOptionalNumber(input.timeoutMs, 'cli agent context.timeoutMs');
+  if (timeoutMs !== null && timeoutMs <= 0) {
+    throw new IpcValidationError('cli agent context.timeoutMs must be positive when provided.');
+  }
+  const metadata = assertOptionalStringRecord(input.metadata, 'cli agent context.metadata');
+  const normalizedTaskType = typeof taskType === 'string' ? taskType as NonNullable<CliAgentContext['taskType']> : null;
+
+  return {
+    workspaceRoot: assertOptionalString(input.workspaceRoot, 'cli agent context.workspaceRoot'),
+    taskType: normalizedTaskType,
+    model: assertOptionalString(input.model, 'cli agent context.model'),
+    timeoutMs,
+    ...(metadata ? { metadata } : {}),
+  };
+};
+
+export const validateCliAgentRouteInput = (value: unknown): { prompt: string; context?: CliAgentContext } => {
+  const input = assertRecord(value, 'cli agent route input');
+  const context = validateCliAgentContext(input.context);
+  return {
+    prompt: assertString(input.prompt, 'cli agent route input.prompt'),
+    ...(context ? { context } : {}),
+  };
+};
+
+export const validateCallCliAgentInput = (value: unknown): CallCliAgentInput => {
+  const input = assertRecord(value, 'call cli agent input');
+  if (input.agent !== 'claude' && input.agent !== 'codex') {
+    throw new IpcValidationError('call cli agent input.agent must be "claude" or "codex".');
+  }
+  const context = validateCliAgentContext(input.context);
+  return {
+    agent: input.agent,
+    prompt: assertString(input.prompt, 'call cli agent input.prompt'),
+    ...(context ? { context } : {}),
   };
 };
 
