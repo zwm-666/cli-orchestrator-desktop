@@ -9,6 +9,7 @@ import { ConfigPage } from './pages/ConfigPage.js';
 import { FolderSelectPage } from './pages/FolderSelectPage.js';
 import { PlanPage } from './pages/PlanPage.js';
 import { WorkPage } from './pages/WorkPage.js';
+import { normalizeRoutingSettings } from './routingSettings.js';
 
 const DEFAULT_CONTINUITY: RendererContinuityState = {
   locale: 'en',
@@ -262,7 +263,7 @@ function RoutedAppContent(props: RoutedAppContentProps): React.JSX.Element {
 export function App(): React.JSX.Element {
   const [aiConfig, setAiConfig] = useState<AiConfig>(() => loadAiConfig());
   const [appState, setAppState] = useState(DEFAULT_APP_STATE);
-  const [routingSettings, setRoutingSettings] = useState(DEFAULT_ROUTING_SETTINGS);
+  const [routingSettings, setRoutingSettings] = useState(() => normalizeRoutingSettings(DEFAULT_ROUTING_SETTINGS));
   const [continuityState, setContinuityState] = useState(DEFAULT_CONTINUITY);
   const [promptBuilderConfig, setPromptBuilderConfig] = useState(DEFAULT_PROMPT_BUILDER_CONFIG);
   const [isBootstrapping, setIsBootstrapping] = useState(true);
@@ -294,7 +295,7 @@ export function App(): React.JSX.Element {
 
         setAiConfig(nextAiConfig);
         setAppState({ ...nextAppState, workbench: nextAppState.workbench ?? DEFAULT_WORKBENCH_STATE });
-        setRoutingSettings(nextRoutingSettings);
+        setRoutingSettings(normalizeRoutingSettings(nextRoutingSettings));
         setContinuityState(nextContinuityState);
         setPromptBuilderConfig(nextPromptBuilderConfig);
       } finally {
@@ -325,8 +326,8 @@ export function App(): React.JSX.Element {
   };
 
   const handleSaveRoutingSettings = async (nextSettings: RoutingSettings): Promise<void> => {
-    const saved = await window.desktopApi.saveRoutingSettings({ settings: nextSettings });
-    setRoutingSettings(saved);
+    const saved = await window.desktopApi.saveRoutingSettings({ settings: normalizeRoutingSettings(nextSettings) });
+    setRoutingSettings(normalizeRoutingSettings(saved));
   };
 
   const handleSaveWorkbenchState = async (nextWorkbenchState: WorkbenchState): Promise<void> => {

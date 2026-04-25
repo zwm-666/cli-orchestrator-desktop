@@ -15,6 +15,7 @@ import type { AiConfig, AiProviderConfig, ProviderApiStyle } from '../aiConfig.j
 import { AI_CONFIG_STORAGE_KEY, getProviderDefinition, getProviderModelOptions, isCustomProviderId, mergeProviderModelLists } from '../aiConfig.js';
 import { localizeProviderRuntimeMessage } from '../providerRuntimeLocalization.js';
 import { fetchProviderModels } from '../providerApi.js';
+import { normalizeRoutingSettings } from '../routingSettings.js';
 import {
   type InlineStatus,
   type ProviderStatusMap,
@@ -167,7 +168,7 @@ export const applyActiveProviderModel = (current: AiConfig, model: string): AiCo
 export function useConfigPageController(input: UseConfigPageControllerInput): UseConfigPageControllerResult {
   const { locale, aiConfig, appState, routingSettings, onSaveAiConfig, onSaveRoutingSettings, onSaveWorkbenchState, onSaveSkill } = input;
   const [draftConfig, setDraftConfig] = useState(aiConfig);
-  const [draftRoutingSettings, setDraftRoutingSettings] = useState(routingSettings);
+  const [draftRoutingSettings, setDraftRoutingSettings] = useState(() => normalizeRoutingSettings(routingSettings));
   const [draftWorkbench, setDraftWorkbench] = useState(appState.workbench ?? DEFAULT_WORKBENCH_STATE);
   const [saveStatus, setSaveStatus] = useState<InlineStatus | null>(null);
   const [testStatus, setTestStatus] = useState<InlineStatus | null>(null);
@@ -180,7 +181,7 @@ export function useConfigPageController(input: UseConfigPageControllerInput): Us
   }, [aiConfig]);
 
   useEffect(() => {
-    setDraftRoutingSettings(routingSettings);
+    setDraftRoutingSettings(normalizeRoutingSettings(routingSettings));
   }, [routingSettings]);
 
   useEffect(() => {
