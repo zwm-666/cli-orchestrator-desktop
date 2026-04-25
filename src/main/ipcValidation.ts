@@ -15,6 +15,9 @@ import type {
   SaveWorkbenchStateInput,
   StartOrchestrationInput,
   StartRunInput,
+  StartTerminalInput,
+  StopTerminalInput,
+  WriteTerminalInput,
   UpdateRoutingSettingsInput,
   WriteWorkspaceFileInput,
 } from '../shared/domain.js';
@@ -164,6 +167,33 @@ export const validateRecentRunsInput = (value: unknown): { taskType: string; lim
   const taskType = assertString(input.taskType, 'recent runs input.taskType');
   const limit = input.limit === undefined ? undefined : assertOptionalNumber(input.limit, 'recent runs input.limit') ?? undefined;
   return { taskType, ...(limit !== undefined ? { limit } : {}) };
+};
+
+export const validateStartTerminalInput = (value: unknown): StartTerminalInput => {
+  const input = value === undefined ? {} : assertRecord(value, 'start terminal input');
+  return {
+    cwd: assertOptionalString(input.cwd, 'start terminal input.cwd'),
+  };
+};
+
+export const validateWriteTerminalInput = (value: unknown): WriteTerminalInput => {
+  const input = assertRecord(value, 'write terminal input');
+  const data = assertString(input.data, 'write terminal input.data');
+  if (data.length > 64 * 1024) {
+    throw new IpcValidationError('write terminal input.data must be at most 64KB.');
+  }
+
+  return {
+    sessionId: assertString(input.sessionId, 'write terminal input.sessionId'),
+    data,
+  };
+};
+
+export const validateStopTerminalInput = (value: unknown): StopTerminalInput => {
+  const input = assertRecord(value, 'stop terminal input');
+  return {
+    sessionId: assertString(input.sessionId, 'stop terminal input.sessionId'),
+  };
 };
 
 export const validateStartOrchestrationInput = (value: unknown): StartOrchestrationInput => {

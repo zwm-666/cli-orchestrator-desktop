@@ -1,4 +1,7 @@
 import { mkdir, open, readFile, readdir, stat, writeFile } from 'node:fs/promises';
+import { spawn } from 'node:child_process';
+import type { ChildProcessWithoutNullStreams } from 'node:child_process';
+import { randomUUID } from 'node:crypto';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { app, BrowserWindow, dialog, ipcMain } from 'electron';
@@ -14,6 +17,11 @@ import type {
   SaveAgentProfileInput,
   SaveMcpServerInput,
   SaveSkillInput,
+  StartTerminalInput,
+  StartTerminalResult,
+  StopTerminalInput,
+  TerminalEvent,
+  WriteTerminalInput,
   WriteWorkspaceFileInput,
   WriteWorkspaceFileResult,
 } from '../shared/domain.js';
@@ -40,6 +48,9 @@ import {
   validateSaveContinuityStateInput,
   validateStartOrchestrationInput,
   validateStartRunInput,
+  validateStartTerminalInput,
+  validateStopTerminalInput,
+  validateWriteTerminalInput,
   validateWorkbenchStateInput,
   validateWriteWorkspaceFileInput,
 } from './ipcValidation.js';
@@ -160,6 +171,141 @@ const broadcastRunEvent = (runEvent: import('../shared/domain.js').RunEvent): vo
   BrowserWindow.getAllWindows().forEach((window) => {
     window.webContents.send(IPC_CHANNELS.runEvent, runEvent);
   });
+};
+
+interface TerminalSession {
+  id: string;
+  shell: string;
+  cwd: string;
+  process: ChildProcessWithoutNullStreams;
+}
+
+const terminalSessions = new Map<string, TerminalSession>();
+
+const createTerminalEvent = (
+  sessionId: string,
+  kind: TerminalEvent['kind'],
+  stream: TerminalEvent['stream'],
+  data: string,
+  exitDetails: Pick<TerminalEvent, 'exitCode' | 'signal'> = {},
+): TerminalEvent => ({
+  sessionId,
+  kind,
+  stream,
+  data,
+  timestamp: new Date().toISOString(),
+  ...exitDetails,
+});
+
+const broadcastTerminalEvent = (terminalEvent: TerminalEvent): void => {
+  BrowserWindow.getAllWindows().forEach((window) => {
+    window.webContents.send(IPC_CHANNELS.terminalEvent, terminalEvent);
+  });
+};
+
+const resolveTerminalShell = (): { shell: string; args: string[] } => {
+  if (process.platform === 'win32') {
+    return { shell: 'powershell.exe', args: ['-NoLogo', '-NoExit'] };
+  }
+
+  return { shell: process.env.SHELL || '/bin/sh', args: ['-i'] };
+};
+
+const resolveTerminalCwd = async (cwd: string | null | undefined): Promise<string> => {
+  const candidate = cwd?.trim() ? path.resolve(cwd) : rootDir;
+  const candidateStat = await stat(candidate);
+  if (!candidateStat.isDirectory()) {
+    throw new Error('Terminal working directory must be a directory.');
+  }
+
+  return candidate;
+};
+
+const startTerminalSession = async (input: StartTerminalInput): Promise<StartTerminalResult> => {
+  const cwd = await resolveTerminalCwd(input.cwd);
+  const { shell, args } = resolveTerminalShell();
+  const sessionId = `terminal-${Date.now()}-${randomUUID()}`;
+  const child = spawn(shell, args, {
+    cwd,
+    env: process.env,
+    detached: process.platform !== 'win32',
+    shell: false,
+    windowsHide: true,
+  });
+
+  const session: TerminalSession = { id: sessionId, shell, cwd, process: child };
+  terminalSessions.set(sessionId, session);
+
+  child.stdout.on('data', (chunk: Buffer) => {
+    broadcastTerminalEvent(createTerminalEvent(sessionId, 'output', 'stdout', chunk.toString('utf8')));
+  });
+
+  child.stderr.on('data', (chunk: Buffer) => {
+    broadcastTerminalEvent(createTerminalEvent(sessionId, 'output', 'stderr', chunk.toString('utf8')));
+  });
+
+  child.on('error', (error) => {
+    broadcastTerminalEvent(createTerminalEvent(sessionId, 'error', 'system', error.message));
+  });
+
+  child.on('exit', (code, signal) => {
+    terminalSessions.delete(sessionId);
+    broadcastTerminalEvent(createTerminalEvent(
+      sessionId,
+      'exit',
+      'system',
+      `\n[terminal exited${typeof code === 'number' ? ` with code ${code}` : ''}${signal ? ` by ${signal}` : ''}]\n`,
+      { exitCode: code, signal },
+    ));
+  });
+
+  broadcastTerminalEvent(createTerminalEvent(sessionId, 'started', 'system', `[started ${shell} in ${cwd}]\n`));
+
+  return { sessionId, shell, cwd };
+};
+
+const killTerminalProcessTree = (session: TerminalSession): void => {
+  const pid = session.process.pid;
+  if (typeof pid !== 'number') {
+    session.process.kill();
+    return;
+  }
+
+  if (process.platform === 'win32') {
+    const taskkill = spawn('taskkill.exe', ['/PID', String(pid), '/T', '/F'], {
+      windowsHide: true,
+      stdio: 'ignore',
+    });
+    taskkill.on('error', () => {
+      session.process.kill();
+    });
+    return;
+  }
+
+  try {
+    process.kill(-pid, 'SIGTERM');
+  } catch {
+    session.process.kill();
+  }
+};
+
+const writeTerminalSession = (input: WriteTerminalInput): void => {
+  const session = terminalSessions.get(input.sessionId);
+  if (!session) {
+    throw new Error('Terminal session is no longer running.');
+  }
+
+  session.process.stdin.write(input.data);
+};
+
+const stopTerminalSession = (input: StopTerminalInput): void => {
+  const session = terminalSessions.get(input.sessionId);
+  if (!session) {
+    return;
+  }
+
+  terminalSessions.delete(input.sessionId);
+  killTerminalProcessTree(session);
 };
 
 const normalizeWorkspaceRelativePath = (relativePath: string | null | undefined): string => {
@@ -510,6 +656,18 @@ const registerIpc = (): void => {
     return orchestratorService.getRecentRunsByCategory(input.taskType, input.limit);
   }));
 
+  ipcMain.handle(IPC_CHANNELS.terminalStart, safeHandle(validateStartTerminalInput, (input) => {
+    return startTerminalSession(input);
+  }));
+
+  ipcMain.handle(IPC_CHANNELS.terminalWrite, safeHandle(validateWriteTerminalInput, (input) => {
+    writeTerminalSession(input);
+  }));
+
+  ipcMain.handle(IPC_CHANNELS.terminalStop, safeHandle(validateStopTerminalInput, (input) => {
+    stopTerminalSession(input);
+  }));
+
   // --- Orchestration channels ---
 
   ipcMain.handle(IPC_CHANNELS.startOrchestration, safeHandle(validateStartOrchestrationInput, (input) => {
@@ -604,6 +762,11 @@ void app.whenReady().then(async () => {
 });
 
 app.on('window-all-closed', () => {
+  terminalSessions.forEach((session) => {
+    killTerminalProcessTree(session);
+  });
+  terminalSessions.clear();
+
   if (process.platform !== 'darwin') {
     app.quit();
   }

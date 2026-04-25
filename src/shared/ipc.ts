@@ -38,8 +38,13 @@ import type {
   StartOrchestrationResult,
   StartRunInput,
   StartRunResult,
+  StartTerminalInput,
+  StartTerminalResult,
+  StopTerminalInput,
   TaskType,
+  TerminalEvent,
   UpdateRoutingSettingsInput,
+  WriteTerminalInput,
   WriteWorkspaceFileInput,
   WriteWorkspaceFileResult,
 } from './domain.js';
@@ -72,6 +77,10 @@ export const IPC_CHANNELS = {
   getRecentRunsByCategory: 'run:recent-by-category',
   appStateUpdated: 'app:state-updated',
   runEvent: 'run:event',
+  terminalStart: 'terminal:start',
+  terminalWrite: 'terminal:write',
+  terminalStop: 'terminal:stop',
+  terminalEvent: 'terminal:event',
 
   // Orchestration channels
   startOrchestration: 'orchestration:start',
@@ -123,6 +132,10 @@ export interface DesktopApi {
   getRecentRunsByCategory: (input: { taskType: TaskType; limit?: number }) => Promise<CategoryRunSummary>;
   onAppStateChanged: (listener: (statePatch: Partial<AppState>) => void) => () => void;
   onRunEvent: (listener: (event: RunEvent) => void) => () => void;
+  startTerminal: (input: StartTerminalInput) => Promise<StartTerminalResult>;
+  writeTerminal: (input: WriteTerminalInput) => Promise<void>;
+  stopTerminal: (input: StopTerminalInput) => Promise<void>;
+  onTerminalEvent: (listener: (event: TerminalEvent) => void) => () => void;
 
   // Orchestration methods
   startOrchestration: (input: StartOrchestrationInput) => Promise<StartOrchestrationResult>;
@@ -171,6 +184,9 @@ export interface IpcRequestMap {
   [IPC_CHANNELS.startRun]: StartRunInput;
   [IPC_CHANNELS.cancelRun]: CancelRunInput;
   [IPC_CHANNELS.getRecentRunsByCategory]: { taskType: TaskType; limit?: number };
+  [IPC_CHANNELS.terminalStart]: StartTerminalInput;
+  [IPC_CHANNELS.terminalWrite]: WriteTerminalInput;
+  [IPC_CHANNELS.terminalStop]: StopTerminalInput;
 
   // Orchestration
   [IPC_CHANNELS.startOrchestration]: StartOrchestrationInput;
@@ -219,6 +235,9 @@ export interface IpcResponseMap {
   [IPC_CHANNELS.startRun]: StartRunResult;
   [IPC_CHANNELS.cancelRun]: CancelRunResult;
   [IPC_CHANNELS.getRecentRunsByCategory]: CategoryRunSummary;
+  [IPC_CHANNELS.terminalStart]: StartTerminalResult;
+  [IPC_CHANNELS.terminalWrite]: undefined;
+  [IPC_CHANNELS.terminalStop]: undefined;
 
   // Orchestration
   [IPC_CHANNELS.startOrchestration]: StartOrchestrationResult;

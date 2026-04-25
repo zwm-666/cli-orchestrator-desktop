@@ -35,8 +35,13 @@ import type {
   SkillDefinition,
   StartOrchestrationInput,
   StartRunInput,
+  StartTerminalInput,
+  StartTerminalResult,
+  StopTerminalInput,
   TaskType,
+  TerminalEvent,
   UpdateRoutingSettingsInput,
+  WriteTerminalInput,
   WriteWorkspaceFileInput,
   WriteWorkspaceFileResult,
 } from '../shared/domain.js';
@@ -66,6 +71,10 @@ const IPC_CHANNELS = {
   getRecentRunsByCategory: 'run:recent-by-category',
   appStateUpdated: 'app:state-updated',
   runEvent: 'run:event',
+  terminalStart: 'terminal:start',
+  terminalWrite: 'terminal:write',
+  terminalStop: 'terminal:stop',
+  terminalEvent: 'terminal:event',
   startOrchestration: 'orchestration:start',
   cancelOrchestration: 'orchestration:cancel',
   getOrchestrationRun: 'orchestration:get-run',
@@ -128,6 +137,18 @@ const desktopApi: DesktopApi = {
     ipcRenderer.on(IPC_CHANNELS.runEvent, wrapped);
     return (): void => {
       ipcRenderer.removeListener(IPC_CHANNELS.runEvent, wrapped);
+    };
+  },
+  startTerminal: (input: StartTerminalInput): Promise<StartTerminalResult> => ipcRenderer.invoke(IPC_CHANNELS.terminalStart, input),
+  writeTerminal: (input: WriteTerminalInput): Promise<void> => ipcRenderer.invoke(IPC_CHANNELS.terminalWrite, input),
+  stopTerminal: (input: StopTerminalInput): Promise<void> => ipcRenderer.invoke(IPC_CHANNELS.terminalStop, input),
+  onTerminalEvent: (listener: (event: TerminalEvent) => void) => {
+    const wrapped = (_event: Electron.IpcRendererEvent, event: TerminalEvent): void => {
+      listener(event);
+    };
+    ipcRenderer.on(IPC_CHANNELS.terminalEvent, wrapped);
+    return (): void => {
+      ipcRenderer.removeListener(IPC_CHANNELS.terminalEvent, wrapped);
     };
   },
   startOrchestration: (input: StartOrchestrationInput) => ipcRenderer.invoke(IPC_CHANNELS.startOrchestration, input),
