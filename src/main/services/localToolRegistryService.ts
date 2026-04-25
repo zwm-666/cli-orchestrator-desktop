@@ -391,15 +391,17 @@ export class LocalToolRegistryService {
   }
 
   private async scanHostPathTools(): Promise<ExecutableCandidate[]> {
-    const directories = [...new Set((process.env.PATH ?? '').split(path.delimiter).map(normalizeDirectoryEntry).filter((entry) => entry.length > 0))];
     const source: LocalToolSource = process.platform === 'win32' ? 'windows_path' : 'posix_path';
-    const candidateGroups = await Promise.all(directories.map((directory) => this.scanDirectory(directory, source)));
-    return candidateGroups.flat();
+    return this.scanDirectoriesBySource((process.env.PATH ?? '').split(path.delimiter), source);
   }
 
   private async scanCustomRootTools(discoveryRoots: string[]): Promise<ExecutableCandidate[]> {
-    const directories = [...new Set(discoveryRoots.map(normalizeDirectoryEntry).filter((entry) => entry.length > 0))];
-    const candidateGroups = await Promise.all(directories.map((directory) => this.scanDirectory(directory, 'custom_root')));
+    return this.scanDirectoriesBySource(discoveryRoots, 'custom_root');
+  }
+
+  private async scanDirectoriesBySource(rawDirectories: string[], source: LocalToolSource): Promise<ExecutableCandidate[]> {
+    const directories = [...new Set(rawDirectories.map(normalizeDirectoryEntry).filter((entry) => entry.length > 0))];
+    const candidateGroups = await Promise.all(directories.map((directory) => this.scanDirectory(directory, source)));
     return candidateGroups.flat();
   }
 
@@ -461,52 +463,25 @@ export class LocalToolRegistryService {
 
   private async scanWslTarget(distro: string | null): Promise<ExecutableCandidate[]> {
     const knownCandidates = await this.scanKnownWslTools(distro);
-    const pathCandidates = await new Promise<ExecutableCandidate[]>((resolve) => {
-      const child = spawn('wsl.exe', [...(distro ? ['-d', distro] : []), '--', 'sh', '-lc', WSL_SCAN_SCRIPT], {
-        cwd: this.rootDir,
-        env: process.env,
-        windowsHide: true,
-        stdio: ['ignore', 'pipe', 'ignore'],
-      });
-      let output = '';
-      const timeout = setTimeout(() => {
-        child.kill();
-      }, WSL_SCAN_TIMEOUT_MS);
-
-      child.stdout.on('data', (chunk: Buffer) => {
-        if (output.length < WSL_SCAN_MAX_BUFFER) {
-          output += chunk.toString('utf8');
+    const output = await this.executeWslCommand(distro, WSL_SCAN_SCRIPT);
+    const pathCandidates = output
+      .split(/\r?\n/u)
+      .map((line): ExecutableCandidate | null => {
+        const [name, executablePath] = line.split('\t');
+        if (!name || !executablePath) {
+          return null;
         }
-      });
 
-      child.on('error', () => {
-        clearTimeout(timeout);
-        resolve([]);
-      });
-
-      child.on('close', () => {
-        clearTimeout(timeout);
-        const candidates = output
-          .split(/\r?\n/u)
-          .map((line): ExecutableCandidate | null => {
-            const [name, executablePath] = line.split('\t');
-            if (!name || !executablePath) {
-              return null;
-            }
-
-            return {
-              name,
-              command: executablePath,
-              executablePath,
-              source: 'wsl_path',
-              wslDistro: distro,
-              capabilities: deriveCapabilities(name),
-            };
-          })
-          .filter((candidate): candidate is ExecutableCandidate => candidate !== null);
-        resolve(candidates);
-      });
-    });
+        return {
+          name,
+          command: executablePath,
+          executablePath,
+          source: 'wsl_path',
+          wslDistro: distro,
+          capabilities: deriveCapabilities(name),
+        };
+      })
+      .filter((candidate): candidate is ExecutableCandidate => candidate !== null);
 
     return [...knownCandidates, ...pathCandidates];
   }
@@ -517,79 +492,70 @@ export class LocalToolRegistryService {
   }
 
   private async resolveKnownWslTool(distro: string | null, toolName: string): Promise<ExecutableCandidate | null> {
-    return new Promise((resolve) => {
-      const child = spawn('wsl.exe', [...(distro ? ['-d', distro] : []), '--', 'sh', '-lc', `command -v ${toolName}`], {
-        cwd: this.rootDir,
-        env: process.env,
-        windowsHide: true,
-        stdio: ['ignore', 'pipe', 'ignore'],
-      });
-      let output = '';
-      const timeout = setTimeout(() => {
-        child.kill();
-      }, WSL_SCAN_TIMEOUT_MS);
+    const output = await this.executeWslCommand(distro, `command -v ${toolName}`);
+    const executablePath = output.split(/\r?\n/u)[0]?.trim() ?? '';
+    if (!executablePath) {
+      return null;
+    }
 
-      child.stdout.on('data', (chunk: Buffer) => {
-        output += chunk.toString('utf8');
-      });
-
-      child.on('error', () => {
-        clearTimeout(timeout);
-        resolve(null);
-      });
-
-      child.on('close', () => {
-        clearTimeout(timeout);
-        const executablePath = output.split(/\r?\n/u)[0]?.trim() ?? '';
-        if (!executablePath) {
-          resolve(null);
-          return;
-        }
-
-        resolve({
-          name: toolName,
-          command: executablePath,
-          executablePath,
-          source: 'wsl_path',
-          wslDistro: distro,
-          capabilities: deriveCapabilities(toolName),
-        });
-      });
-    });
+    return {
+      name: toolName,
+      command: executablePath,
+      executablePath,
+      source: 'wsl_path',
+      wslDistro: distro,
+      capabilities: deriveCapabilities(toolName),
+    };
   }
 
   private async listWslDistributions(): Promise<string[]> {
+    const decoded = await this.executeWslProcess(['--list', '--quiet']);
+    const distros = decoded
+      .split(/\r?\n/u)
+      .map((line) => line.replaceAll('\u0000', '').trim())
+      .filter((line) => line.length > 0);
+    return [...new Set(distros)];
+  }
+
+  private async executeWslCommand(distro: string | null, command: string): Promise<string> {
+    return this.executeWslProcess([...(distro ? ['-d', distro] : []), '--', 'sh', '-lc', command]);
+  }
+
+  private async executeWslProcess(args: string[]): Promise<string> {
     return new Promise((resolve) => {
-      const child = spawn('wsl.exe', ['--list', '--quiet'], {
+      const child = spawn('wsl.exe', args, {
         cwd: this.rootDir,
         env: process.env,
         windowsHide: true,
         stdio: ['ignore', 'pipe', 'ignore'],
       });
       const chunks: Buffer[] = [];
+      let bufferedLength = 0;
       const timeout = setTimeout(() => {
         child.kill();
       }, WSL_SCAN_TIMEOUT_MS);
 
       child.stdout.on('data', (chunk: Buffer) => {
-        chunks.push(chunk);
+        if (bufferedLength >= WSL_SCAN_MAX_BUFFER) {
+          return;
+        }
+
+        const remainingLength = WSL_SCAN_MAX_BUFFER - bufferedLength;
+        const nextChunk = chunk.length > remainingLength ? chunk.subarray(0, remainingLength) : chunk;
+        chunks.push(nextChunk);
+        bufferedLength += nextChunk.length;
       });
 
       child.on('error', () => {
         clearTimeout(timeout);
-        resolve([]);
+        resolve('');
       });
 
       child.on('close', () => {
         clearTimeout(timeout);
         const buffer = Buffer.concat(chunks);
         const utf8 = buffer.toString('utf8');
-        const decoded = utf8.includes('\u0000') ? buffer.toString('utf16le') : utf8;
-        const distros = decoded
-          .split(/\r?\n/u)
-          .map((line) => line.replaceAll('\u0000', '').trim())
-          .filter((line) => line.length > 0);
-        resolve([...new Set(distros)]);
+        resolve(utf8.includes('\u0000') ? buffer.toString('utf16le') : utf8);
       });
     });
   }
