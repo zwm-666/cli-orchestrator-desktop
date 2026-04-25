@@ -128,6 +128,143 @@ export interface RunSession {
   transcript: ExecutionTranscriptEntry[];
 }
 
+export type SubagentWorkStatus = 'idle' | 'thinking' | 'tool_calling' | 'waiting' | 'completed' | 'error';
+
+export interface SubagentStatusEntry {
+  id: string;
+  profileId: string | null;
+  adapterId: string | null;
+  runId: string | null;
+  orchestrationNodeId: string | null;
+  agentLabel: string;
+  status: SubagentWorkStatus;
+  detail: string;
+  updatedAt: string;
+}
+
+export type LocalToolSource = 'windows_path' | 'posix_path' | 'wsl_path' | 'adapter_config' | 'custom_root' | 'custom_adapter' | 'node_runtime';
+export type LocalToolKind = 'ai_agent' | 'cli' | 'editor' | 'package_manager' | 'runtime' | 'search' | 'system' | 'unknown';
+export type LocalToolAvailability = 'available' | 'unavailable';
+
+export interface LocalToolDefinition {
+  id: string;
+  name: string;
+  displayName: string;
+  command: string;
+  executablePath: string | null;
+  wslDistro: string | null;
+  source: LocalToolSource;
+  kind: LocalToolKind;
+  availability: LocalToolAvailability;
+  version: string | null;
+  capabilities: string[];
+  discoveredAt: string;
+}
+
+export interface LocalToolRegistry {
+  tools: LocalToolDefinition[];
+  scannedAt: string | null;
+  scanRoots: string[];
+}
+
+export const DEFAULT_LOCAL_TOOL_REGISTRY: LocalToolRegistry = {
+  tools: [],
+  scannedAt: null,
+  scanRoots: [],
+};
+
+export interface LocalToolCallInput {
+  toolName: string;
+  args?: string[];
+  cwd?: string | null;
+  stdin?: string | null;
+  timeoutMs?: number | null;
+  env?: Record<string, string>;
+  profileId?: string | null;
+  runId?: string | null;
+  orchestrationNodeId?: string | null;
+}
+
+export interface LocalToolCallOutput {
+  stdout: string;
+  stderr: string;
+  exitCode: number | null;
+  signal: string | null;
+  durationMs: number;
+  commandPreview: string;
+}
+
+export interface LocalToolCallLogEntry {
+  id: string;
+  toolName: string;
+  command: string;
+  args: string[];
+  cwd: string;
+  startedAt: string;
+  endedAt: string;
+  success: boolean;
+  exitCode: number | null;
+  signal: string | null;
+  error: string | null;
+  stdoutPreview: string;
+  stderrPreview: string;
+  profileId: string | null;
+  runId: string | null;
+  orchestrationNodeId: string | null;
+}
+
+export interface LocalToolCallResult {
+  success: boolean;
+  result: LocalToolCallOutput | null;
+  error: string | null;
+  logEntry: LocalToolCallLogEntry;
+}
+
+export type CliAgentName = 'claude' | 'codex';
+export type CliAgentRoute = 'self' | CliAgentName;
+
+export interface CliAgentContext {
+  workspaceRoot?: string | null;
+  taskType?: TaskType | null;
+  model?: string | null;
+  timeoutMs?: number | null;
+  metadata?: Record<string, string>;
+}
+
+export interface CliAgentDecision {
+  route: CliAgentRoute;
+  taskType: TaskType;
+  reason: string;
+}
+
+export interface CallCliAgentInput {
+  agent: CliAgentName;
+  prompt: string;
+  context?: CliAgentContext;
+}
+
+export interface CliAgentStreamEvent {
+  id: string;
+  agent: CliAgentName;
+  stream: 'stdout' | 'stderr' | 'system';
+  data: string;
+  timestamp: string;
+  done: boolean;
+}
+
+export interface CliAgentCallResult {
+  success: boolean;
+  agent: CliAgentName;
+  decision: CliAgentDecision;
+  logEntry: LocalToolCallLogEntry;
+  stdout: string;
+  stderr: string;
+  exitCode: number | null;
+  signal: string | null;
+  error: string | null;
+  durationMs: number;
+}
+
 export type TerminalEventStream = 'stdout' | 'stderr' | 'system';
 export type TerminalEventKind = 'output' | 'started' | 'exit' | 'error';
 
@@ -264,6 +401,11 @@ export interface WorkbenchState {
   objective: string;
   workspaceRoot: string | null;
   recentWorkspaceRoots?: string[];
+  selectedTargetKind: WorkbenchTargetKind;
+  selectedProviderId: string;
+  selectedAdapterId: string;
+  selectedAgentProfileId: string;
+  targetModel: string;
   tasks: WorkbenchTaskItem[];
   skillBindings: WorkbenchSkillBinding[];
   promptBuilderCommand: string | null;
@@ -285,6 +427,11 @@ export const DEFAULT_WORKBENCH_STATE: WorkbenchState = {
   objective: '',
   workspaceRoot: null,
   recentWorkspaceRoots: [],
+  selectedTargetKind: 'provider',
+  selectedProviderId: '',
+  selectedAdapterId: '',
+  selectedAgentProfileId: '',
+  targetModel: '',
   tasks: [],
   skillBindings: [],
   promptBuilderCommand: null,
@@ -423,6 +570,20 @@ export interface AdapterRoutingSettings {
   customCommand: string;
 }
 
+export interface CustomCliAdapterDefinition {
+  id: string;
+  displayName: string;
+  command: string;
+  args: string[];
+  promptTransport: 'arg' | 'stdin';
+  description: string;
+  capabilities: string[];
+  defaultTimeoutMs: number | null;
+  defaultModel: string;
+  supportedModels: string[];
+  enabled: boolean;
+}
+
 export interface TaskRoutingRule {
   adapterId: string | null;
   model: string;
@@ -439,6 +600,8 @@ export interface TaskRoutingProfile {
 
 export interface RoutingSettings {
   adapterSettings: Record<string, AdapterRoutingSettings>;
+  discoveryRoots: string[];
+  customAdapters: CustomCliAdapterDefinition[];
   taskTypeRules: Record<TaskType, TaskRoutingRule>;
   taskProfiles: TaskRoutingProfile[];
 }
@@ -457,6 +620,8 @@ export const DEFAULT_TASK_ROUTING_PROFILES: TaskRoutingProfile[] = [
 
 export const DEFAULT_ROUTING_SETTINGS: RoutingSettings = {
   adapterSettings: {},
+  discoveryRoots: ['D:\\ai_models'],
+  customAdapters: [],
   taskTypeRules: {
     general: { adapterId: null, model: '' },
     planning: { adapterId: null, model: '' },
@@ -703,6 +868,9 @@ export interface AppState {
   adapters: CliAdapter[];
   tasks: Task[];
   runs: RunSession[];
+  subagentStatuses: SubagentStatusEntry[];
+  localToolRegistry: LocalToolRegistry;
+  localToolCallLogs: LocalToolCallLogEntry[];
   projectContext: ProjectContextState;
   nextClaudeTask: NextClaudeTaskState;
   agentProfiles: AgentProfile[];
@@ -881,6 +1049,9 @@ export interface PersistedAppState {
   conversations: Conversation[];
   tasks: Task[];
   runs: RunSession[];
+  subagentStatuses: SubagentStatusEntry[];
+  localToolRegistry: LocalToolRegistry;
+  localToolCallLogs: LocalToolCallLogEntry[];
   projectContext: ProjectContextState;
   agentProfiles: AgentProfile[];
   skills: SkillDefinition[];

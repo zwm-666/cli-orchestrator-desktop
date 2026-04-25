@@ -15,7 +15,7 @@
     "build:preload": "tsc -p tsconfig.preload.json",
     "test:persistence": "npm run build:main && node --test dist/main/persistence.test.js",
     "test:renderer": "vitest run",
-    "test:all": "npm run build:main && node --test dist/main/persistence.test.js dist/main/orchestratorService.test.js dist/main/localizeCliMessage.test.js dist/main/stripAnsi.test.js && vitest run",
+    "test:all": "npm run build:main && node --test dist/main/persistence.test.js dist/main/orchestratorService.test.js dist/main/localizeCliMessage.test.js dist/main/stripAnsi.test.js dist/main/services/localToolRegistryService.test.js && vitest run",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "lint": "eslint .",
     "format": "prettier --write \"src/**/*.{ts,tsx,js,jsx,json,css,html}\"",

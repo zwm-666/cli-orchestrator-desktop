@@ -9,6 +9,11 @@ import type {
   CancelOrchestrationResult,
   CancelRunInput,
   CancelRunResult,
+  CallCliAgentInput,
+  CliAgentCallResult,
+  CliAgentContext,
+  CliAgentDecision,
+  CliAgentStreamEvent,
   CategoryRunSummary,
   CreateDraftConversationInput,
   CreateDraftConversationResult,
@@ -18,6 +23,9 @@ import type {
   GetOrchestrationRunInput,
   GetOrchestrationRunResult,
   GetNextClaudeTaskResult,
+  LocalToolCallInput,
+  LocalToolCallResult,
+  LocalToolRegistry,
   McpServerDefinition,
   PlanDraftInput,
   PlanDraftResult,
@@ -81,6 +89,11 @@ export const IPC_CHANNELS = {
   terminalWrite: 'terminal:write',
   terminalStop: 'terminal:stop',
   terminalEvent: 'terminal:event',
+  refreshLocalTools: 'local-tools:refresh',
+  callLocalTool: 'local-tools:call',
+  decideCliAgentRoute: 'cli-agent:decide-route',
+  callCliAgent: 'cli-agent:call',
+  cliAgentEvent: 'cli-agent:event',
 
   // Orchestration channels
   startOrchestration: 'orchestration:start',
@@ -136,6 +149,11 @@ export interface DesktopApi {
   writeTerminal: (input: WriteTerminalInput) => Promise<void>;
   stopTerminal: (input: StopTerminalInput) => Promise<void>;
   onTerminalEvent: (listener: (event: TerminalEvent) => void) => () => void;
+  refreshLocalTools: () => Promise<LocalToolRegistry>;
+  callLocalTool: (input: LocalToolCallInput) => Promise<LocalToolCallResult>;
+  decideCliAgentRoute: (input: { prompt: string; context?: CliAgentContext }) => Promise<CliAgentDecision>;
+  callCliAgent: (input: CallCliAgentInput) => Promise<CliAgentCallResult>;
+  onCliAgentEvent: (listener: (event: CliAgentStreamEvent) => void) => () => void;
 
   // Orchestration methods
   startOrchestration: (input: StartOrchestrationInput) => Promise<StartOrchestrationResult>;
@@ -187,6 +205,10 @@ export interface IpcRequestMap {
   [IPC_CHANNELS.terminalStart]: StartTerminalInput;
   [IPC_CHANNELS.terminalWrite]: WriteTerminalInput;
   [IPC_CHANNELS.terminalStop]: StopTerminalInput;
+  [IPC_CHANNELS.refreshLocalTools]: undefined;
+  [IPC_CHANNELS.callLocalTool]: LocalToolCallInput;
+  [IPC_CHANNELS.decideCliAgentRoute]: { prompt: string; context?: CliAgentContext };
+  [IPC_CHANNELS.callCliAgent]: CallCliAgentInput;
 
   // Orchestration
   [IPC_CHANNELS.startOrchestration]: StartOrchestrationInput;
@@ -238,6 +260,10 @@ export interface IpcResponseMap {
   [IPC_CHANNELS.terminalStart]: StartTerminalResult;
   [IPC_CHANNELS.terminalWrite]: undefined;
   [IPC_CHANNELS.terminalStop]: undefined;
+  [IPC_CHANNELS.refreshLocalTools]: LocalToolRegistry;
+  [IPC_CHANNELS.callLocalTool]: LocalToolCallResult;
+  [IPC_CHANNELS.decideCliAgentRoute]: CliAgentDecision;
+  [IPC_CHANNELS.callCliAgent]: CliAgentCallResult;
 
   // Orchestration
   [IPC_CHANNELS.startOrchestration]: StartOrchestrationResult;
